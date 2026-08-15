@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { generateFlashcards } from "@/lib/gemini";
+import { PDFParse } from 'pdf-parse';
 import { z } from "zod";
 
 const requestSchema = z.object({
@@ -10,20 +10,10 @@ const requestSchema = z.object({
   count: z.number().int().min(1).max(30).optional(),
 });
 
-import { PDFParse } from 'pdf-parse';
-
 const ALLOWED_EXTENSIONS = [".txt", ".md", ".pdf"];
 
 export async function POST(request: Request) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
 
     const contentType = request.headers.get("content-type") ?? "";
 

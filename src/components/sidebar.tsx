@@ -10,15 +10,14 @@ import {
   Play,
   Sparkles,
 } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/decks", label: "Decks", icon: Layers },
+  { href: "/", label: "NutriAnki Hub", icon: LayoutDashboard },
+  { href: "/dashboard", label: "Dashboard", icon: Layers },
   { href: "/create", label: "Create with AI", icon: Sparkles },
   { href: "/review", label: "Review Session", icon: Play },
 ];
@@ -31,11 +30,8 @@ export function Sidebar({ userEmail }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
 
-  async function handleSignOut() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/login");
-    router.refresh();
+  function handleSignOut() {
+    router.push("/");
   }
 
   const initials = userEmail
