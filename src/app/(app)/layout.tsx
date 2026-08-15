@@ -8,14 +8,20 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let userEmail: string | undefined;
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    userEmail = user?.email;
+  } catch (e) {
+    console.warn("Supabase layout auth skipped:", e);
+  }
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar userEmail={user?.email} />
+      <Sidebar userEmail={userEmail} />
       <main className="flex-1 overflow-y-auto bg-background p-6 md:p-8">
         {children}
       </main>
