@@ -8,9 +8,16 @@ async function getSqlJs(): Promise<SqlJsStatic> {
 
   // Configure sql.js for both browser and Node.js environments
   if (typeof window !== 'undefined') {
-    sqlJsInstance = await initSqlJs({
-      locateFile: (file: string) => (file.endsWith('.wasm') ? '/sql-wasm.wasm' : file)
-    });
+    try {
+      sqlJsInstance = await initSqlJs({
+        locateFile: (file: string) => (file.endsWith('.wasm') ? '/sql-wasm.wasm' : file)
+      });
+    } catch (e) {
+      console.warn('Local WASM binary fetch failed, falling back to CDN:', e);
+      sqlJsInstance = await initSqlJs({
+        locateFile: () => 'https://sql.js.org/dist/sql-wasm.wasm'
+      });
+    }
   } else {
     sqlJsInstance = await initSqlJs();
   }

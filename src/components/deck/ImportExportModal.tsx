@@ -86,6 +86,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
       setAnkiPreview(null);
     } finally {
       setIsProcessing(false);
+      e.target.value = '';
     }
   };
 
@@ -404,26 +405,24 @@ What vitamin deficiency causes Beriberi?\tThiamine (B1)\tRequired for pyruvate d
               {/* 1. ANKI (.colpkg / .apkg) TAB */}
               {importType === 'anki' && (
                 <div className="space-y-4">
-                  <div
-                    onClick={() => ankiFileInputRef.current?.click()}
-                    className="border-2 border-dashed border-[var(--border-color)] hover:border-[var(--primary)] rounded-3xl p-6 text-center cursor-pointer bg-[var(--bg-surface-subtle)]/40 hover:bg-[var(--primary-light)]/20 transition-all space-y-2 group"
-                  >
+                  <div className="relative border-2 border-dashed border-[var(--border-color)] hover:border-[var(--primary)] rounded-3xl p-6 text-center cursor-pointer bg-[var(--bg-surface-subtle)]/40 hover:bg-[var(--primary-light)]/20 transition-all space-y-2 group overflow-hidden">
                     <input
                       ref={ankiFileInputRef}
                       type="file"
-                      accept=".colpkg,.apkg,.zip"
+                      accept=".colpkg,.apkg,.zip,.bin,application/octet-stream,application/zip,application/x-zip-compressed,*/*"
                       onChange={handleAnkiFileSelect}
-                      className="hidden"
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                      aria-label="Upload Anki collection (.colpkg) or deck package (.apkg)"
                     />
-                    <div className="w-12 h-12 mx-auto rounded-2xl bg-[var(--primary-light)] text-[var(--primary)] flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <div className="w-12 h-12 mx-auto rounded-2xl bg-[var(--primary-light)] text-[var(--primary)] flex items-center justify-center group-hover:scale-110 transition-transform pointer-events-none">
                       <Package className="w-6 h-6" />
                     </div>
-                    <div className="space-y-1">
+                    <div className="space-y-1 pointer-events-none">
                       <p className="text-xs font-extrabold text-[var(--text-main)]">
-                        {ankiFile ? ankiFile.name : 'Click or drop Anki .colpkg or .apkg file here'}
+                        {ankiFile ? ankiFile.name : 'Tap or drop Anki .colpkg or .apkg file here'}
                       </p>
                       <p className="text-[11px] text-[var(--text-muted)]">
-                        Extracts decks, SQLite database (anki21b/anki2), media, templates & SM-2 schedule
+                        Works on iPhone / iPad Files, iCloud Drive, and Desktop (Supports .colpkg, .apkg, media & SQLite)
                       </p>
                     </div>
                   </div>
@@ -529,23 +528,21 @@ What vitamin deficiency causes Beriberi?\tThiamine (B1)\tRequired for pyruvate d
                   </div>
 
                   {/* Dropzone for custom PDFs */}
-                  <div
-                    onClick={() => pdfFileInputRef.current?.click()}
-                    className="border-2 border-dashed border-[var(--border-color)] hover:border-[var(--primary)] rounded-3xl p-6 text-center cursor-pointer bg-[var(--bg-surface-subtle)]/40 hover:bg-[var(--primary-light)]/20 transition-all space-y-2 group"
-                  >
+                  <div className="relative border-2 border-dashed border-[var(--border-color)] hover:border-[var(--primary)] rounded-3xl p-6 text-center cursor-pointer bg-[var(--bg-surface-subtle)]/40 hover:bg-[var(--primary-light)]/20 transition-all space-y-2 group overflow-hidden">
                     <input
                       ref={pdfFileInputRef}
                       type="file"
-                      accept=".pdf"
+                      accept=".pdf,application/pdf,*/*"
                       onChange={handlePdfFileSelect}
-                      className="hidden"
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                      aria-label="Upload Quizlet or Exam PDF"
                     />
-                    <div className="w-12 h-12 mx-auto rounded-2xl bg-[var(--primary-light)] text-[var(--primary)] flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <div className="w-12 h-12 mx-auto rounded-2xl bg-[var(--primary-light)] text-[var(--primary)] flex items-center justify-center group-hover:scale-110 transition-transform pointer-events-none">
                       <FileCheck className="w-6 h-6" />
                     </div>
-                    <div className="space-y-1">
+                    <div className="space-y-1 pointer-events-none">
                       <p className="text-xs font-extrabold text-[var(--text-main)]">
-                        {pdfFile ? pdfFile.name : 'Upload any Quizlet or Exam PDF'}
+                        {pdfFile ? pdfFile.name : 'Tap or drop any Quizlet or Exam PDF here'}
                       </p>
                       <p className="text-[11px] text-[var(--text-muted)]">
                         Auto-detects numbered questions, choices A–D, answer keys & explanations
