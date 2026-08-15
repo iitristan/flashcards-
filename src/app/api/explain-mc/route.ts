@@ -7,6 +7,7 @@ interface ExplainRequestBody {
   correctAnswer: string;
   allOptions?: string[];
   rationale?: string;
+  apiKey?: string;
 }
 
 export interface MCExplanationResponse {
@@ -26,27 +27,32 @@ function generateFallbackExplanation(
 
   if (isCorrect) {
     return {
-      whyRight: `"${correctAnswer}" is the exact board-standard answer for "${question}" because it specifically satisfies the criteria and timeline described in the prompt.`,
-      whyWrong: `Your answer is correct! You selected "${userAnswer}", which precisely matches the required clinical/dietetic concept.`,
-      keyDifference: `Correctly identified "${correctAnswer}" as the hallmark term for this question.`,
-      boardTip: rationale || `High-yield takeaway: Always link the specific keywords in the question directly to the designated clinical mechanism or stage.`
+      whyRight: rationale 
+        ? `${correctAnswer} is correct: ${rationale}`
+        : `"${correctAnswer}" is the established board-standard answer according to clinical dietetics and nutrition science guidelines.`,
+      whyWrong: `Your answer "${userAnswer}" is correct!`,
+      keyDifference: `Successfully identified the designated board exam answer.`,
+      boardTip: rationale || `High-yield takeaway: Associate this specific keyword with "${correctAnswer}" in your reviewer notes.`
     };
   }
 
+  // When incorrect and fallback is used:
   return {
-    whyWrong: `You chose "${userAnswer}". While "${userAnswer}" is an important term in this subject, it does NOT satisfy the specific requirement in "${question}". In correlation to "${correctAnswer}", "${userAnswer}" pertains to a different stage or mechanism rather than what is specifically asked.`,
-    whyRight: `"${correctAnswer}" is the correct answer because "${question}" specifically asks for the hallmark criteria that define "${correctAnswer}" (rather than "${userAnswer}").`,
-    keyDifference: `Direct Distinction: "${correctAnswer}" represents the exact condition/phase asked in the question, whereas "${userAnswer}" occurs in a different context or phase.`,
+    whyWrong: `"${userAnswer}" does not match the clinical or scientific standard for this question. ${rationale ? `Refer to standard rationale: ${rationale}` : `Review this topic in your notes to contrast "${userAnswer}" with "${correctAnswer}".`}`,
+    whyRight: rationale 
+      ? `Board standard explanation: ${rationale}`
+      : `"${correctAnswer}" is the established correct answer in Nutrition and Dietetics board standards.`,
+    keyDifference: `Contrast "${userAnswer}" with "${correctAnswer}" — ensure you review the exact cutoffs, definitions, or physiological mechanisms for each.`,
     boardTip: rationale
-      ? `Board Exam Rationale: ${rationale}`
-      : `High-yield memory anchor: Pay close attention to the specific keywords and timelines in the question to distinguish "${correctAnswer}" from related distractors like "${userAnswer}".`
+      ? `High-Yield Rationale: ${rationale}`
+      : `Board exam anchor: Keep a dedicated flashcard comparing "${userAnswer}" vs "${correctAnswer}".`
   };
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body: ExplainRequestBody = await req.json();
-    const { question, userAnswer, correctAnswer, allOptions = [], rationale = '' } = body;
+    const { question, userAnswer, correctAnswer, allOptions = [], rationale = '', apiKey: clientApiKey } = body;
 
     if (!question || !correctAnswer) {
       return NextResponse.json(
@@ -55,7 +61,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = clientApiKey || req.headers.get('x-gemini-key') || process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY;
 
     if (!apiKey) {
       // Return smart fallback explanation
@@ -73,31 +79,41 @@ export async function POST(req: NextRequest) {
       }
     });
 
-    const prompt = `You are a Board Exam Review Professor and Registered Nutritionist-Dietitian (RND) tutor reviewing a multiple choice question with a student.
+    const prompt = `You are an expert Board Exam Professor in Nutrition and Dietetics (NDLE / RND / RD exam reviewer).
+A student is reviewing a multiple-choice question. Provide an insightful, fact-based, scientific comparison.
 
-Question: "${question}"
-Student's Selected Answer: "${userAnswer}"
-Correct Board Answer: "${correctAnswer}"
-Other Choices in Question: ${JSON.stringify(allOptions)}
-Reference / Rationale: "${rationale}"
+QUESTION: "${question}"
+STUDENT'S CHOSEN ANSWER: "${userAnswer}"
+CORRECT BOARD ANSWER: "${correctAnswer}"
+ALL CHOICES IN QUESTION: ${JSON.stringify(allOptions)}
+REFERENCE / RATIONALE: "${rationale}"
 
-CRITICAL PEDAGOGICAL INSTRUCTIONS:
-1. DO NOT give simple dictionary definitions in isolation.
-2. In 'whyWrong':
-   - Explicitly explain why "${userAnswer}" fails to answer the exact premise of THIS specific question.
-   - Explain IN CORRELATION AND CONTRAST to "${correctAnswer}" why "${userAnswer}" is not the right choice (e.g. explain what stage, timeline, condition, or mechanism "${userAnswer}" actually refers to instead of what was asked).
-3. In 'whyRight':
-   - Explain clearly why "${correctAnswer}" is the precise right answer in direct correlation to the question's keywords, showing why it satisfies the criteria that "${userAnswer}" failed to meet.
-4. In 'keyDifference':
-   - Give a direct 1-2 sentence head-to-head comparison highlighting the difference between "${userAnswer}" vs "${correctAnswer}".
-5. In 'boardTip':
-   - Give a high-yield memory tip, mnemonic, or board exam takeaway so the student never confuses "${userAnswer}" with "${correctAnswer}" again.
+STRICT PEDAGOGICAL & CONTENT RULES:
+1. NEVER output generic or robotic filler phrases like:
+   - "X is correct because the question asks for the hallmark criteria that define X"
+   - "X is an important term in this subject"
+   - "pertains to a different stage or mechanism rather than what is specifically asked"
+2. DO NOT repeat the entire question text verbatim in your explanation.
+3. Provide REAL FACTS, medical/dietetic standards, numbers, gestational timelines, physiological pathways, or biochemical mechanisms:
+   - For numerical/gestational questions (e.g. 270 vs 300 days for premature infant):
+     * Explain why 270 is the cutoff: Full-term pregnancy averages 280 days (40 weeks). A premature infant is clinically defined by WHO/NDLE as delivery before 37 completed weeks (< 259 to 270 days).
+     * Explain why 300 is wrong: 300 days exceeds normal term (> 42 weeks / 294+ days), which defines post-term or prolonged gestation, the opposite of prematurity.
+   - For biochemistry, clinical nutrition, or food service questions:
+     * Cite the exact metabolic pathway, nutrient requirement, deficiency sign, cooking temperature, or food safety principle.
+4. "whyRight":
+   - State the factual scientific/dietetic justification and source standard for why "${correctAnswer}" is true.
+5. "whyWrong":
+   - Point out the specific factual or clinical misconception with "${userAnswer}". State what "${userAnswer}" actually refers to in real science/clinical practice, and contrast it with "${correctAnswer}".
+6. "keyDifference":
+   - A single, punchy 1-sentence contrast highlighting the core distinction between "${userAnswer}" and "${correctAnswer}".
+7. "boardTip":
+   - A high-yield memory rule, clinical pearl, or mnemonic to easily remember this on the licensure exam.
 
 Return strictly valid JSON matching this schema:
 {
-  "whyWrong": "Explanation of why '${userAnswer}' does NOT fit this question and how it differs from '${correctAnswer}'...",
-  "whyRight": "Explanation of why '${correctAnswer}' is the exact correct answer in correlation to the question...",
-  "keyDifference": "Direct head-to-head distinction between '${userAnswer}' vs '${correctAnswer}'...",
+  "whyWrong": "Factual explanation of what '${userAnswer}' actually represents and why it is incorrect for this premise...",
+  "whyRight": "Scientific and clinical explanation of '${correctAnswer}' with supporting standards/facts...",
+  "keyDifference": "Direct factual distinction between '${userAnswer}' and '${correctAnswer}'...",
   "boardTip": "High-yield memory anchor or mnemonic..."
 }`;
 
@@ -106,10 +122,10 @@ Return strictly valid JSON matching this schema:
     const parsed: MCExplanationResponse = JSON.parse(text);
 
     return NextResponse.json({
-      whyWrong: parsed.whyWrong || `"${userAnswer}" is not the correct choice for this question.`,
-      whyRight: parsed.whyRight || `"${correctAnswer}" is the correct answer.`,
+      whyWrong: parsed.whyWrong || `"${userAnswer}" does not match the clinical requirement for this question.`,
+      whyRight: parsed.whyRight || (rationale ? `${correctAnswer}: ${rationale}` : `"${correctAnswer}" is the established board standard answer.`),
       keyDifference: parsed.keyDifference || `Contrast "${userAnswer}" with "${correctAnswer}".`,
-      boardTip: parsed.boardTip || rationale || `Review the standard definitions in your notes.`
+      boardTip: parsed.boardTip || rationale || `Review this high-yield concept in your study notes.`
     });
   } catch (error: unknown) {
     console.error('Error in /api/explain-mc:', error);

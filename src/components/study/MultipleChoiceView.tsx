@@ -20,6 +20,7 @@ import { soundEffects } from '@/lib/soundEffects';
 import { FormattedCardText, cleanRawHtml } from './FormattedCardText';
 import { cleanOptionLabel } from '@/lib/importers/anki/ankiConverter';
 import { MCExplanationResponse } from '@/app/api/explain-mc/route';
+import { useNutriStore } from '@/lib/store/useNutriStore';
 
 interface MultipleChoiceViewProps {
   card: Flashcard;
@@ -32,6 +33,7 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
   onAnswer,
   isExpired = false
 }) => {
+  const { preferences } = useNutriStore();
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [aiExplanation, setAiExplanation] = useState<MCExplanationResponse | null>(null);
@@ -78,7 +80,8 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
           userAnswer: cleanOptionLabel(userChoice),
           correctAnswer: cleanOptionLabel(card.back),
           allOptions: options,
-          rationale: card.rationale || ''
+          rationale: card.rationale || '',
+          apiKey: preferences.geminiApiKey || undefined
         })
       });
 
@@ -91,7 +94,7 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
     } finally {
       setIsLoadingAi(false);
     }
-  }, [displayQuestion, card.back, card.rationale, options]);
+  }, [displayQuestion, card.back, card.rationale, options, preferences.geminiApiKey]);
 
   // Handle timer expiration
   useEffect(() => {

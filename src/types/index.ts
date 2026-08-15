@@ -99,6 +99,7 @@ export interface UserPreferences {
   dailyGoal: number; // cards per day
   studyStreak: number;
   lastStudyDate: string | null;
+  geminiApiKey?: string;
 }
 
 export interface AIGradeResponse {

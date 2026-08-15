@@ -214,6 +214,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             />
           </div>
 
+          {/* Gemini AI Key Setting */}
+          <div className="space-y-1.5 p-4 rounded-2xl bg-[var(--bg-surface-subtle)] border border-[var(--border-color)]">
+            <div className="flex items-center justify-between text-xs font-bold text-[var(--text-main)]">
+              <span className="flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-[var(--primary)]" />
+                <span>Google Gemini AI Key (Optional)</span>
+              </span>
+              <span className="text-[10px] text-[var(--text-subtle)]">Free at aistudio.google.com</span>
+            </div>
+            <input
+              type="password"
+              value={preferences.geminiApiKey || ''}
+              onChange={(e) => onUpdatePreferences({ geminiApiKey: e.target.value.trim() })}
+              placeholder="Paste AI Studio key for live factual explanations..."
+              className="w-full px-3 py-2 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] text-xs text-[var(--text-main)] outline-none focus:border-[var(--primary)] font-mono"
+            />
+            <p className="text-[10px] text-[var(--text-muted)]">
+              Powers deep comparative clinical breakdowns and medical rationale analysis.
+            </p>
+          </div>
+
           {/* Reset sample decks */}
           <div className="pt-4 border-t border-[var(--border-subtle)]">
             <button
