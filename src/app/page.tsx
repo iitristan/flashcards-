@@ -269,34 +269,34 @@ export default function NutriAnkiApp() {
   return (
     <main className="min-h-screen bg-[var(--bg-main)] text-[var(--text-main)] transition-colors duration-300 pb-16">
       {/* TOP NAVIGATION BAR */}
-      <header className="sticky top-0 z-30 bg-[var(--bg-surface)]/85 backdrop-blur-md border-b border-[var(--border-color)]">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-18 flex items-center justify-between gap-4">
+      <header className="sticky top-0 z-30 bg-[var(--bg-surface)]/90 backdrop-blur-md border-b border-[var(--border-color)]">
+        <div className="max-w-6xl mx-auto px-3.5 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-2 sm:gap-4">
           {/* Logo & App Title */}
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-100 to-green-200 border-2 border-emerald-300 flex items-center justify-center text-2xl shadow-inner select-none">
+          <div className="flex items-center gap-2.5 sm:gap-3 flex-shrink-0">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-gradient-to-tr from-emerald-100 to-green-200 border-2 border-emerald-300 flex items-center justify-center text-xl sm:text-2xl shadow-inner select-none flex-shrink-0">
               🥑
             </div>
             <div>
-              <h1 className="font-black text-xl tracking-tight text-[var(--text-main)]">
+              <h1 className="font-black text-lg sm:text-xl tracking-tight text-[var(--text-main)] leading-tight">
                 Nutri<span className="text-[var(--primary)]">Anki</span>
               </h1>
-              <p className="text-[11px] font-semibold text-[var(--text-muted)] hidden sm:block">
-                Nutrition & Dietetics Flashcard Hub
+              <p className="text-[10px] sm:text-[11px] font-semibold text-[var(--text-muted)] hidden xs:block">
+                Nutrition & Dietetics Hub
               </p>
             </div>
           </div>
 
           {/* Right Action Icons & Buttons */}
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-2.5">
             {/* Import / Export Tool */}
             <button
               onClick={() => setIsImportExportOpen(true)}
               aria-label="Open import or export flashcard tool"
-              className="p-2 sm:px-3.5 sm:py-2 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-subtle)] text-[var(--text-main)] text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95 shadow-xs"
+              className="p-2 sm:px-3 sm:py-2 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-subtle)] text-[var(--text-main)] text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95 shadow-xs"
               title="Import / Export Cards"
             >
               <UploadCloud className="w-4 h-4 text-[var(--primary)]" />
-              <span className="hidden sm:inline">Import/Export</span>
+              <span className="hidden md:inline">Import/Export</span>
             </button>
 
             {/* Settings Modal */}
@@ -317,11 +317,11 @@ export default function NutriAnkiApp() {
                 setIsPlaylistModalOpen(true);
               }}
               aria-label="Create multi-deck study playlist"
-              className="px-3.5 py-2 rounded-2xl border-2 border-[var(--primary)]/30 bg-[var(--primary-light)] text-[var(--primary)] hover:bg-[var(--primary)] hover:text-white text-xs font-extrabold shadow-xs transition-all flex items-center gap-1.5 active:scale-95"
+              className="p-2 sm:px-3.5 sm:py-2 rounded-2xl border-2 border-[var(--primary)]/30 bg-[var(--primary-light)] text-[var(--primary)] hover:bg-[var(--primary)] hover:text-white text-xs font-extrabold shadow-xs transition-all flex items-center gap-1.5 active:scale-95"
               title="Create Study Playlist"
             >
               <ListMusic className="w-4 h-4" />
-              <span className="hidden sm:inline">New Playlist</span>
+              <span className="hidden sm:inline">Playlist</span>
             </button>
 
             {/* Create Deck Button */}
@@ -331,61 +331,62 @@ export default function NutriAnkiApp() {
                 setIsCreatingDeck(true);
               }}
               aria-label="Create new reviewer flashcard deck"
-              className="px-4 py-2 rounded-2xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white text-xs font-extrabold shadow-sm transition-all flex items-center gap-1.5 active:scale-95"
+              className="px-3 sm:px-4 py-2 rounded-2xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white text-xs font-extrabold shadow-sm transition-all flex items-center gap-1.5 active:scale-95 flex-shrink-0"
             >
               <Plus className="w-4 h-4" />
-              <span>New Deck</span>
+              <span className="hidden sm:inline">New Deck</span>
+              <span className="sm:hidden">Deck</span>
             </button>
           </div>
         </div>
       </header>
 
       {/* MAIN CONTAINER */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-6 sm:pt-8 space-y-8">
+      <div className="max-w-6xl mx-auto px-3.5 sm:px-6 pt-4 sm:pt-8 space-y-6 sm:space-y-8">
         {/* HERO SECTION: Mascot & Quick Metrics */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 items-stretch">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 sm:gap-6 items-stretch">
           {/* Mascot Motivational Card */}
           <div className="md:col-span-2">
             <MascotBuddy />
           </div>
 
           {/* Quick Metrics Tile */}
-          <div className="p-5 rounded-3xl bg-[var(--bg-surface)] border-2 border-[var(--border-color)] shadow-[var(--card-shadow)] flex flex-col justify-between">
+          <div className="p-4 sm:p-5 rounded-3xl bg-[var(--bg-surface)] border-2 border-[var(--border-color)] shadow-[var(--card-shadow)] flex flex-col justify-between">
             <div className="flex items-center justify-between text-xs font-bold text-[var(--text-subtle)] uppercase tracking-wider mb-2">
               <span>Review Overview</span>
               <Sparkles className="w-3.5 h-3.5 text-[var(--primary)]" />
             </div>
 
-            <div className="grid grid-cols-3 gap-2 text-center py-1">
+            <div className="grid grid-cols-3 gap-2 text-center py-2">
               <div>
-                <span className="text-xl font-black text-[var(--text-main)] block">
+                <span className="text-xl sm:text-2xl font-black text-[var(--text-main)] block">
                   {totalCardsCount}
                 </span>
-                <span className="text-[10px] font-bold text-[var(--text-muted)]">
+                <span className="text-[10px] sm:text-[11px] font-bold text-[var(--text-muted)]">
                   Total Cards
                 </span>
               </div>
               <div className="border-x border-[var(--border-subtle)]">
-                <span className="text-xl font-black text-amber-500 block">
+                <span className="text-xl sm:text-2xl font-black text-amber-500 block">
                   {totalDueToday}
                 </span>
-                <span className="text-[10px] font-bold text-[var(--text-muted)]">
+                <span className="text-[10px] sm:text-[11px] font-bold text-[var(--text-muted)]">
                   Due Today
                 </span>
               </div>
               <div>
-                <span className="text-xl font-black text-emerald-500 block">
+                <span className="text-xl sm:text-2xl font-black text-emerald-500 block">
                   {totalMastered}
                 </span>
-                <span className="text-[10px] font-bold text-[var(--text-muted)]">
+                <span className="text-[10px] sm:text-[11px] font-bold text-[var(--text-muted)]">
                   Mastered
                 </span>
               </div>
             </div>
 
-            <div className="pt-3 mt-2 border-t border-[var(--border-subtle)] flex items-center justify-between text-xs font-bold text-[var(--text-muted)]">
+            <div className="pt-2.5 mt-2 border-t border-[var(--border-subtle)] flex items-center justify-between text-xs font-bold text-[var(--text-muted)]">
               <span>Daily Target</span>
-              <span className="text-[var(--primary)]">
+              <span className="text-[var(--primary)] font-bold">
                 {Math.min(totalMastered, preferences.dailyGoal)} / {preferences.dailyGoal} cards
               </span>
             </div>

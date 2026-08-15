@@ -67,30 +67,31 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
   return (
     <div className="w-full max-w-3xl mx-auto mb-6">
       {/* Top action row */}
-      <div className="flex items-center justify-between gap-4 mb-3">
+      <div className="flex items-center justify-between gap-2 sm:gap-4 mb-3">
         {/* Back button */}
         <button
           onClick={handleExitClick}
           aria-label="Exit review session"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] transition-all active:scale-95"
+          className="flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] transition-all active:scale-95 flex-shrink-0"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
-          <span>Exit Review</span>
+          <span className="hidden xs:inline">Exit Review</span>
+          <span className="xs:hidden">Exit</span>
         </button>
 
         {/* Deck and mode info */}
-        <div className="flex items-center gap-2 overflow-hidden text-center">
-          <span className="font-bold text-sm text-[var(--text-main)] truncate max-w-[180px] sm:max-w-[280px]">
+        <div className="flex items-center gap-1.5 sm:gap-2 overflow-hidden text-center min-w-0">
+          <span className="font-bold text-xs sm:text-sm text-[var(--text-main)] truncate max-w-[120px] xs:max-w-[180px] sm:max-w-[280px]">
             {deckTitle}
           </span>
-          <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${currentMode.color}`}>
+          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-semibold ${currentMode.color} flex-shrink-0`}>
             <ModeIcon className="w-3 h-3" />
             <span className="hidden sm:inline">{currentMode.label}</span>
           </span>
         </div>
 
         {/* Right tools (Timer + Sound) */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
           {timerDuration > 0 && (
             <StudyTimer
               initialSeconds={timerDuration}

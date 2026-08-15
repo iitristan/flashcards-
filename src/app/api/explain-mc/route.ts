@@ -26,20 +26,20 @@ function generateFallbackExplanation(
 
   if (isCorrect) {
     return {
-      whyRight: `"${correctAnswer}" is the precise board-standard answer for: ${question}.`,
-      whyWrong: `Your answer is correct! You selected "${userAnswer}" which accurately matches the required concept.`,
-      keyDifference: `Accurate application of core board exam terminology.`,
-      boardTip: rationale || `High-yield concept: Always memorize the specific gestational timelines and biological definitions for licensure exams.`
+      whyRight: `"${correctAnswer}" is the exact board-standard answer for "${question}" because it specifically satisfies the criteria and timeline described in the prompt.`,
+      whyWrong: `Your answer is correct! You selected "${userAnswer}", which precisely matches the required clinical/dietetic concept.`,
+      keyDifference: `Correctly identified "${correctAnswer}" as the hallmark term for this question.`,
+      boardTip: rationale || `High-yield takeaway: Always link the specific keywords in the question directly to the designated clinical mechanism or stage.`
     };
   }
 
   return {
-    whyWrong: `You chose "${userAnswer}". While related to the general topic, "${userAnswer}" does not match the specific criteria asked in the question.`,
-    whyRight: `"${correctAnswer}" is the correct board answer because it directly defines: ${question}`,
-    keyDifference: `Be sure to distinguish "${userAnswer}" from "${correctAnswer}"—one represents a distinct phase or mechanism compared to the other.`,
+    whyWrong: `You chose "${userAnswer}". While "${userAnswer}" is an important term in this subject, it does NOT satisfy the specific requirement in "${question}". In correlation to "${correctAnswer}", "${userAnswer}" pertains to a different stage or mechanism rather than what is specifically asked.`,
+    whyRight: `"${correctAnswer}" is the correct answer because "${question}" specifically asks for the hallmark criteria that define "${correctAnswer}" (rather than "${userAnswer}").`,
+    keyDifference: `Direct Distinction: "${correctAnswer}" represents the exact condition/phase asked in the question, whereas "${userAnswer}" occurs in a different context or phase.`,
     boardTip: rationale
       ? `Board Exam Rationale: ${rationale}`
-      : `High-yield tip: Pay close attention to timing, primary organ differentiation, and specific biochemical definitions.`
+      : `High-yield memory anchor: Pay close attention to the specific keywords and timelines in the question to distinguish "${correctAnswer}" from related distractors like "${userAnswer}".`
   };
 }
 
@@ -73,23 +73,33 @@ export async function POST(req: NextRequest) {
       }
     });
 
-    const prompt = `You are a Board Exam Professor and Registered Nutritionist-Dietitian (RND) tutor reviewing a student's answer.
+    const prompt = `You are a Board Exam Review Professor and Registered Nutritionist-Dietitian (RND) tutor reviewing a multiple choice question with a student.
 
 Question: "${question}"
 Student's Selected Answer: "${userAnswer}"
 Correct Board Answer: "${correctAnswer}"
 Other Choices in Question: ${JSON.stringify(allOptions)}
-Card Reference / Rationale: "${rationale}"
+Reference / Rationale: "${rationale}"
 
-Provide an educational, clear, and high-yield explanation formatted strictly as valid JSON matching this schema:
+CRITICAL PEDAGOGICAL INSTRUCTIONS:
+1. DO NOT give simple dictionary definitions in isolation.
+2. In 'whyWrong':
+   - Explicitly explain why "${userAnswer}" fails to answer the exact premise of THIS specific question.
+   - Explain IN CORRELATION AND CONTRAST to "${correctAnswer}" why "${userAnswer}" is not the right choice (e.g. explain what stage, timeline, condition, or mechanism "${userAnswer}" actually refers to instead of what was asked).
+3. In 'whyRight':
+   - Explain clearly why "${correctAnswer}" is the precise right answer in direct correlation to the question's keywords, showing why it satisfies the criteria that "${userAnswer}" failed to meet.
+4. In 'keyDifference':
+   - Give a direct 1-2 sentence head-to-head comparison highlighting the difference between "${userAnswer}" vs "${correctAnswer}".
+5. In 'boardTip':
+   - Give a high-yield memory tip, mnemonic, or board exam takeaway so the student never confuses "${userAnswer}" with "${correctAnswer}" again.
+
+Return strictly valid JSON matching this schema:
 {
-  "whyWrong": "Explain specifically why the student's chosen answer ('${userAnswer}') is incorrect for this question, and what '${userAnswer}' actually represents in science/dietetics.",
-  "whyRight": "Explain clearly why '${correctAnswer}' is the exact correct answer according to board standards and biological/clinical mechanisms.",
-  "keyDifference": "A concise 1-2 sentence distinction summarizing the contrast between '${userAnswer}' and '${correctAnswer}'.",
-  "boardTip": "A high-yield memory tip, mnemonic, or board exam takeaway for this concept."
-}
-
-Ensure the tone is supportive, academic, concise, and focused on exam mastery.`;
+  "whyWrong": "Explanation of why '${userAnswer}' does NOT fit this question and how it differs from '${correctAnswer}'...",
+  "whyRight": "Explanation of why '${correctAnswer}' is the exact correct answer in correlation to the question...",
+  "keyDifference": "Direct head-to-head distinction between '${userAnswer}' vs '${correctAnswer}'...",
+  "boardTip": "High-yield memory anchor or mnemonic..."
+}`;
 
     const result = await model.generateContent(prompt);
     const text = result.response.text();
