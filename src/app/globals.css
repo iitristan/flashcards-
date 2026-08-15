@@ -1,0 +1,169 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    
+    /* Default: Matcha Calm (WCAG 2.2 AA Compliant) */
+    --bg-main: #F4F8F4;
+    --bg-surface: #FFFFFF;
+    --bg-surface-subtle: #EDF5EE;
+    --border-color: #D0DEC0;
+    --border-subtle: #E2ECE2;
+    
+    --primary: #38704B;
+    --primary-hover: #2D5B3C;
+    --primary-light: #E0EFE4;
+    --primary-foreground: #FFFFFF;
+    
+    --accent: #B85D3B;
+    --accent-light: #FDEEE9;
+    
+    --text-main: #1A2E20;
+    --text-muted: #495E4F;
+    --text-subtle: #5F7565;
+    
+    --card-shadow: 0 10px 30px -10px rgba(56, 112, 75, 0.08), 0 4px 12px -4px rgba(0, 0, 0, 0.04);
+    --card-shadow-hover: 0 20px 40px -12px rgba(56, 112, 75, 0.15), 0 8px 16px -6px rgba(0, 0, 0, 0.06);
+    --modal-shadow: 0 25px 60px -15px rgba(26, 46, 32, 0.2);
+  }
+
+  [data-theme="strawberry"] {
+    --bg-main: #FAF5F6;
+    --bg-surface: #FFFFFF;
+    --bg-surface-subtle: #F4EAEE;
+    --border-color: #E2CDD4;
+    --border-subtle: #EFE2E6;
+    
+    --primary: #B04761;
+    --primary-hover: #9A3B52;
+    --primary-light: #F8E5EA;
+    --primary-foreground: #FFFFFF;
+    
+    --accent: #3E6F56;
+    --accent-light: #E8F4EE;
+    
+    --text-main: #261419;
+    --text-muted: #5C444D;
+    --text-subtle: #755B65;
+    
+    --card-shadow: 0 10px 30px -10px rgba(176, 71, 97, 0.07), 0 4px 12px -4px rgba(0, 0, 0, 0.03);
+    --card-shadow-hover: 0 20px 40px -12px rgba(176, 71, 97, 0.13), 0 8px 16px -6px rgba(0, 0, 0, 0.05);
+  }
+
+  [data-theme="strawberry"].dark,
+  .dark[data-theme="strawberry"] {
+    --bg-main: #181316;
+    --bg-surface: #221B20;
+    --bg-surface-subtle: #2C2329;
+    --border-color: #45373F;
+    --border-subtle: #362A32;
+    
+    --primary: #F092AA;
+    --primary-hover: #E87A96;
+    --primary-light: #42202A;
+    --primary-foreground: #181316;
+    
+    --accent: #8FD4AE;
+    --accent-light: #1E3327;
+    
+    --text-main: #FBF5F7;
+    --text-muted: #CBBAC1;
+    --text-subtle: #9E8B93;
+    
+    --card-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5), 0 4px 12px -4px rgba(0, 0, 0, 0.3);
+    --card-shadow-hover: 0 20px 40px -12px rgba(0, 0, 0, 0.7), 0 8px 16px -6px rgba(0, 0, 0, 0.4);
+  }
+
+  [data-theme="dark"], .dark {
+    --bg-main: #14171F;
+    --bg-surface: #1E2330;
+    --bg-surface-subtle: #272E3E;
+    --border-color: #3D465C;
+    --border-subtle: #2E364A;
+    
+    --primary: #85C7B0;
+    --primary-hover: #70B69D;
+    --primary-light: #1F3830;
+    --primary-foreground: #0D1410;
+    
+    --accent: #F7B079;
+    --accent-light: #3D2C1E;
+    
+    --text-main: #F4F7FB;
+    --text-muted: #B2BFD4;
+    --text-subtle: #8C9BB2;
+    
+    --card-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5), 0 4px 12px -4px rgba(0, 0, 0, 0.3);
+    --card-shadow-hover: 0 20px 40px -12px rgba(0, 0, 0, 0.7), 0 8px 16px -6px rgba(0, 0, 0, 0.4);
+    --modal-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.8);
+  }
+
+  * {
+    border-color: var(--border-color);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+
+  body {
+    background-color: var(--bg-main);
+    color: var(--text-main);
+    font-family: var(--font-sans);
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+}
+
+/* Custom 3D Card Flip Mechanics */
+.perspective-1000 {
+  perspective: 1000px;
+}
+
+.transform-style-preserve-3d {
+  transform-style: preserve-3d;
+}
+
+.backface-hidden {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.rotate-y-180 {
+  transform: rotateY(180deg);
+}
+
+/* Glassmorphism helpers */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-color);
+}
+
+.dark .glass-panel, [data-theme="dark"] .glass-panel {
+  background: rgba(30, 35, 48, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-color);
+}
+
+/* Smooth custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-subtle);
+}
