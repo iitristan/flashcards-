@@ -2,11 +2,34 @@
 
 import { revalidatePath } from "next/cache";
 import { getAuthUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { prisma, hasDatabaseUrl } from "@/lib/prisma";
 import { applyReview } from "@/lib/sm2";
+import { INITIAL_DECKS } from "@/lib/data/sampleDecks";
 import type { ReviewCard, ReviewRating } from "@/types";
 
 export async function getDueCards(deckId?: string): Promise<ReviewCard[]> {
+  if (!hasDatabaseUrl) {
+    const decks = deckId
+      ? INITIAL_DECKS.filter((d) => d.id === deckId)
+      : INITIAL_DECKS;
+    const cards: ReviewCard[] = [];
+    for (const d of decks) {
+      for (const c of d.cards) {
+        cards.push({
+          id: c.id,
+          front: c.front,
+          back: c.back,
+          deckId: d.id,
+          deckName: d.title,
+          interval: c.sm2?.interval || 1,
+          easeFactor: c.sm2?.easeFactor || 2.5,
+          repetitions: c.sm2?.repetitions || 0,
+        });
+      }
+    }
+    return cards;
+  }
+
   const user = await getAuthUser();
   const now = new Date();
 
@@ -22,7 +45,7 @@ export async function getDueCards(deckId?: string): Promise<ReviewCard[]> {
     orderBy: { dueDate: "asc" },
   });
 
-  return cards.map((card) => ({
+  return (cards || []).map((card) => ({
     id: card.id,
     front: card.front,
     back: card.back,
@@ -37,6 +60,14 @@ export async function getDueCards(deckId?: string): Promise<ReviewCard[]> {
 export async function getDueCountByDeck(): Promise<
   { id: string; name: string; dueCount: number }[]
 > {
+  if (!hasDatabaseUrl) {
+    return INITIAL_DECKS.map((d) => ({
+      id: d.id,
+      name: d.title,
+      dueCount: d.cards.length,
+    }));
+  }
+
   const user = await getAuthUser();
   const now = new Date();
 
@@ -51,7 +82,7 @@ export async function getDueCountByDeck(): Promise<
     orderBy: { name: "asc" },
   });
 
-  return decks.map((deck) => ({
+  return (decks || []).map((deck) => ({
     id: deck.id,
     name: deck.name,
     dueCount: deck.cards.length,

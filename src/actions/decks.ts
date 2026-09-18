@@ -2,14 +2,29 @@
 
 import { revalidatePath } from "next/cache";
 import { getAuthUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { prisma, hasDatabaseUrl } from "@/lib/prisma";
 import { getEndOfToday } from "@/lib/sm2";
+import { INITIAL_DECKS } from "@/lib/data/sampleDecks";
 import type { DeckWithStats } from "@/types";
 
 async function computeDeckStats(
   deckId: string,
   userId: string
 ): Promise<DeckWithStats | null> {
+  if (!hasDatabaseUrl) {
+    const sample = INITIAL_DECKS.find((d) => d.id === deckId);
+    if (!sample) return null;
+    const totalCards = sample.cards.length;
+    const matureCards = sample.cards.filter((c) => (c.sm2?.interval || 0) >= 21).length;
+    return {
+      id: sample.id,
+      name: sample.title,
+      totalCards,
+      dueToday: totalCards,
+      masteryPercent: totalCards === 0 ? 0 : Math.round((matureCards / totalCards) * 100),
+    };
+  }
+
   const deck = await prisma.deck.findFirst({
     where: { id: deckId, userId },
     include: { cards: true },
@@ -34,6 +49,23 @@ async function computeDeckStats(
 }
 
 export async function getDecksWithStats(): Promise<DeckWithStats[]> {
+  if (!hasDatabaseUrl) {
+    return INITIAL_DECKS.map((deck) => {
+      const totalCards = deck.cards.length;
+      const matureCards = deck.cards.filter((c) => (c.sm2?.interval || 0) >= 21).length;
+      const masteryPercent =
+        totalCards === 0 ? 0 : Math.round((matureCards / totalCards) * 100);
+
+      return {
+        id: deck.id,
+        name: deck.title,
+        totalCards,
+        dueToday: totalCards,
+        masteryPercent,
+      };
+    });
+  }
+
   const user = await getAuthUser();
 
   const decks = await prisma.deck.findMany({
@@ -44,7 +76,7 @@ export async function getDecksWithStats(): Promise<DeckWithStats[]> {
 
   const endOfToday = getEndOfToday();
 
-  return decks.map((deck) => {
+  return (decks || []).map((deck) => {
     const totalCards = deck.cards.length;
     const dueToday = deck.cards.filter((c) => c.dueDate <= endOfToday).length;
     const matureCards = deck.cards.filter((c) => c.interval >= 21).length;
@@ -62,13 +94,19 @@ export async function getDecksWithStats(): Promise<DeckWithStats[]> {
 }
 
 export async function getDeckNames(): Promise<{ id: string; name: string }[]> {
+  if (!hasDatabaseUrl) {
+    return INITIAL_DECKS.map((d) => ({ id: d.id, name: d.title }));
+  }
+
   const user = await getAuthUser();
 
-  return prisma.deck.findMany({
+  const decks = await prisma.deck.findMany({
     where: { userId: user.id },
     select: { id: true, name: true },
     orderBy: { name: "asc" },
   });
+
+  return decks || [];
 }
 
 export async function createDeck(name: string) {

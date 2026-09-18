@@ -3,14 +3,16 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
+  Flame,
+  Zap,
   CheckCircle2,
   XCircle,
   ArrowRight,
-  BookOpen,
-  Tag,
-  HelpCircle,
+  Award,
+  Timer,
   Sparkles
 } from 'lucide-react';
+
 import { Flashcard, ReviewRating, MCExplanationResponse } from '@/types';
 import { shuffleArray } from '@/lib/services/flashcardService';
 import { soundEffects } from '@/lib/soundEffects';
@@ -20,25 +22,47 @@ import { useNutriStore } from '@/lib/store/useNutriStore';
 import { SelfNoteInput } from './SelfNoteInput';
 import { GoogleAiOverview } from './GoogleAiOverview';
 
-interface MultipleChoiceViewProps {
-
+interface BlitzMarathonViewProps {
   card: Flashcard;
-  onAnswer: (result: { rating: ReviewRating; isCorrect: boolean; selectedOption: string }) => void;
-  isExpired?: boolean;
+  onAnswer: (result: {
+    rating: ReviewRating;
+    isCorrect: boolean;
+    selectedOption: string;
+    timeSpentSeconds: number;
+  }) => void;
+  currentIndex: number;
+  totalCards: number;
 }
 
-export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
+const QUESTION_TIME_LIMIT = 12; // 12 seconds per blitz card
+
+export const BlitzMarathonView: React.FC<BlitzMarathonViewProps> = ({
   card,
   onAnswer,
-  isExpired = false
+  currentIndex,
+  totalCards
 }) => {
   const { preferences } = useNutriStore();
+  const [prevCardId, setPrevCardId] = useState(card.id);
+  const [timeLeft, setTimeLeft] = useState(QUESTION_TIME_LIMIT);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [comboStreak, setComboStreak] = useState(0);
+  const [score, setScore] = useState(0);
   const [aiExplanation, setAiExplanation] = useState<MCExplanationResponse | null>(null);
   const [isLoadingAi, setIsLoadingAi] = useState(false);
 
-  // Clean prompt and extract on-the-fly if needed
+  // Sync state on card change during render
+  if (prevCardId !== card.id) {
+    setPrevCardId(card.id);
+    setTimeLeft(QUESTION_TIME_LIMIT);
+    setSelectedOption(null);
+    setHasSubmitted(false);
+    setAiExplanation(null);
+    setIsLoadingAi(false);
+  }
+
+  // Clean prompt and extract on-the-fly
   const displayQuestion = useMemo(() => {
     const raw = cleanRawHtml(card.front);
     const optionSplit = raw.split(/\n\s*[a-dA-D1-4][\.\)\:\-]/)[0];
@@ -95,80 +119,162 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
     }
   }, [displayQuestion, card.back, card.rationale, options, preferences.geminiApiKey]);
 
-  // Handle timer expiration
+  // Blitz Countdown Timer Interval
   useEffect(() => {
-    if (isExpired && !hasSubmitted) {
-      const timer = setTimeout(() => {
-        setHasSubmitted(true);
-        setSelectedOption(null);
-        soundEffects.playIncorrect();
-      }, 0);
-      return () => clearTimeout(timer);
-    }
-  }, [isExpired, hasSubmitted]);
+    if (hasSubmitted) return;
+
+    const interval = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          setHasSubmitted(true);
+          setSelectedOption(null);
+          setComboStreak(0);
+          soundEffects.playIncorrect();
+          return 0;
+        }
+
+        if (prev <= 4) {
+          soundEffects.playTick();
+        }
+
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [card.id, hasSubmitted, fetchAiExplanation]);
 
   const handleSelectOption = (option: string) => {
     if (hasSubmitted) return;
 
     setSelectedOption(option);
     setHasSubmitted(true);
+
     const isCorrect = normalizeForComparison(option) === normalizeForComparison(card.back);
 
     if (isCorrect) {
+      const currentStreak = comboStreak + 1;
+      setComboStreak(currentStreak);
+      const multiplier = currentStreak >= 5 ? 3 : currentStreak >= 3 ? 2 : 1;
+      const pointsEarned = (100 + timeLeft * 15) * multiplier;
+      setScore(prev => prev + pointsEarned);
       soundEffects.playCorrect();
     } else {
+      setComboStreak(0);
       soundEffects.playIncorrect();
     }
   };
 
-  const handleNext = () => {
-    const isCorrect = selectedOption ? normalizeForComparison(selectedOption) === normalizeForComparison(card.back) : false;
+  const handleNext = useCallback(() => {
+    const isCorrect = selectedOption
+      ? normalizeForComparison(selectedOption) === normalizeForComparison(card.back)
+      : false;
     const rating: ReviewRating = isCorrect ? 'good' : 'again';
+
     onAnswer({
       rating,
       isCorrect,
-      selectedOption: selectedOption || 'Time Expired'
+      selectedOption: selectedOption || 'Time Expired',
+      timeSpentSeconds: QUESTION_TIME_LIMIT - timeLeft
     });
-  };
+  }, [selectedOption, normalizeForComparison, card.back, onAnswer, timeLeft]);
 
-  // Keyboard navigation for Enter key to continue
+  // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (hasSubmitted && e.key === 'Enter') {
-        e.preventDefault();
         handleNext();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  });
+  }, [hasSubmitted, handleNext]);
+
 
   const letters = ['A', 'B', 'C', 'D'];
+  const timerPercentage = (timeLeft / QUESTION_TIME_LIMIT) * 100;
+  const multiplier = comboStreak >= 5 ? 3 : comboStreak >= 3 ? 2 : 1;
+  const isSelectedCorrect = selectedOption
+    ? normalizeForComparison(selectedOption) === normalizeForComparison(card.back)
+    : false;
 
   return (
-    <div className="w-full max-w-2xl mx-auto flex flex-col items-center space-y-6">
-      {/* Question Card */}
-      <div className="w-full rounded-xl p-6 sm:p-7 bg-[var(--bg-surface)] border border-[var(--border-color)] shadow-xs space-y-3">
-        {/* Tags & Mode Badge */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {card.tags.map((tag) => (
-              <span
-                key={tag}
-                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-medium bg-[var(--bg-surface-subtle)] text-[var(--text-muted)] border border-[var(--border-subtle)]"
-              >
-                <Tag className="w-3 h-3 text-[var(--primary)]" />
-                {tag}
-              </span>
-            ))}
+    <div className="w-full max-w-2xl mx-auto flex flex-col items-center space-y-5">
+      {/* Blitz Top Dashboard Meter */}
+      <div className="w-full grid grid-cols-3 gap-2 sm:gap-3">
+        {/* Score Card */}
+        <div className="p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] shadow-xs flex items-center gap-2.5">
+          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center flex-shrink-0">
+            <Award className="w-4 h-4" />
           </div>
+          <div className="min-w-0">
+            <span className="text-[10px] font-bold text-[var(--text-subtle)] block uppercase tracking-wider leading-none mb-1">Score</span>
+            <span className="text-sm sm:text-base font-bold text-[var(--text-main)] leading-none">{score}</span>
+          </div>
+        </div>
 
-          <span className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--text-subtle)]">
-            <HelpCircle className="w-3.5 h-3.5" /> Multiple Choice
+        {/* Combo Multiplier Card */}
+        <div className={`p-3 rounded-xl border transition-all shadow-xs flex items-center gap-2.5 ${
+          multiplier > 1 
+            ? 'bg-gradient-to-r from-orange-500/10 to-amber-500/10 border-orange-500/30' 
+            : 'bg-[var(--bg-surface)] border-[var(--border-color)]'
+        }`}>
+          <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+            multiplier > 1 ? 'bg-orange-500 text-white animate-pulse' : 'bg-[var(--bg-surface-subtle)] text-[var(--text-muted)]'
+          }`}>
+            <Flame className="w-4 h-4" />
+          </div>
+          <div className="min-w-0">
+            <span className="text-[10px] font-bold text-[var(--text-subtle)] block uppercase tracking-wider leading-none mb-1">Streak</span>
+            <div className="text-sm sm:text-base font-bold text-[var(--text-main)] leading-none truncate">
+              <span>{comboStreak}x</span>
+              {multiplier > 1 && (
+                <span className="text-xs text-orange-500 font-bold ml-1">({multiplier}x)</span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Blitz Countdown Clock */}
+        <div className="p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] shadow-xs flex items-center gap-2.5">
+          <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+            timeLeft <= 3 ? 'bg-rose-500 text-white animate-ping' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+          }`}>
+            <Timer className="w-4 h-4" />
+          </div>
+          <div className="min-w-0">
+            <span className="text-[10px] font-bold text-[var(--text-subtle)] block uppercase tracking-wider leading-none mb-1">Timer</span>
+            <span className={`text-sm sm:text-base font-bold leading-none ${timeLeft <= 3 ? 'text-rose-600 dark:text-rose-400' : 'text-[var(--text-main)]'}`}>
+              {timeLeft}s
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Dynamic Animated Timer Bar */}
+      <div className="w-full h-1.5 rounded-full bg-[var(--bg-surface-subtle)] overflow-hidden border border-[var(--border-subtle)]">
+        <motion.div
+          animate={{ width: `${timerPercentage}%` }}
+          transition={{ duration: 1, ease: 'linear' }}
+          className={`h-full rounded-full transition-colors ${
+            timeLeft > 6
+              ? 'bg-emerald-500'
+              : timeLeft > 3
+              ? 'bg-amber-500'
+              : 'bg-rose-500'
+          }`}
+        />
+      </div>
+
+      {/* Blitz Question Card */}
+      <div className="w-full rounded-xl p-5 sm:p-6 bg-[var(--bg-surface)] border border-[var(--border-color)] shadow-xs space-y-2.5 relative overflow-hidden">
+        <div className="flex items-center justify-between">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-semibold bg-orange-500/15 text-orange-600 dark:text-orange-400 border border-orange-500/30 uppercase tracking-wider">
+            <Zap className="w-3.5 h-3.5 fill-current" /> Blitz ({currentIndex + 1}/{totalCards})
           </span>
         </div>
 
-        {/* Question Text */}
         <div className="py-2">
           <div className="text-lg sm:text-xl font-bold text-[var(--text-main)] leading-relaxed">
             <FormattedCardText content={displayQuestion} />
@@ -179,14 +285,14 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
       {/* Options Grid */}
       <div
         role="radiogroup"
-        aria-label="Multiple choice answer options"
+        aria-label="Blitz answer choices"
         className="w-full grid grid-cols-1 gap-2.5"
       >
         {options.map((option, idx) => {
           const isTarget = normalizeForComparison(option) === normalizeForComparison(card.back);
           const isSelected = selectedOption === option;
 
-          let containerStyle = 'bg-[var(--bg-surface)] border-[var(--border-color)] hover:border-[var(--primary)] hover:bg-[var(--bg-surface-subtle)]';
+          let containerStyle = 'bg-[var(--bg-surface)] border-[var(--border-color)] hover:border-orange-500 hover:bg-[var(--bg-surface-subtle)]';
           let textColor = 'text-[var(--text-main)]';
 
           if (hasSubmitted) {
@@ -219,9 +325,9 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
                 <span
                   className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0 transition-colors ${
                     hasSubmitted && isTarget
-                      ? 'bg-emerald-600 text-white shadow-xs'
+                      ? 'bg-emerald-600 text-white'
                       : hasSubmitted && isSelected && !isTarget
-                      ? 'bg-rose-600 text-white shadow-xs'
+                      ? 'bg-rose-600 text-white'
                       : 'bg-[var(--bg-surface-subtle)] text-[var(--text-muted)] group-hover:bg-[var(--primary)] group-hover:text-white'
                   }`}
                 >
@@ -243,34 +349,46 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
         })}
       </div>
 
-      {/* Rationale & Optional Gemini Explanation Drawer */}
+      {/* Answer Rationale, AI Breakdown & Continue */}
       <AnimatePresence>
         {hasSubmitted && (
           <motion.div
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
-            className="w-full space-y-4 pt-2"
+            className="w-full space-y-4 pt-1"
           >
-            {/* Standard Clinical / Board Exam Rationale */}
-            {card.rationale && (
-              <div className="p-5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] space-y-2 shadow-xs">
-                <div className="flex items-center gap-2 text-xs font-bold text-[var(--primary)] uppercase tracking-wider">
-                  <BookOpen className="w-4 h-4" />
-                  <span>Clinical / Board Exam Rationale</span>
-                </div>
-                <div className="text-xs sm:text-sm text-[var(--text-main)] leading-relaxed pl-6 font-medium">
-                  <FormattedCardText content={card.rationale} />
-                </div>
+            {/* Quick Result Banner with High Contrast */}
+            <div className={`p-3.5 rounded-xl border flex items-center justify-between shadow-xs ${
+              isSelectedCorrect
+                ? 'bg-emerald-100/90 dark:bg-emerald-950/80 border-emerald-400 dark:border-emerald-700 text-emerald-950 dark:text-emerald-100'
+                : 'bg-rose-100/95 dark:bg-rose-950/90 border-rose-400 dark:border-rose-700 text-rose-950 dark:text-rose-100'
+            }`}>
+              <div className="flex items-center gap-2 text-xs sm:text-sm font-bold">
+                {isSelectedCorrect ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-700 dark:text-emerald-300 flex-shrink-0" />
+                    <span className="text-emerald-950 dark:text-emerald-100">
+                      CORRECT! +{(100 + timeLeft * 15) * multiplier} PTS ({multiplier}x COMBO)
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="w-4 h-4 text-rose-700 dark:text-rose-300 flex-shrink-0" />
+                    <span className="text-rose-950 dark:text-rose-100">
+                      STREAK BROKEN — Target answer: &ldquo;{cleanOptionLabel(card.back)}&rdquo;
+                    </span>
+                  </>
+                )}
               </div>
-            )}
+            </div>
 
             {/* On-Demand AI Overview Button (Save Tokens - Only Fetches When Clicked) */}
             {!aiExplanation && !isLoadingAi && (
               <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] shadow-xs">
                 <div className="flex items-center gap-2 text-xs font-semibold text-[var(--text-muted)]">
-                  <Sparkles className={`w-4 h-4 ${selectedOption && normalizeForComparison(selectedOption) === normalizeForComparison(card.back) ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}`} />
+                  <Sparkles className={`w-4 h-4 ${isSelectedCorrect ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}`} />
                   <span>
-                    {selectedOption && normalizeForComparison(selectedOption) === normalizeForComparison(card.back)
+                    {isSelectedCorrect
                       ? 'Correct! Want deep AI overview & differential breakdown?'
                       : 'Want clinical AI overview & why this answer is right?'}
                   </span>
@@ -279,18 +397,18 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
                   type="button"
                   onClick={() => fetchAiExplanation(selectedOption || card.back)}
                   className={`px-3.5 py-1.5 rounded-lg bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-xs font-bold text-[var(--text-main)] transition-all shadow-xs flex items-center gap-1.5 active:scale-95 ${
-                    selectedOption && normalizeForComparison(selectedOption) === normalizeForComparison(card.back)
+                    isSelectedCorrect
                       ? 'hover:bg-emerald-500/10 hover:border-emerald-500/30 hover:text-emerald-700 dark:hover:text-emerald-300'
                       : 'hover:bg-amber-500/10 hover:border-amber-500/30 hover:text-amber-700 dark:hover:text-amber-300'
                   }`}
                 >
-                  <Sparkles className={`w-3.5 h-3.5 ${selectedOption && normalizeForComparison(selectedOption) === normalizeForComparison(card.back) ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}`} />
+                  <Sparkles className={`w-3.5 h-3.5 ${isSelectedCorrect ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}`} />
                   <span>Request AI Overview</span>
                 </button>
               </div>
             )}
 
-            {/* Google-Style AI Overview & Clinical Literature Breakdown */}
+            {/* Google-Style AI Overview & Authoritative Clinical Breakdown */}
             {(aiExplanation || isLoadingAi) && (
               <GoogleAiOverview
                 explanation={aiExplanation}
@@ -298,7 +416,7 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
                 onRetry={() => fetchAiExplanation(selectedOption || card.back)}
                 correctAnswer={cleanOptionLabel(card.back)}
                 userAnswer={selectedOption ? cleanOptionLabel(selectedOption) : undefined}
-                isCorrect={selectedOption ? normalizeForComparison(selectedOption) === normalizeForComparison(card.back) : false}
+                isCorrect={isSelectedCorrect}
               />
             )}
 
@@ -309,12 +427,12 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
               initialNote={card.userNotes || ''}
             />
 
-            {/* Continue / Next Question Button */}
+            {/* Continue Button */}
             <button
               onClick={handleNext}
               className="w-full py-3.5 rounded-lg bg-[var(--primary)] hover:bg-[var(--primary-hover)] active:scale-[0.99] text-white font-semibold text-sm shadow-xs transition-all flex items-center justify-center gap-2"
             >
-              <span>Continue (Press Enter)</span>
+              <span>Next Blitz Card (Press Enter)</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </motion.div>
@@ -323,5 +441,3 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
     </div>
   );
 };
-
-

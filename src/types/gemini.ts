@@ -17,3 +17,31 @@ export interface GenerateCardsResponse {
 export interface GenerateCardsError {
   error: string;
 }
+
+export interface MCExplanationRequest {
+  question: string;
+  userAnswer: string;
+  correctAnswer: string;
+  allOptions?: string[];
+  rationale?: string;
+  studentReasoning?: string;
+  apiKey?: string;
+}
+
+export interface ExplanationSource {
+  title: string;
+  relevance?: string;
+  url?: string;
+}
+
+export interface MCExplanationResponse {
+  searchOverview?: string;
+  whyRight: string;
+  whyWrongChoices?: string;
+  keyDifference?: string;
+  boardTip?: string;
+  sources?: ExplanationSource[];
+  isAiPowered?: boolean;
+}
+
+

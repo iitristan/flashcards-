@@ -39,11 +39,14 @@ export const StudyTimer: React.FC<StudyTimerProps> = ({
       setTimeLeft((prev) => {
         if (prev <= 1) {
           clearInterval(interval);
-          if (onExpireRef.current) {
-            onExpireRef.current();
-          }
+          setTimeout(() => {
+            if (onExpireRef.current) {
+              onExpireRef.current();
+            }
+          }, 0);
           return 0;
         }
+
 
         // Soft tick sound when time is under 5 seconds
         if (prev <= 5) {

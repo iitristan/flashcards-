@@ -2,13 +2,17 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { RotateCw, BookOpen, Lightbulb, Tag, Check, ArrowRight } from 'lucide-react';
-import { Flashcard, ReviewRating } from '@/types';
+import { RotateCw, BookOpen, Lightbulb, Tag, Check, ArrowRight, Sparkles } from 'lucide-react';
+
+import { Flashcard, ReviewRating, MCExplanationResponse } from '@/types';
 import { getIntervalLabel } from '@/lib/services/flashcardService';
 import { FormattedCardText } from './FormattedCardText';
 import { soundEffects } from '@/lib/soundEffects';
+import { SelfNoteInput } from './SelfNoteInput';
+import { GoogleAiOverview } from './GoogleAiOverview';
 
 interface SpacedRepetitionCardProps {
+
   card: Flashcard;
   onRate: (rating: ReviewRating) => void;
   isExpired?: boolean;
@@ -21,6 +25,34 @@ export const SpacedRepetitionCard: React.FC<SpacedRepetitionCardProps> = ({
 }) => {
   const [isFlipped, setIsFlipped] = useState(false);
   const [showHint, setShowHint] = useState(false);
+  const [aiExplanation, setAiExplanation] = useState<MCExplanationResponse | null>(null);
+  const [isLoadingAi, setIsLoadingAi] = useState(false);
+
+  const fetchAiExplanation = useCallback(async () => {
+    if (aiExplanation || isLoadingAi) return;
+    setIsLoadingAi(true);
+    try {
+      const res = await fetch('/api/explain-mc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: card.front,
+          userAnswer: card.back,
+          correctAnswer: card.back,
+          allOptions: [card.back],
+          rationale: card.rationale || ''
+        })
+      });
+      if (res.ok) {
+        const data: MCExplanationResponse = await res.json();
+        setAiExplanation(data);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch AI explanation in flashcard:', err);
+    } finally {
+      setIsLoadingAi(false);
+    }
+  }, [card.front, card.back, card.rationale, aiExplanation, isLoadingAi]);
 
   // Auto flip if timer expired
   useEffect(() => {
@@ -120,7 +152,7 @@ export const SpacedRepetitionCard: React.FC<SpacedRepetitionCardProps> = ({
         tabIndex={0}
         role="button"
         aria-label={isFlipped ? "Flashcard answer revealed. Press Space or Enter to flip back." : "Flashcard question. Press Space or Enter to reveal answer."}
-        className="w-full h-[380px] sm:h-[420px] perspective-1000 cursor-pointer select-none rounded-3xl focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:outline-hidden"
+        className="w-full h-[380px] sm:h-[420px] perspective-1000 cursor-pointer select-none rounded-xl focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:outline-hidden"
         onClick={handleFlip}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
@@ -135,7 +167,7 @@ export const SpacedRepetitionCard: React.FC<SpacedRepetitionCardProps> = ({
           className="w-full h-full relative transform-style-preserve-3d"
         >
           {/* FRONT OF CARD */}
-          <div className="absolute inset-0 w-full h-full backface-hidden rounded-3xl p-6 sm:p-8 bg-[var(--bg-surface)] border-2 border-[var(--border-color)] shadow-[var(--card-shadow)] hover:shadow-[var(--card-shadow-hover)] transition-shadow flex flex-col justify-between overflow-hidden">
+          <div className="absolute inset-0 w-full h-full backface-hidden rounded-xl p-6 sm:p-8 bg-[var(--bg-surface)] border border-[var(--border-color)] shadow-xs hover:border-[var(--border-color-strong)] transition-all flex flex-col justify-between overflow-hidden">
             {/* Top Card Header */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 flex-wrap">
@@ -204,13 +236,13 @@ export const SpacedRepetitionCard: React.FC<SpacedRepetitionCardProps> = ({
           </div>
 
           {/* BACK OF CARD (Rotated 180deg) */}
-          <div className="absolute inset-0 w-full h-full backface-hidden rotate-y-180 rounded-3xl p-6 sm:p-8 bg-[var(--bg-surface)] border-2 border-[var(--primary)] shadow-[var(--card-shadow-hover)] flex flex-col justify-between overflow-y-auto">
+          <div className="absolute inset-0 w-full h-full backface-hidden rotate-y-180 rounded-xl p-6 sm:p-8 bg-[var(--bg-surface)] border border-[var(--primary)] shadow-xs flex flex-col justify-between overflow-y-auto">
             {/* Back Card Header */}
             <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-2">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
                 <Check className="w-3.5 h-3.5" /> Correct Answer
               </span>
-              <span className="text-xs font-semibold text-[var(--text-subtle)]">
+              <span className="text-xs font-medium text-[var(--text-subtle)]">
                 Click card to flip back
               </span>
             </div>
@@ -218,15 +250,15 @@ export const SpacedRepetitionCard: React.FC<SpacedRepetitionCardProps> = ({
             {/* Target Answer */}
             <div className="my-auto py-3 space-y-4">
               <div className="text-center">
-                <div className="text-xl sm:text-2xl font-black text-[var(--primary)]">
+                <div className="text-xl sm:text-2xl font-bold text-[var(--primary)]">
                   <FormattedCardText content={card.back} />
                 </div>
               </div>
 
               {/* Clinical / Exam Rationale */}
               {card.rationale && (
-                <div className="p-4 rounded-2xl bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] space-y-1.5 text-left">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-[var(--text-main)]">
+                <div className="p-4 rounded-xl bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] space-y-1.5 text-left">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--text-main)]">
                     <BookOpen className="w-3.5 h-3.5 text-[var(--primary)]" />
                     <span>Clinical / Exam Rationale</span>
                   </div>
@@ -238,47 +270,84 @@ export const SpacedRepetitionCard: React.FC<SpacedRepetitionCardProps> = ({
             </div>
 
             {/* Bottom rating reminder */}
-            <div className="text-center text-[11px] font-semibold text-[var(--text-subtle)] pt-2">
+            <div className="text-center text-[11px] font-medium text-[var(--text-subtle)] pt-2">
               How well did you know this? Rate below (Keys 1-4)
             </div>
           </div>
         </motion.div>
       </div>
 
-      {/* SM-2 Rating Controls (Revealed when card is flipped) */}
-      <div className="w-full mt-6">
+      {/* SM-2 Rating Controls & Self-Notes */}
+      <div className="w-full mt-6 space-y-4">
         <AnimatePresence>
           {isFlipped ? (
             <motion.div
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 15 }}
-              className="grid grid-cols-4 gap-2 sm:gap-3"
+              className="space-y-4"
             >
-              {ratingButtons.map((btn) => (
-                <button
-                  key={btn.rating}
-                  onClick={() => handleRate(btn.rating)}
-                  className={`flex flex-col items-center justify-center p-3 rounded-2xl border-2 ${btn.border} ${btn.color} ${btn.hoverColor} transition-all active:scale-95 shadow-sm group`}
-                >
-                  <div className="flex items-center gap-1">
-                    <span className="text-sm font-extrabold">{btn.label}</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-black/10 dark:bg-white/10 font-mono">
-                      {btn.key}
+              <div className="grid grid-cols-4 gap-2 sm:gap-3">
+                {ratingButtons.map((btn) => (
+                  <button
+                    key={btn.rating}
+                    onClick={() => handleRate(btn.rating)}
+                    className={`flex flex-col items-center justify-center p-3 rounded-lg border ${btn.border} ${btn.color} ${btn.hoverColor} transition-all active:scale-95 shadow-xs group`}
+                  >
+                    <div className="flex items-center gap-1">
+                      <span className="text-sm font-semibold">{btn.label}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-sm bg-black/10 dark:bg-white/10 font-mono">
+                        {btn.key}
+                      </span>
+                    </div>
+                    <span className="text-[11px] font-medium opacity-75 mt-0.5">
+                      {btn.interval}
                     </span>
+                  </button>
+                ))}
+              </div>
+
+              {/* On-Demand AI Overview Button for Flashcards (Save Tokens) */}
+              {!aiExplanation && !isLoadingAi && (
+                <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] shadow-xs">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-[var(--text-muted)]">
+                    <Sparkles className="w-4 h-4 text-[var(--primary)]" />
+                    <span>Want deep clinical AI overview & sources?</span>
                   </div>
-                  <span className="text-[11px] font-semibold opacity-75 mt-0.5">
-                    {btn.interval}
-                  </span>
-                </button>
-              ))}
+                  <button
+                    type="button"
+                    onClick={fetchAiExplanation}
+                    className="px-3.5 py-1.5 rounded-lg bg-[var(--bg-surface-subtle)] hover:bg-[var(--primary)]/10 border border-[var(--border-color)] hover:border-[var(--primary)]/30 text-xs font-bold text-[var(--text-main)] hover:text-[var(--primary)] transition-all shadow-xs flex items-center gap-1.5 active:scale-95"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-[var(--primary)]" />
+                    <span>Request AI Overview</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Google-Style AI Overview with Citations */}
+              {(aiExplanation || isLoadingAi) && (
+                <GoogleAiOverview
+                  explanation={aiExplanation}
+                  isLoading={isLoadingAi}
+                  onRetry={fetchAiExplanation}
+                  correctAnswer={card.back}
+                />
+              )}
+
+              {/* Personal Self-Notes Scratchpad */}
+              <SelfNoteInput
+                cardId={card.id}
+                deckId={card.deckId}
+                initialNote={card.userNotes || ''}
+              />
             </motion.div>
           ) : (
             <motion.button
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               onClick={handleFlip}
-              className="w-full py-4 rounded-2xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--primary-foreground)] text-sm font-bold shadow-md transition-all active:scale-98 flex items-center justify-center gap-2"
+              className="w-full py-3.5 rounded-lg bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white text-sm font-semibold shadow-xs transition-all active:scale-98 flex items-center justify-center gap-2"
             >
               <RotateCw className="w-4 h-4" />
               <span>Flip Card to See Answer (or Press Space)</span>

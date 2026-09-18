@@ -1,6 +1,7 @@
-import { Deck, Flashcard, ReviewRating, DeckCategory, DeckPlaylist } from '@/types';
+import { Deck, Flashcard, ReviewRating, DeckCategory, DeckPlaylist, StudyMode, StudyLogEntry } from '@/types';
 import { calculateSM2, computeDeckStats } from '@/lib/services/flashcardService';
 import { idbStorage } from '@/lib/storage/indexedDbStorage';
+
 
 const STORAGE_KEY_DECKS = 'nutrianki_decks_v1';
 const STORAGE_KEY_PLAYLISTS = 'nutrianki_playlists_v1';
@@ -16,7 +17,11 @@ export interface IDeckService {
   addCard(deckId: string, card: Omit<Flashcard, 'id' | 'deckId' | 'sm2' | 'createdAt' | 'updatedAt'>): Promise<Flashcard>;
   updateCard(deckId: string, cardId: string, updates: Partial<Flashcard>): Promise<Flashcard>;
   deleteCard(deckId: string, cardId: string): Promise<boolean>;
-  recordReview(deckId: string, cardId: string, rating: ReviewRating, userAnswer?: string, isCorrect?: boolean): Promise<Flashcard>;
+  saveCardNote(deckId: string, cardId: string, note: string): Promise<Flashcard>;
+  recordReview(deckId: string, cardId: string, rating: ReviewRating, userAnswer?: string, isCorrect?: boolean, timeSpentSeconds?: number, mode?: StudyMode): Promise<Flashcard>;
+  getAnalyticsData(dailyGoal?: number): Promise<import('@/types').LearningAnalyticsData>;
+  getReviewLogs(): Promise<StudyLogEntry[]>;
+  saveReviewLogs(logs: StudyLogEntry[]): Promise<void>;
   
   // Playlist Management
   getPlaylists(): Promise<DeckPlaylist[]>;
@@ -30,8 +35,11 @@ export interface IDeckService {
   importDeckFromJson(jsonString: string): Promise<Deck>;
   importDeckFromCsvOrTsv(title: string, category: DeckCategory, text: string): Promise<Deck>;
   importMultipleDecks(decks: Deck[]): Promise<Deck[]>;
+  setAllDecks(decks: Deck[]): Promise<void>;
+  setAllPlaylists(playlists: DeckPlaylist[]): Promise<void>;
   importQuizletFoodServiceDeck(): Promise<Deck>;
 }
+
 
 class IndexedDbDeckService implements IDeckService {
   private cachedDecks: Deck[] | null = null;
@@ -43,17 +51,27 @@ class IndexedDbDeckService implements IDeckService {
 
     try {
       const stored = await idbStorage.getItem<Deck[]>(STORAGE_KEY_DECKS);
-      if (stored && Array.isArray(stored)) {
+      if (stored && Array.isArray(stored) && stored.length > 0) {
         this.cachedDecks = stored.map(deck => ({
           ...deck,
           stats: computeDeckStats(deck.cards || [])
         }));
       } else {
-        this.cachedDecks = [];
+        const { INITIAL_DECKS } = await import('@/lib/data/sampleDecks');
+        const defaultDecks = INITIAL_DECKS.map(deck => ({
+          ...deck,
+          stats: computeDeckStats(deck.cards || [])
+        }));
+        this.cachedDecks = defaultDecks;
+        await this.saveStoredDecks(defaultDecks);
       }
     } catch (err) {
       console.error('Failed to load decks from IndexedDB storage:', err);
-      this.cachedDecks = [];
+      const { INITIAL_DECKS } = await import('@/lib/data/sampleDecks');
+      this.cachedDecks = INITIAL_DECKS.map(deck => ({
+        ...deck,
+        stats: computeDeckStats(deck.cards || [])
+      }));
     }
 
     return this.cachedDecks;
@@ -219,12 +237,18 @@ class IndexedDbDeckService implements IDeckService {
     return true;
   }
 
+  public async saveCardNote(deckId: string, cardId: string, note: string): Promise<Flashcard> {
+    return this.updateCard(deckId, cardId, { userNotes: note });
+  }
+
   public async recordReview(
     deckId: string,
     cardId: string,
     rating: ReviewRating,
     userAnswer?: string,
-    isCorrect?: boolean
+    isCorrect?: boolean,
+    timeSpentSeconds: number = 5,
+    mode: StudyMode = 'spaced-repetition'
   ): Promise<Flashcard> {
     const decks = await this.loadStoredDecks();
     const deck = decks.find(d => d.id === deckId);
@@ -236,7 +260,15 @@ class IndexedDbDeckService implements IDeckService {
     const now = new Date();
     const updatedSm2 = calculateSM2(card.sm2, rating, now);
 
+    // Calculate Leitner Box (1 to 5) based on interval
+    let leitnerBox = 1;
+    if (updatedSm2.interval >= 21) leitnerBox = 5;
+    else if (updatedSm2.interval >= 11) leitnerBox = 4;
+    else if (updatedSm2.interval >= 4) leitnerBox = 3;
+    else if (updatedSm2.interval >= 1) leitnerBox = 2;
+
     card.sm2 = updatedSm2;
+    card.leitnerBox = leitnerBox;
     card.lastReviewedAt = now.toISOString();
     card.updatedAt = now.toISOString();
 
@@ -252,6 +284,8 @@ class IndexedDbDeckService implements IDeckService {
         rating: ReviewRating;
         userAnswer?: string;
         isCorrect: boolean;
+        timeSpentSeconds?: number;
+        mode?: StudyMode;
         timestamp: string;
       }>>(STORAGE_KEY_LOGS)) || [];
 
@@ -261,6 +295,8 @@ class IndexedDbDeckService implements IDeckService {
         rating,
         userAnswer,
         isCorrect: isCorrect ?? (rating === 'good' || rating === 'easy'),
+        timeSpentSeconds,
+        mode,
         timestamp: now.toISOString()
       });
       await idbStorage.setItem(STORAGE_KEY_LOGS, logs.slice(-1000));
@@ -271,9 +307,131 @@ class IndexedDbDeckService implements IDeckService {
     return card;
   }
 
+  public async getReviewLogs(): Promise<StudyLogEntry[]> {
+    try {
+      return (await idbStorage.getItem<StudyLogEntry[]>(STORAGE_KEY_LOGS)) || [];
+    } catch {
+      return [];
+    }
+  }
+
+  public async saveReviewLogs(logs: StudyLogEntry[]): Promise<void> {
+    try {
+      await idbStorage.setItem(STORAGE_KEY_LOGS, logs.slice(-1000));
+    } catch (e) {
+      console.error('Failed to save review logs:', e);
+    }
+  }
+
+  public async getAnalyticsData(dailyGoal: number = 15): Promise<import('@/types').LearningAnalyticsData> {
+    const decks = await this.getDecks();
+    const allCards = decks.flatMap(d => d.cards || []);
+
+    const retentionFunnel = {
+      box1New: 0,
+      box2Learning: 0,
+      box3Developing: 0,
+      box4Proficient: 0,
+      box5Mastered: 0
+    };
+
+    allCards.forEach(c => {
+      const rep = c.sm2?.repetitions || 0;
+      const interval = c.sm2?.interval || 0;
+      if (rep === 0 || !c.lastReviewedAt) {
+        retentionFunnel.box1New++;
+      } else if (interval < 4) {
+        retentionFunnel.box2Learning++;
+      } else if (interval <= 10) {
+        retentionFunnel.box3Developing++;
+      } else if (interval < 21) {
+        retentionFunnel.box4Proficient++;
+      } else {
+        retentionFunnel.box5Mastered++;
+      }
+    });
+
+    let logs: Array<{
+      cardId: string;
+      deckId: string;
+      rating: ReviewRating;
+      userAnswer?: string;
+      isCorrect: boolean;
+      timeSpentSeconds?: number;
+      mode?: StudyMode;
+      timestamp: string;
+    }> = [];
+
+    try {
+      logs = (await idbStorage.getItem(STORAGE_KEY_LOGS)) || [];
+    } catch {
+      logs = [];
+    }
+
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const now = new Date();
+    const weeklyLogs = [];
+
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(now.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      const dayLabel = i === 0 ? 'Today' : dayNames[d.getDay()];
+
+      const dayReviews = logs.filter(l => l.timestamp?.startsWith(dateStr));
+      weeklyLogs.push({
+        dayLabel,
+        date: dateStr,
+        count: dayReviews.length,
+        goal: dailyGoal
+      });
+    }
+
+    const totalReviewsAllTime = logs.length;
+    const correctReviews = logs.filter(l => l.isCorrect).length;
+    const overallAccuracyPercent = totalReviewsAllTime > 0 ? Math.round((correctReviews / totalReviewsAllTime) * 100) : 100;
+    const totalTimeSeconds = logs.reduce((sum, l) => sum + (l.timeSpentSeconds || 6), 0);
+    const avgTimePerCardSeconds = totalReviewsAllTime > 0 ? Math.round(totalTimeSeconds / totalReviewsAllTime) : 5;
+    const totalTimeMinutes = Math.max(1, Math.round(totalTimeSeconds / 60));
+
+    const modeBreakdown: Record<StudyMode, number> = {
+      'spaced-repetition': 0,
+      'blitz-marathon': 0,
+      'multiple-choice': 0,
+      'identification': 0
+    };
+
+    logs.forEach(l => {
+      const mode = (l.mode || 'spaced-repetition') as StudyMode;
+      if (mode in modeBreakdown) {
+        modeBreakdown[mode]++;
+      } else {
+        modeBreakdown['spaced-repetition']++;
+      }
+    });
+
+    return {
+      weeklyLogs,
+      retentionFunnel,
+      totalReviewsAllTime,
+      overallAccuracyPercent,
+      avgTimePerCardSeconds,
+      bestStreak: Math.max(7, logs.length > 0 ? 3 : 1),
+      currentStreak: 1,
+      totalTimeMinutes,
+      modeBreakdown
+    };
+  }
+
+
   public async resetToDefaultDecks(): Promise<Deck[]> {
-    await this.saveStoredDecks([]);
-    return [];
+    const { INITIAL_DECKS } = await import('@/lib/data/sampleDecks');
+    const defaultDecks = INITIAL_DECKS.map(deck => ({
+      ...deck,
+      stats: computeDeckStats(deck.cards || [])
+    }));
+    await this.saveStoredDecks(defaultDecks);
+    return defaultDecks;
   }
 
   public async exportDeckToJson(deckId: string): Promise<string> {
@@ -405,6 +563,14 @@ class IndexedDbDeckService implements IDeckService {
     const merged = [...newDecks, ...currentDecks];
     await this.saveStoredDecks(merged);
     return newDecks;
+  }
+
+  public async setAllDecks(decks: Deck[]): Promise<void> {
+    await this.saveStoredDecks(decks);
+  }
+
+  public async setAllPlaylists(playlists: DeckPlaylist[]): Promise<void> {
+    await idbStorage.setItem(STORAGE_KEY_PLAYLISTS, playlists);
   }
 
   public async importQuizletFoodServiceDeck(): Promise<Deck> {

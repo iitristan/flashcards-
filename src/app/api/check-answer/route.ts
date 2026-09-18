@@ -100,13 +100,7 @@ export async function POST(req: NextRequest) {
 
     // Call Google Gemini API
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash',
-      generationConfig: {
-        responseMimeType: 'application/json',
-        temperature: 0.2
-      }
-    });
+    const MODEL_CANDIDATES = ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.6-flash'];
 
     const prompt = `You are a strict yet encouraging Nutrition and Dietetics Board Exam reviewer professor.
 Evaluate the student's answer against the target answer for this flashcard question.
@@ -127,18 +121,36 @@ Return ONLY valid JSON matching this schema:
   "suggestedAnswer": "Clean, concise target answer"
 }`;
 
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
+    for (const modelName of MODEL_CANDIDATES) {
+      try {
+        const model = genAI.getGenerativeModel({
+          model: modelName,
+          generationConfig: {
+            responseMimeType: 'application/json',
+            temperature: 0.2
+          }
+        });
 
-    if (!text) {
-      throw new Error('Empty response from Gemini API');
+        const result = await model.generateContent(prompt);
+        const text = result.response.text();
+
+        if (!text) continue;
+
+        let cleanText = text.trim();
+        if (cleanText.startsWith('```')) {
+          cleanText = cleanText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+        }
+
+        const parsed: AIGradeResponse = JSON.parse(cleanText);
+        return NextResponse.json({
+          ...parsed,
+          isAiPowered: true
+        });
+      } catch (err) {
+        console.warn(`Model ${modelName} failed in check-answer, trying next:`, err);
+      }
     }
-
-    const parsed: AIGradeResponse = JSON.parse(text);
-    return NextResponse.json({
-      ...parsed,
-      isAiPowered: true
-    });
+    throw new Error('All model candidates failed in check-answer');
   } catch (error) {
     console.error('Error in /api/check-answer:', error);
     

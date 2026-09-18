@@ -15,8 +15,11 @@ import {
   Clock, 
   Stethoscope, 
   Calculator, 
-  Layers 
+  Layers,
+  Flame
 } from 'lucide-react';
+
+
 import { Deck, StudyMode } from '@/types';
 
 interface DeckCardProps {
@@ -56,7 +59,7 @@ export const DeckCard: React.FC<DeckCardProps> = ({
       layout
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
-      className="rounded-3xl bg-[var(--bg-surface)] border-2 border-[var(--border-color)] p-5 sm:p-6 shadow-[var(--card-shadow)] hover:shadow-[var(--card-shadow-hover)] transition-all flex flex-col justify-between group relative"
+      className="rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] p-5 shadow-xs hover:shadow-sm hover:border-[var(--border-color-strong)] transition-all flex flex-col justify-between group relative"
     >
       {/* Top Bar: Icon, Category & Actions */}
       <div>
@@ -194,7 +197,7 @@ export const DeckCard: React.FC<DeckCardProps> = ({
         <button
           onClick={() => setShowModeSelector(true)}
           disabled={totalCards === 0}
-          className="w-full py-3 rounded-2xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] disabled:opacity-40 text-white font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2 active:scale-98"
+          className="w-full py-2.5 rounded-lg bg-[var(--primary)] hover:bg-[var(--primary-hover)] disabled:opacity-40 text-white font-semibold text-xs transition-all flex items-center justify-center gap-2 active:scale-98 shadow-xs"
         >
           <Play className="w-3.5 h-3.5 fill-current" />
           <span>Study Deck</span>
@@ -205,9 +208,9 @@ export const DeckCard: React.FC<DeckCardProps> = ({
       {showModeSelector && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
           <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
+            initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="w-full max-w-md rounded-3xl bg-[var(--bg-surface)] p-6 border border-[var(--border-color)] shadow-[var(--modal-shadow)] space-y-4"
+            className="w-full max-w-md rounded-2xl bg-[var(--bg-surface)] p-6 border border-[var(--border-color)] shadow-xl space-y-4"
           >
             <div className="text-center space-y-1">
               <span className="text-xs font-bold uppercase tracking-wider text-[var(--primary)]">
@@ -225,13 +228,13 @@ export const DeckCard: React.FC<DeckCardProps> = ({
                   setShowModeSelector(false);
                   onStudy(deck.id, 'spaced-repetition');
                 }}
-                className="w-full p-4 rounded-2xl border-2 border-[var(--border-color)] hover:border-emerald-500 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/30 transition-all text-left flex items-center gap-3.5 group"
+                className="w-full p-3.5 rounded-xl border border-[var(--border-color)] hover:border-emerald-500 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/30 transition-all text-left flex items-center gap-3 group"
               >
-                <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
-                  <BookOpen className="w-5 h-5" />
+                <div className="w-9 h-9 rounded-lg bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+                  <BookOpen className="w-4 h-4" />
                 </div>
                 <div>
-                  <span className="font-extrabold text-sm text-[var(--text-main)] block">
+                  <span className="font-bold text-sm text-[var(--text-main)] block">
                     Classic Spaced Repetition (Anki)
                   </span>
                   <span className="text-xs text-[var(--text-muted)]">
@@ -240,41 +243,63 @@ export const DeckCard: React.FC<DeckCardProps> = ({
                 </div>
               </button>
 
-              {/* Option 2: Multiple Choice Quiz */}
+              {/* Option 2: Blitz Marathon */}
+              <button
+                onClick={() => {
+                  setShowModeSelector(false);
+                  onStudy(deck.id, 'blitz-marathon');
+                }}
+                className="w-full p-3.5 rounded-xl border border-[var(--border-color)] hover:border-orange-500 hover:bg-orange-50/50 dark:hover:bg-orange-950/30 transition-all text-left flex items-center gap-3 group"
+              >
+                <div className="w-9 h-9 rounded-lg bg-orange-100 dark:bg-orange-950 text-orange-600 dark:text-orange-300 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+                  <Flame className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="font-bold text-sm text-[var(--text-main)] block flex items-center gap-1.5">
+                    <span>Blitz Marathon</span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-orange-500 text-white uppercase tracking-wider">Fast-Paced</span>
+                  </span>
+                  <span className="text-xs text-[var(--text-muted)]">
+                    Timed sprint (12s/card) with combo multipliers & speed scoring
+                  </span>
+                </div>
+              </button>
+
+              {/* Option 3: Multiple Choice Quiz */}
               <button
                 onClick={() => {
                   setShowModeSelector(false);
                   onStudy(deck.id, 'multiple-choice');
                 }}
-                className="w-full p-4 rounded-2xl border-2 border-[var(--border-color)] hover:border-amber-500 hover:bg-amber-50/50 dark:hover:bg-amber-950/30 transition-all text-left flex items-center gap-3.5 group"
+                className="w-full p-3.5 rounded-xl border border-[var(--border-color)] hover:border-teal-500 hover:bg-teal-50/50 dark:hover:bg-teal-950/30 transition-all text-left flex items-center gap-3 group"
               >
-                <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
-                  <CheckCircle2 className="w-5 h-5" />
+                <div className="w-9 h-9 rounded-lg bg-teal-100 dark:bg-teal-950 text-teal-700 dark:text-teal-300 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+                  <CheckCircle2 className="w-4 h-4" />
                 </div>
                 <div>
-                  <span className="font-extrabold text-sm text-[var(--text-main)] block">
-                    Multiple Choice Quizlet Style
+                  <span className="font-bold text-sm text-[var(--text-main)] block">
+                    Multiple Choice (Board Exam)
                   </span>
                   <span className="text-xs text-[var(--text-muted)]">
-                    4 options with instant color feedback & clinical rationales
+                    4 options with color feedback, optional AI explanation & self-notes
                   </span>
                 </div>
               </button>
 
-              {/* Option 3: AI Smart Identification */}
+              {/* Option 4: AI Smart Identification */}
               <button
                 onClick={() => {
                   setShowModeSelector(false);
                   onStudy(deck.id, 'identification');
                 }}
-                className="w-full p-4 rounded-2xl border-2 border-[var(--border-color)] hover:border-purple-500 hover:bg-purple-50/50 dark:hover:bg-purple-950/30 transition-all text-left flex items-center gap-3.5 group"
+                className="w-full p-3.5 rounded-xl border border-[var(--border-color)] hover:border-purple-500 hover:bg-purple-50/50 dark:hover:bg-purple-950/30 transition-all text-left flex items-center gap-3 group"
               >
-                <div className="w-10 h-10 rounded-xl bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
-                  <Sparkles className="w-5 h-5" />
+                <div className="w-9 h-9 rounded-lg bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+                  <Sparkles className="w-4 h-4" />
                 </div>
                 <div>
-                  <span className="font-extrabold text-sm text-[var(--text-main)] block">
-                    AI Smart Identification (Gizmo)
+                  <span className="font-bold text-sm text-[var(--text-main)] block">
+                    AI Smart Identification
                   </span>
                   <span className="text-xs text-[var(--text-muted)]">
                     Type your answer; Google Gemini checks semantic accuracy
@@ -285,7 +310,7 @@ export const DeckCard: React.FC<DeckCardProps> = ({
 
             <button
               onClick={() => setShowModeSelector(false)}
-              className="w-full py-2.5 rounded-2xl border border-[var(--border-color)] text-xs font-bold text-[var(--text-muted)] hover:bg-[var(--bg-surface-subtle)] transition-colors"
+              className="w-full py-2.5 rounded-lg border border-[var(--border-color)] text-xs font-semibold text-[var(--text-muted)] hover:bg-[var(--bg-surface-subtle)] transition-colors"
             >
               Cancel
             </button>

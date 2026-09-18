@@ -1,8 +1,8 @@
-export type StudyMode = 'spaced-repetition' | 'multiple-choice' | 'identification';
+export type StudyMode = 'spaced-repetition' | 'multiple-choice' | 'identification' | 'blitz-marathon';
 
 export type ReviewRating = 'again' | 'hard' | 'good' | 'easy';
 
-export type ThemeType = 'matcha' | 'strawberry' | 'dark';
+export type ThemeType = 'matcha' | 'strawberry' | 'navy' | 'dark';
 
 export type DeckCategory = 
   | 'Clinical Nutrition'
@@ -28,12 +28,14 @@ export interface Flashcard {
   options?: string[]; // 4 options for Multiple Choice mode (including the correct answer)
   tags: string[]; // e.g. ["CKD", "Renal", "MNT"]
   difficulty?: 'easy' | 'medium' | 'hard';
-  leitnerBox?: number; // 1 to 5
+  leitnerBox?: number; // 1 to 5 (ARtLS box)
+  userNotes?: string; // User personal notes / mnemonics per item
   sm2: Sm2Data;
   lastReviewedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
 
 export interface DeckStats {
   totalCards: number;
@@ -80,6 +82,7 @@ export interface CardReviewResult {
 }
 
 export interface StudySessionState {
+  id?: string;
   deckId: string;
   deckTitle: string;
   mode: StudyMode;
@@ -89,6 +92,22 @@ export interface StudySessionState {
   startTime: number;
   isCompleted: boolean;
   timerDurationSeconds: number; // 0 for off, or 10, 15, 20, 25, 30
+  updatedAt?: string;
+}
+
+export interface StudyLogEntry {
+  id?: string;
+  userId?: string;
+  cardId: string;
+  deckId: string;
+  mode: StudyMode;
+  rating?: ReviewRating;
+  userAnswer?: string;
+  isCorrect: boolean;
+  timeSpentSeconds?: number;
+  verdict?: 'correct' | 'partially_correct' | 'incorrect';
+  createdAt?: string;
+  timestamp?: string;
 }
 
 export interface UserPreferences {
@@ -110,6 +129,8 @@ export interface AIGradeResponse {
   suggestedAnswer: string;
 }
 
+export type { MCExplanationRequest, MCExplanationResponse, ExplanationSource } from './gemini';
+
 // Backward-compatibility definitions
 export interface DeckWithStats {
   id: string;
@@ -130,9 +151,43 @@ export interface ReviewCard {
   repetitions: number;
 }
 
+export interface DailyStudyLog {
+  date: string; // YYYY-MM-DD
+  cardsStudied: number;
+  correctCount: number;
+  timeSpentSeconds: number;
+  modeCounts: Record<StudyMode, number>;
+}
+
+export interface LearningAnalyticsData {
+  weeklyLogs: { dayLabel: string; date: string; count: number; goal: number }[];
+  retentionFunnel: {
+    box1New: number; // Interval 0
+    box2Learning: number; // 1-3 days
+    box3Developing: number; // 4-10 days
+    box4Proficient: number; // 11-20 days
+    box5Mastered: number; // >= 21 days
+  };
+  totalReviewsAllTime: number;
+  overallAccuracyPercent: number;
+  avgTimePerCardSeconds: number;
+  bestStreak: number;
+  currentStreak: number;
+  totalTimeMinutes: number;
+  modeBreakdown: Record<StudyMode, number>;
+}
+
+export interface UserMusicSettings {
+  isPlaying: boolean;
+  customUrl: string;
+}
+
+
 export interface Sm2Fields {
   interval: number;
   easeFactor: number;
   repetitions: number;
   dueDate: Date;
 }
+
+

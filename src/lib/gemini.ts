@@ -20,7 +20,13 @@ Rules:
 - Educational, factually accurate
 - Focus on the most important concepts from the source material`;
 
-function getModel() {
+const MODEL_CANDIDATES = [
+  'gemini-3.5-flash-lite',
+  'gemini-3.5-flash',
+  'gemini-3.6-flash'
+];
+
+function getModel(modelName: string = MODEL_CANDIDATES[0]) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error("GEMINI_API_KEY is not configured");
@@ -28,7 +34,7 @@ function getModel() {
 
   const genAI = new GoogleGenerativeAI(apiKey);
   return genAI.getGenerativeModel({
-    model: "gemini-1.5-flash",
+    model: modelName,
     generationConfig: {
       responseMimeType: "application/json",
     },
@@ -76,31 +82,36 @@ export async function generateFlashcards(options: {
     throw new Error("Source content is too long (max 50,000 characters)");
   }
 
-  const model = getModel();
   const prompt = buildUserPrompt(source, count, sourceType);
+  let lastError: unknown = null;
 
-  try {
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
+  for (const modelName of MODEL_CANDIDATES) {
+    try {
+      const model = getModel(modelName);
+      const result = await model.generateContent(prompt);
+      const text = result.response.text();
 
-    if (!text) {
-      throw new Error("Gemini returned an empty response");
-    }
-
-    const parsed = flashcardSchema.parse(JSON.parse(text));
-    return parsed.cards;
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      throw new Error("Gemini returned invalid flashcard JSON");
-    }
-
-    if (error instanceof Error) {
-      if (error.message.includes("429") || error.message.includes("quota")) {
-        throw new Error("Gemini API rate limit reached. Please try again later.");
+      if (!text) {
+        continue;
       }
-      throw error;
-    }
 
-    throw new Error("Failed to generate flashcards");
+      let cleanText = text.trim();
+      if (cleanText.startsWith('```')) {
+        cleanText = cleanText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+      }
+
+      const parsed = flashcardSchema.parse(JSON.parse(cleanText));
+      return parsed.cards;
+    } catch (error) {
+      lastError = error;
+      if (error instanceof z.ZodError) {
+        console.warn(`Model ${modelName} returned invalid schema, trying next:`, error);
+      }
+    }
   }
+
+  if (lastError instanceof Error && (lastError.message.includes("429") || lastError.message.includes("quota"))) {
+    throw new Error("Gemini API rate limit reached. Please try again later.");
+  }
+  throw new Error("Failed to generate flashcards from source material.");
 }

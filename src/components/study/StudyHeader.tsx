@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Volume2, VolumeX, Sparkles, BookOpen, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Volume2, VolumeX, Sparkles, BookOpen, CheckCircle2, Flame } from 'lucide-react';
 import { StudyMode } from '@/types';
 import { StudyTimer } from './StudyTimer';
 import { soundEffects } from '@/lib/soundEffects';
@@ -14,6 +14,7 @@ interface StudyHeaderProps {
   totalCards: number;
   timerDuration: number;
   soundEnabled: boolean;
+  saveStatus?: 'idle' | 'saving' | 'saved' | 'error' | 'syncing';
   onToggleSound: () => void;
   onExit: () => void;
   onTimerExpire?: () => void;
@@ -27,6 +28,7 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
   totalCards,
   timerDuration,
   soundEnabled,
+  saveStatus = 'idle',
   onToggleSound,
   onExit,
   onTimerExpire,
@@ -36,21 +38,27 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
 
   const modeDetails: Record<StudyMode, { label: string; icon: typeof Sparkles; color: string }> = {
     'spaced-repetition': {
-      label: 'Anki Spaced Repetition',
+      label: 'Spaced Repetition',
       icon: BookOpen,
-      color: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+      color: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+    },
+    'blitz-marathon': {
+      label: 'Blitz Marathon',
+      icon: Flame,
+      color: 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
     },
     'multiple-choice': {
-      label: 'Multiple Choice Quiz',
+      label: 'Multiple Choice',
       icon: CheckCircle2,
-      color: 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+      color: 'bg-teal-50 text-teal-700 dark:bg-teal-950/60 dark:text-teal-300 border border-teal-200 dark:border-teal-800'
     },
     'identification': {
-      label: 'AI Smart Identification',
+      label: 'AI Identification',
       icon: Sparkles,
-      color: 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300'
+      color: 'bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300 border border-sky-200 dark:border-sky-800'
     }
   };
+
 
   const progressPercentage = Math.min(100, Math.round(((currentIndex) / totalCards) * 100));
   const currentMode = modeDetails[mode];
@@ -65,33 +73,38 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
   };
 
   return (
-    <div className="w-full max-w-3xl mx-auto mb-6">
+    <div className="w-full max-w-3xl mx-auto mb-6 space-y-3">
       {/* Top action row */}
-      <div className="flex items-center justify-between gap-2 sm:gap-4 mb-3">
-        {/* Back button */}
-        <button
-          onClick={handleExitClick}
-          aria-label="Exit review session"
-          className="flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] transition-all active:scale-95 flex-shrink-0"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          <span className="hidden xs:inline">Exit Review</span>
-          <span className="xs:hidden">Exit</span>
-        </button>
+      <div className="flex items-center justify-between gap-3">
+        {/* Back button & Save Status */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleExitClick}
+            aria-label="Exit review session"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface)] border border-[var(--border-color)] transition-all active:scale-95 flex-shrink-0 shadow-xs cursor-pointer"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Exit Review</span>
+          </button>
 
-        {/* Deck and mode info */}
-        <div className="flex items-center gap-1.5 sm:gap-2 overflow-hidden text-center min-w-0">
-          <span className="font-bold text-xs sm:text-sm text-[var(--text-main)] truncate max-w-[120px] xs:max-w-[180px] sm:max-w-[280px]">
-            {deckTitle}
-          </span>
-          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-semibold ${currentMode.color} flex-shrink-0`}>
-            <ModeIcon className="w-3 h-3" />
-            <span className="hidden sm:inline">{currentMode.label}</span>
-          </span>
+          {saveStatus && saveStatus !== 'idle' && (
+            <span className="hidden xs:inline-flex items-center gap-1 text-[11px] font-medium text-[var(--text-subtle)] px-2 py-0.5 rounded-full bg-[var(--bg-surface-subtle)] border border-[var(--border-subtle)]">
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  saveStatus === 'saving'
+                    ? 'bg-amber-500 animate-pulse'
+                    : saveStatus === 'saved'
+                    ? 'bg-emerald-500'
+                    : 'bg-rose-500'
+                }`}
+              />
+              <span>{saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save Error'}</span>
+            </span>
+          )}
         </div>
 
         {/* Right tools (Timer + Sound) */}
-        <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-shrink-0">
           {timerDuration > 0 && (
             <StudyTimer
               initialSeconds={timerDuration}
@@ -106,7 +119,7 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
               onToggleSound();
               soundEffects.playFlip();
             }}
-            className="p-2 rounded-full border border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--primary)] transition-all active:scale-90"
+            className="p-2 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--primary)] transition-all active:scale-90 shadow-xs"
             title={soundEnabled ? 'Mute sound effects' : 'Enable sound effects'}
             aria-label={soundEnabled ? 'Mute sound effects' : 'Enable sound effects'}
           >
@@ -115,19 +128,32 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
         </div>
       </div>
 
-      {/* Progress bar and counter */}
-      <div className="space-y-1.5">
-        <div className="flex justify-between text-xs font-bold text-[var(--text-muted)] px-1">
-          <span>Card {Math.min(currentIndex + 1, totalCards)} of {totalCards}</span>
-          <span>{progressPercentage}% complete</span>
+      {/* Title & Mode Row */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+        <div className="flex items-center gap-2 min-w-0 max-w-full">
+          <h2 className="text-sm sm:text-base font-black text-[var(--text-main)] truncate" title={deckTitle}>
+            {deckTitle}
+          </h2>
+          <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold ${currentMode.color} flex-shrink-0 shadow-2xs`}>
+            <ModeIcon className="w-3 h-3" />
+            <span>{currentMode.label}</span>
+          </span>
         </div>
+
+        <div className="text-xs font-extrabold text-[var(--text-muted)] flex-shrink-0">
+          <span>Card {Math.min(currentIndex + 1, totalCards)} of {totalCards}</span>
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div className="space-y-1">
         <div
           role="progressbar"
           aria-valuenow={progressPercentage}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-label={`Session progress: ${progressPercentage}%`}
-          className="w-full h-2.5 bg-[var(--bg-surface-subtle)] rounded-full overflow-hidden border border-[var(--border-subtle)] p-0.5"
+          className="w-full h-2.5 bg-[var(--bg-surface-subtle)] rounded-full overflow-hidden border border-[var(--border-subtle)] p-0.5 shadow-inner"
         >
           <motion.div
             className="h-full bg-gradient-to-r from-[var(--primary)] to-emerald-400 rounded-full"
@@ -141,6 +167,7 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
       {/* Confirm Exit Modal */}
       {showExitConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}

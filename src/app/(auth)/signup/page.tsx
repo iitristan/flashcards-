@@ -14,33 +14,86 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { getSupabaseClient } from "@/lib/supabase/client";
+import { toast } from "sonner";
+import { Loader2 } from "lucide-react";
 
 export default function SignUpPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    router.push("/");
+    if (!email || !password) {
+      setErrorMsg("Please enter both email and password.");
+      return;
+    }
+
+    if (password.length < 6) {
+      setErrorMsg("Password must be at least 6 characters.");
+      return;
+    }
+
+    setLoading(true);
+    setErrorMsg(null);
+
+    try {
+      const supabase = getSupabaseClient();
+      if (!supabase) {
+        toast.info("Continuing in offline local mode.");
+        router.push("/");
+        return;
+      }
+
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+      });
+
+      if (error) {
+        setErrorMsg(error.message);
+        toast.error(error.message);
+      } else if (data.session) {
+        toast.success("Account created successfully! Welcome to NutriAnki.");
+        router.push("/");
+      } else {
+        toast.success("Account created! Please check your email to verify your account.");
+        router.push("/login");
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to sign up";
+      setErrorMsg(msg);
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
-    <Card>
+    <Card className="border shadow-sm">
       <CardHeader>
-        <CardTitle>Create an account</CardTitle>
+        <CardTitle className="text-xl font-bold tracking-tight">Create an Account</CardTitle>
         <CardDescription>
-          Get started with offline flashcards and AI explanations
+          Save your review progress, quizzes, and decks across all your devices.
         </CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit}>
         <CardContent className="space-y-4">
+          {errorMsg && (
+            <div className="rounded-lg bg-rose-50 dark:bg-rose-950/30 p-3 text-xs text-rose-600 border border-rose-200 dark:border-rose-900">
+              {errorMsg}
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input
               id="email"
               type="email"
-              placeholder="student@nutrianki.local"
+              required
+              placeholder="student@nutrianki.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
@@ -50,19 +103,26 @@ export default function SignUpPage() {
             <Input
               id="password"
               type="password"
+              required
+              placeholder="At least 6 characters"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
           </div>
         </CardContent>
         <CardFooter className="flex flex-col gap-4">
-          <Button type="submit" className="w-full">
-            Start Studying
+          <Button type="submit" disabled={loading} className="w-full">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            {loading ? "Creating account..." : "Create Account & Sync"}
           </Button>
-          <p className="text-center text-sm text-muted-foreground">
+          <p className="text-center text-xs text-muted-foreground">
             Already studying?{" "}
-            <Link href="/" className="text-primary hover:underline font-bold">
-              Open NutriAnki Hub
+            <Link href="/login" className="text-primary hover:underline font-semibold">
+              Sign In
+            </Link>{" "}
+            or{" "}
+            <Link href="/" className="text-primary hover:underline font-semibold">
+              Study Offline
             </Link>
           </p>
         </CardFooter>

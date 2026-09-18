@@ -9,8 +9,10 @@ import {
   HelpCircle,
   PenTool,
   Edit2,
-  Trash2
+  Trash2,
+  Flame
 } from 'lucide-react';
+
 import { Deck, DeckPlaylist, StudyMode } from '@/types';
 
 interface PlaylistCardProps {
@@ -33,9 +35,9 @@ export const PlaylistCard: React.FC<PlaylistCardProps> = ({
 
   return (
     <motion.div
-      whileHover={{ y: -3 }}
-      transition={{ duration: 0.2 }}
-      className="rounded-3xl bg-[var(--bg-surface)] border-2 border-[var(--border-color)] p-5 sm:p-6 shadow-[var(--card-shadow)] hover:shadow-[var(--card-shadow-hover)] transition-all flex flex-col justify-between relative overflow-hidden group"
+      whileHover={{ y: -2 }}
+      transition={{ duration: 0.15 }}
+      className="rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] p-5 shadow-xs hover:shadow-sm hover:border-[var(--border-color-strong)] transition-all flex flex-col justify-between relative overflow-hidden group"
     >
       {/* Top Accent bar */}
       <div
@@ -130,20 +132,32 @@ export const PlaylistCard: React.FC<PlaylistCardProps> = ({
         <span className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider block">
           Study Playlist In:
         </span>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
           <button
             onClick={() => onStartStudy(playlist.id, 'spaced-repetition')}
             aria-label={`Study ${playlist.title} in Flashcards mode`}
-            className="py-2.5 px-2 rounded-xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 shadow-xs active:scale-95"
+            className="py-2 px-1.5 rounded-lg bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white text-[11px] font-semibold transition-all flex flex-col items-center justify-center gap-1 shadow-xs active:scale-95"
+            title="Spaced Repetition Flashcards"
           >
             <Sparkles className="w-3.5 h-3.5" />
             <span>Cards</span>
           </button>
 
           <button
+            onClick={() => onStartStudy(playlist.id, 'blitz-marathon')}
+            aria-label={`Study ${playlist.title} in Blitz Marathon mode`}
+            className="py-2 px-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-[11px] font-semibold transition-all flex flex-col items-center justify-center gap-1 shadow-xs active:scale-95"
+            title="Fast-Paced Blitz Marathon"
+          >
+            <Flame className="w-3.5 h-3.5" />
+            <span>Blitz</span>
+          </button>
+
+          <button
             onClick={() => onStartStudy(playlist.id, 'multiple-choice')}
             aria-label={`Study ${playlist.title} in Multiple Choice mode`}
-            className="py-2.5 px-2 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface-subtle)] hover:border-[var(--primary)] text-[var(--text-main)] text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 shadow-xs active:scale-95"
+            className="py-2 px-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface-subtle)] hover:border-[var(--primary)] text-[var(--text-main)] text-[11px] font-semibold transition-all flex flex-col items-center justify-center gap-1 shadow-xs active:scale-95"
+            title="Multiple Choice Quiz"
           >
             <HelpCircle className="w-3.5 h-3.5 text-[var(--primary)]" />
             <span>Quiz</span>
@@ -152,7 +166,8 @@ export const PlaylistCard: React.FC<PlaylistCardProps> = ({
           <button
             onClick={() => onStartStudy(playlist.id, 'identification')}
             aria-label={`Study ${playlist.title} in Identification mode`}
-            className="py-2.5 px-2 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface-subtle)] hover:border-[var(--primary)] text-[var(--text-main)] text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 shadow-xs active:scale-95"
+            className="py-2 px-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface-subtle)] hover:border-[var(--primary)] text-[var(--text-main)] text-[11px] font-semibold transition-all flex flex-col items-center justify-center gap-1 shadow-xs active:scale-95"
+            title="AI Smart Identification"
           >
             <PenTool className="w-3.5 h-3.5 text-[var(--primary)]" />
             <span>Type-In</span>
@@ -162,3 +177,4 @@ export const PlaylistCard: React.FC<PlaylistCardProps> = ({
     </motion.div>
   );
 };
+

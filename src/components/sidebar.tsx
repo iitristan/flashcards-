@@ -36,13 +36,18 @@ export function Sidebar({ userEmail }: SidebarProps) {
 
   const initials = userEmail
     ? userEmail.slice(0, 2).toUpperCase()
-    : "FM";
+    : "NA";
 
   return (
     <aside className="flex h-screen w-64 flex-col border-r bg-card">
-      <div className="flex items-center gap-2 px-6 py-5">
-        <Brain className="h-6 w-6 text-primary" />
-        <span className="text-lg font-bold">FlashMind</span>
+      <div className="flex items-center gap-2.5 px-6 py-5 border-b border-border/50">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <Brain className="h-5 w-5" />
+        </div>
+        <div>
+          <span className="text-base font-bold tracking-tight text-foreground">NutriAnki</span>
+          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Board Reviewer</p>
+        </div>
       </div>
 
       <nav className="flex-1 space-y-1 px-3">

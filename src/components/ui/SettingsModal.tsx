@@ -15,9 +15,10 @@ interface SettingsModalProps {
 }
 
 const THEMES: { id: ThemeType; label: string; emoji: string; color: string; desc: string }[] = [
-  { id: 'matcha', label: 'Matcha Calm', emoji: '🍵', color: '#7FA98B', desc: 'Sage greens & cream' },
-  { id: 'strawberry', label: 'Strawberry Milk', emoji: '🍓', color: '#C8627C', desc: 'Dusky rose & creamy milk' },
-  { id: 'dark', label: 'Cozy Night', emoji: '🌙', color: '#2D323F', desc: 'Dark slate & pastel glow' },
+  { id: 'matcha', label: 'Clinical Teal', emoji: '🩺', color: '#0F766E', desc: 'Sleek medical teal & slate' },
+  { id: 'strawberry', label: 'Sweet Berry', emoji: '🍓', color: '#E11D48', desc: 'Cozy strawberry pink & rose' },
+  { id: 'navy', label: 'Academic Navy', emoji: '🏛️', color: '#1E40AF', desc: 'University navy & crisp slate' },
+  { id: 'dark', label: 'Night Study', emoji: '🌙', color: '#1E293B', desc: 'Dark focus workspace' },
 ];
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
