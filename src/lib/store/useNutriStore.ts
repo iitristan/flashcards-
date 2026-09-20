@@ -46,6 +46,8 @@ interface NutriStore {
   initAuth: () => Promise<void>;
   syncWithCloud: () => Promise<void>;
   uploadLocalDecksToCloud: () => Promise<void>;
+  applyThisDeviceToCloudAndAllDevices: () => Promise<{ success: boolean; decksUploaded: number; totalCards: number }>;
+  resetLocalAndPullFromCloud: () => Promise<void>;
 
   // Session & Progress Actions
   setResumeAvailableSession: (session: StudySessionState | null) => void;
@@ -203,6 +205,27 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
           }
         }
       });
+
+      // Realtime cross-device sync: listen for changes made on other devices
+      let syncDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+      const triggerRealtimeSync = () => {
+        if (syncDebounceTimer) clearTimeout(syncDebounceTimer);
+        syncDebounceTimer = setTimeout(() => {
+          get().syncWithCloud();
+        }, 1000);
+      };
+
+      try {
+        supabase
+          .channel('nutrianki_live_sync')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'decks' }, triggerRealtimeSync)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'flashcards' }, triggerRealtimeSync)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'playlists' }, triggerRealtimeSync)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'user_preferences' }, triggerRealtimeSync)
+          .subscribe();
+      } catch (realtimeErr) {
+        console.warn('Realtime subscription skipped:', realtimeErr);
+      }
     } catch (err) {
       console.error('Failed to init auth listener:', err);
     }
@@ -222,24 +245,11 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     try {
       const cloudData = await syncService.pullFromCloud();
       if (cloudData && cloudData.decks && cloudData.decks.length > 0) {
-        const localDecks = await deckService.getDecks();
-        const localMap = new Map(localDecks.map((d) => [d.id, d]));
-
-        for (const cloudDeck of cloudData.decks) {
-          localMap.set(cloudDeck.id, cloudDeck);
-        }
-
-        const mergedDecks = Array.from(localMap.values());
-        await deckService.setAllDecks(mergedDecks);
-
-        if (cloudData.playlists && cloudData.playlists.length > 0) {
-          const localPlaylists = await deckService.getPlaylists();
-          const playMap = new Map(localPlaylists.map((p) => [p.id, p]));
-          for (const p of cloudData.playlists) {
-            playMap.set(p.id, p);
-          }
-          await deckService.setAllPlaylists(Array.from(playMap.values()));
-        }
+        // Cloud is the single authoritative source of truth.
+        // Directly overwrite local storage with synced cloud decks & playlists.
+        // This removes any stale, zombie, or sample decks that only existed locally.
+        await deckService.setAllDecks(cloudData.decks);
+        await deckService.setAllPlaylists(cloudData.playlists || []);
 
         // Sync preferences
         const cloudPrefs = await syncService.pullPreferences();
@@ -303,7 +313,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
           lastSyncedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         });
       } else {
-        // Cloud is empty for this user. If user has local decks, upload them!
+        // Cloud is currently empty. If this device has local decks, upload them as the initial seed!
         const localDecks = await deckService.getDecks();
         const localPlaylists = await deckService.getPlaylists();
         if (localDecks.length > 0) {
@@ -339,6 +349,53 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       }
     } catch (err) {
       console.error('Failed to upload local decks to cloud:', err);
+      set({ syncStatus: 'error' });
+    }
+  },
+
+  applyThisDeviceToCloudAndAllDevices: async () => {
+    set({ syncStatus: 'syncing' });
+    try {
+      const localDecks = await deckService.getDecks();
+      const localPlaylists = await deckService.getPlaylists();
+      const localLogs = await deckService.getReviewLogs();
+      const prefs = get().preferences;
+      const res = await syncService.overwriteCloudWithLocalData(localDecks, localPlaylists, prefs, localLogs);
+      if (res.success) {
+        set({
+          syncStatus: 'synced',
+          lastSyncedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        });
+        await get().loadDecks();
+        return res;
+      } else {
+        set({ syncStatus: 'error' });
+        return { success: false, decksUploaded: 0, totalCards: 0 };
+      }
+    } catch (err) {
+      console.error('Failed to apply this device to cloud:', err);
+      set({ syncStatus: 'error' });
+      return { success: false, decksUploaded: 0, totalCards: 0 };
+    }
+  },
+
+  resetLocalAndPullFromCloud: async () => {
+    set({ syncStatus: 'syncing' });
+    try {
+      await deckService.clearLocalData();
+      const cloudData = await syncService.pullFromCloud();
+      if (cloudData && cloudData.decks) {
+        await deckService.setAllDecks(cloudData.decks);
+        await deckService.setAllPlaylists(cloudData.playlists || []);
+      }
+      await get().loadDecks();
+      await get().loadAnalytics();
+      set({
+        syncStatus: 'synced',
+        lastSyncedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      });
+    } catch (err) {
+      console.error('Failed to reset local and pull from cloud:', err);
       set({ syncStatus: 'error' });
     }
   },

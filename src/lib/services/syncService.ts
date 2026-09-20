@@ -27,7 +27,7 @@ export class SyncService {
   /**
    * Pulls all decks, cards, and playlists from Supabase for the current user.
    */
-  async pullFromCloud(): Promise<{ decks: Deck[]; playlists: DeckPlaylist[] } | null> {
+  async pullFromCloud(): Promise<{ decks: Deck[]; playlists: DeckPlaylist[]; isEmpty: boolean } | null> {
     const supabase = getSupabaseClient();
     if (!supabase) return null;
 
@@ -126,7 +126,7 @@ export class SyncService {
         updatedAt: raw.updated_at,
       }));
 
-      return { decks, playlists };
+      return { decks, playlists, isEmpty: decks.length === 0 && playlists.length === 0 };
     } catch (err) {
       console.error('Failed to pull from cloud:', err);
       return null;
@@ -165,7 +165,21 @@ export class SyncService {
         return false;
       }
 
-      // 2. Upsert cards if any
+      // 2. Delete any existing cards for this deck that are not in the new deck.cards list
+      const currentCardIds = new Set((deck.cards || []).map((c) => c.id));
+      const { data: remoteCards } = await supabase
+        .from('flashcards')
+        .select('id')
+        .eq('deck_id', deck.id);
+
+      if (remoteCards && remoteCards.length > 0) {
+        const toDelete = remoteCards.filter((r) => !currentCardIds.has(r.id)).map((r) => r.id);
+        if (toDelete.length > 0) {
+          await supabase.from('flashcards').delete().in('id', toDelete);
+        }
+      }
+
+      // 3. Upsert cards if any
       if (deck.cards && deck.cards.length > 0) {
         const rows = deck.cards.map((c) => ({
           id: c.id,
@@ -391,7 +405,6 @@ export class SyncService {
 
   /**
    * Saves an active study session checkpoint to Supabase.
-   * Debounced or called on each answer so in-progress quizzes survive browser refresh.
    */
   async saveSessionCheckpoint(session: StudySessionState): Promise<boolean> {
     const supabase = getSupabaseClient();
@@ -588,6 +601,108 @@ export class SyncService {
     }
 
     return { success: true, decksUploaded: uploaded };
+  }
+
+  /**
+   * MASTER SYNC: Overwrites cloud database with this device's complete dataset.
+   * Cleans out any obsolete cloud decks/cards/playlists and pushes local state.
+   */
+  async overwriteCloudWithLocalData(
+    decks: Deck[],
+    playlists: DeckPlaylist[],
+    preferences?: UserPreferences,
+    logs?: StudyLogEntry[]
+  ): Promise<{ success: boolean; decksUploaded: number; totalCards: number }> {
+    const supabase = getSupabaseClient();
+    if (!supabase) return { success: false, decksUploaded: 0, totalCards: 0 };
+
+    const user = await this.getCurrentUser();
+    if (!user) return { success: false, decksUploaded: 0, totalCards: 0 };
+
+    try {
+      // 1. Delete any cloud decks not present on this device
+      const localDeckIds = new Set(decks.map((d) => d.id));
+      const { data: cloudDecks } = await supabase
+        .from('decks')
+        .select('id')
+        .eq('user_id', user.id);
+
+      if (cloudDecks && cloudDecks.length > 0) {
+        const decksToDelete = cloudDecks
+          .filter((d) => !localDeckIds.has(d.id))
+          .map((d) => d.id);
+
+        if (decksToDelete.length > 0) {
+          await supabase.from('decks').delete().in('id', decksToDelete);
+        }
+      }
+
+      // 2. Delete any cloud playlists not present on this device
+      const localPlaylistIds = new Set(playlists.map((p) => p.id));
+      const { data: cloudPlaylists } = await supabase
+        .from('playlists')
+        .select('id')
+        .eq('user_id', user.id);
+
+      if (cloudPlaylists && cloudPlaylists.length > 0) {
+        const playlistsToDelete = cloudPlaylists
+          .filter((p) => !localPlaylistIds.has(p.id))
+          .map((p) => p.id);
+
+        if (playlistsToDelete.length > 0) {
+          await supabase.from('playlists').delete().in('id', playlistsToDelete);
+        }
+      }
+
+      // 3. Upsert all local decks & flashcards
+      let decksUploaded = 0;
+      let totalCards = 0;
+
+      for (const deck of decks) {
+        const ok = await this.pushDeckToCloud(deck);
+        if (ok) {
+          decksUploaded++;
+          totalCards += (deck.cards || []).length;
+        }
+      }
+
+      // 4. Upsert playlists
+      if (playlists.length > 0) {
+        await this.pushPlaylistsToCloud(playlists);
+      }
+
+      // 5. Upsert preferences
+      if (preferences) {
+        await this.pushPreferences(preferences);
+      }
+
+      // 6. Upsert logs in chunks if present
+      if (logs && logs.length > 0) {
+        const logRows = logs.map((l) => ({
+          id: l.id || `log-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          user_id: user.id,
+          card_id: l.cardId,
+          deck_id: l.deckId,
+          mode: l.mode,
+          rating: l.rating || null,
+          user_answer: l.userAnswer || '',
+          is_correct: l.isCorrect,
+          time_spent_seconds: l.timeSpentSeconds || 0,
+          verdict: l.verdict || '',
+          created_at: l.createdAt || l.timestamp || new Date().toISOString(),
+        }));
+
+        for (let i = 0; i < logRows.length; i += 100) {
+          const chunk = logRows.slice(i, i + 100);
+          await supabase.from('study_logs').upsert(chunk, { onConflict: 'id' });
+        }
+      }
+
+      return { success: true, decksUploaded, totalCards };
+    } catch (err) {
+      console.error('Error overwriting cloud data:', err);
+      return { success: false, decksUploaded: 0, totalCards: 0 };
+    }
   }
 }
 

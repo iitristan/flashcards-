@@ -54,6 +54,8 @@ export default function NutriAnkiApp() {
     setIsAuthModalOpen,
     syncWithCloud,
     uploadLocalDecksToCloud,
+    applyThisDeviceToCloudAndAllDevices,
+    resetLocalAndPullFromCloud,
     loadDecks,
     startStudySession,
     startPlaylistSession,
@@ -329,10 +331,12 @@ export default function NutriAnkiApp() {
 
           {/* Right Action Icons & Buttons */}
           <div className="flex items-center gap-2 sm:gap-2.5">
-            {/* Live Auto-Sync Status Indicator */}
-            <div
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface-subtle)] text-xs font-medium text-[var(--text-muted)] select-none"
-              title="Continuous couple background sync is active"
+            {/* Live Auto-Sync Status Indicator & Modal Opener */}
+            <button
+              onClick={() => setIsAuthModalOpen(true)}
+              aria-label="Open cloud synchronization settings"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface-subtle)] hover:bg-[var(--border-color)] text-xs font-medium text-[var(--text-muted)] transition-all cursor-pointer shadow-xs active:scale-95"
+              title="Click to manage multi-device sync & push master data"
             >
               <span
                 className={`w-2 h-2 rounded-full flex-shrink-0 transition-colors ${
@@ -350,7 +354,7 @@ export default function NutriAnkiApp() {
                   ? 'Sync error'
                   : 'Auto-Synced'}
               </span>
-            </div>
+            </button>
 
             {/* Import / Export Tool */}
             <button
@@ -795,7 +799,8 @@ export default function NutriAnkiApp() {
           syncStatus={syncStatus}
           localDecksCount={decks.length}
           onSyncNow={syncWithCloud}
-          onUploadLocalToCloud={uploadLocalDecksToCloud}
+          onApplyThisDeviceToCloud={applyThisDeviceToCloudAndAllDevices}
+          onResetLocalAndPullFromCloud={resetLocalAndPullFromCloud}
           onClose={() => setIsAuthModalOpen(false)}
         />
       )}

@@ -37,6 +37,7 @@ export interface IDeckService {
   importMultipleDecks(decks: Deck[]): Promise<Deck[]>;
   setAllDecks(decks: Deck[]): Promise<void>;
   setAllPlaylists(playlists: DeckPlaylist[]): Promise<void>;
+  clearLocalData(): Promise<void>;
   importQuizletFoodServiceDeck(): Promise<Deck>;
 }
 
@@ -571,6 +572,13 @@ class IndexedDbDeckService implements IDeckService {
 
   public async setAllPlaylists(playlists: DeckPlaylist[]): Promise<void> {
     await idbStorage.setItem(STORAGE_KEY_PLAYLISTS, playlists);
+  }
+
+  public async clearLocalData(): Promise<void> {
+    this.cachedDecks = [];
+    await idbStorage.removeItem(STORAGE_KEY_DECKS);
+    await idbStorage.removeItem(STORAGE_KEY_PLAYLISTS);
+    await idbStorage.removeItem(STORAGE_KEY_LOGS);
   }
 
   public async importQuizletFoodServiceDeck(): Promise<Deck> {
