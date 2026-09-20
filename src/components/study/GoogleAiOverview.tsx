@@ -7,11 +7,11 @@ import {
   BookOpen,
   CheckCircle2,
   AlertCircle,
-  Lightbulb,
   ChevronDown,
   ChevronUp,
   RefreshCw,
-  Search
+  Search,
+  ExternalLink
 } from 'lucide-react';
 import { MCExplanationResponse } from '@/types';
 
@@ -33,24 +33,50 @@ export const GoogleAiOverview: React.FC<GoogleAiOverviewProps> = ({
   isCorrect
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  // Live timer while loading AI explanation
+  React.useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    if (isLoading) {
+      const start = Date.now();
+      setElapsedMs(0);
+      interval = setInterval(() => {
+        setElapsedMs(Date.now() - start);
+      }, 100);
+    } else {
+      setElapsedMs(0);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isLoading]);
 
   if (isLoading) {
+    const seconds = (elapsedMs / 1000).toFixed(1);
     return (
       <div className="w-full p-4 sm:p-5 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-color)] shadow-sm space-y-3.5 overflow-hidden relative">
         {/* Animated top Google AI gradient accent line */}
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 via-purple-500 via-pink-500 to-amber-500 animate-pulse" />
 
-        <div className="flex items-center gap-2.5">
-          <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-blue-500 to-purple-600 flex items-center justify-center text-white shadow-xs">
-            <Sparkles className="w-3.5 h-3.5 animate-spin" />
-          </div>
-          <div className="flex flex-col">
-            <span className="text-xs font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
-              AI Overview
-            </span>
-            <span className="text-[11px] text-[var(--text-muted)] flex items-center gap-1">
-              <Search className="w-3 h-3" /> Synthesizing evidence from clinical nutrition literature...
-            </span>
+        <div className="flex items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2.5">
+            <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-blue-500 to-purple-600 flex items-center justify-center text-white shadow-xs">
+              <Sparkles className="w-3.5 h-3.5 animate-spin" />
+            </div>
+            <div className="flex flex-col">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
+                  AI Overview
+                </span>
+                <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 animate-pulse">
+                  {seconds}s elapsed
+                </span>
+              </div>
+              <span className="text-[11px] text-[var(--text-muted)] flex items-center gap-1 mt-0.5">
+                <Search className="w-3 h-3 text-[var(--primary)] animate-pulse" /> Querying Gemini 3.5 Flash & Clinical Literature...
+              </span>
+            </div>
           </div>
         </div>
 
@@ -72,6 +98,10 @@ export const GoogleAiOverview: React.FC<GoogleAiOverviewProps> = ({
   if (!explanation) return null;
 
   const sources = explanation.sources || [];
+  const modelName = explanation.modelUsed || (explanation.isAiPowered !== false ? 'Gemini 3.5 Flash' : 'Clinical Literature Engine');
+  const elapsedFormatted = explanation.generationTimeMs !== undefined
+    ? `${(explanation.generationTimeMs / 1000).toFixed(1)}s`
+    : null;
 
   return (
     <motion.div
@@ -90,10 +120,17 @@ export const GoogleAiOverview: React.FC<GoogleAiOverviewProps> = ({
             <Sparkles className="w-3.5 h-3.5 fill-current" />
           </div>
           <div>
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
               <span className="text-xs sm:text-sm font-bold bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 bg-clip-text text-transparent">
                 AI Overview
               </span>
+
+              {/* Model & Time Elapsed Pill */}
+              <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20 flex items-center gap-1">
+                <span>{modelName}</span>
+                {elapsedFormatted && <span>• {elapsedFormatted}</span>}
+              </span>
+
               {isCorrect !== undefined && (
                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 border ${
                   isCorrect
@@ -103,19 +140,16 @@ export const GoogleAiOverview: React.FC<GoogleAiOverviewProps> = ({
                   {isCorrect ? (
                     <>
                       <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                      <span>Correct Answer Breakdown</span>
+                      <span>Correct Breakdown</span>
                     </>
                   ) : (
                     <>
                       <AlertCircle className="w-3 h-3 text-rose-600 dark:text-rose-400" />
-                      <span>Missed Answer Review</span>
+                      <span>Missed Review</span>
                     </>
                   )}
                 </span>
               )}
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[var(--bg-surface-subtle)] text-[var(--text-muted)] border border-[var(--border-subtle)] hidden sm:inline">
-                {explanation.isAiPowered !== false ? 'Gemini Clinical Search' : 'Clinical Synthesis'}
-              </span>
             </div>
           </div>
         </div>
@@ -158,34 +192,76 @@ export const GoogleAiOverview: React.FC<GoogleAiOverviewProps> = ({
             transition={{ duration: 0.2 }}
             className="p-4 sm:p-5 space-y-4 text-left"
           >
-            {/* Cited Sources Carousel / Chips (Google Style) */}
+            {/* Cited Sources Carousel / Chips (Google Style - Clickable) */}
             {sources.length > 0 && (
               <div className="space-y-1.5">
-                <div className="flex items-center gap-1.5 text-[10px] font-bold text-[var(--text-subtle)] uppercase tracking-wider">
-                  <BookOpen className="w-3 h-3" />
-                  <span>Clinical Sources & Guidelines:</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-[10px] font-bold text-[var(--text-subtle)] uppercase tracking-wider">
+                    <BookOpen className="w-3 h-3 text-[var(--primary)]" />
+                    <span>Clinical Sources & Guidelines:</span>
+                  </div>
+                  <span className="text-[10px] text-[var(--text-muted)] italic hidden sm:inline">
+                    Click any source to verify reference ↗
+                  </span>
                 </div>
                 <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
-                  {sources.map((source, sIdx) => (
-                    <div
-                      key={sIdx}
-                      className="flex-shrink-0 max-w-[260px] p-2.5 rounded-xl bg-[var(--bg-surface-subtle)]/70 hover:bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] transition-all text-left group"
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <div className="w-4 h-4 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0 text-[9px] font-bold">
-                          {sIdx + 1}
+                  {sources.map((source, sIdx) => {
+                    const href = source.url || '';
+                    const hasPmid = source.pmid && source.pmid.length >= 6;
+                    const hasDoi = source.doi && source.doi.startsWith('10.');
+                    const hasLink = !!href;
+
+                    const Tag = hasLink ? 'a' : 'div';
+                    const linkProps = hasLink ? {
+                      href,
+                      target: '_blank' as const,
+                      rel: 'noopener noreferrer',
+                    } : {};
+
+                    return (
+                      <Tag
+                        key={sIdx}
+                        {...linkProps}
+                        title={hasLink ? `Open: ${source.title}` : source.title}
+                        className={`flex-shrink-0 max-w-[320px] p-2.5 rounded-xl bg-[var(--bg-surface-subtle)]/70 border border-[var(--border-color)] transition-all text-left group shadow-xs block ${
+                          hasLink ? 'hover:bg-blue-500/10 hover:border-blue-500/40 cursor-pointer' : 'opacity-90'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-1.5">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <div className="w-4 h-4 rounded-md bg-blue-500/15 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0 text-[9px] font-bold group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                              {sIdx + 1}
+                            </div>
+                            <span className="text-xs font-semibold text-[var(--text-main)] group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors truncate">
+                              {source.title}
+                            </span>
+                          </div>
+                          {hasLink && (
+                            <ExternalLink className="w-3 h-3 text-[var(--text-muted)] group-hover:text-blue-600 dark:group-hover:text-blue-400 flex-shrink-0 transition-colors" />
+                          )}
                         </div>
-                        <span className="text-xs font-semibold text-[var(--text-main)] truncate">
-                          {source.title}
-                        </span>
-                      </div>
-                      {source.relevance && (
-                        <p className="text-[11px] text-[var(--text-muted)] mt-1 line-clamp-1 pl-5">
-                          {source.relevance}
-                        </p>
-                      )}
-                    </div>
-                  ))}
+                        {source.relevance && (
+                          <p className="text-[11px] text-[var(--text-muted)] mt-1 line-clamp-1 pl-5">
+                            {source.relevance}
+                          </p>
+                        )}
+                        {(hasPmid || hasDoi) && (
+                          <div className="flex items-center gap-1.5 mt-1 pl-5">
+                            {hasPmid && (
+                              <span className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/15">
+                                PMID: {source.pmid}
+                              </span>
+                            )}
+                            {hasDoi && (
+                              <span className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/15">
+                                DOI: {source.doi}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </Tag>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -234,19 +310,6 @@ export const GoogleAiOverview: React.FC<GoogleAiOverviewProps> = ({
                 </div>
                 <p className="text-xs sm:text-sm text-[var(--text-muted)] leading-relaxed pl-6 font-normal">
                   {explanation.keyDifference}
-                </p>
-              </div>
-            )}
-
-            {/* High-Yield Board / Recall Tip */}
-            {explanation.boardTip && (
-              <div className="p-3.5 rounded-xl bg-amber-500/5 dark:bg-amber-500/10 border border-amber-500/25 space-y-1">
-                <div className="flex items-center gap-2 text-xs font-bold text-amber-800 dark:text-amber-300">
-                  <Lightbulb className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
-                  <span>High-Yield Board Takeaway:</span>
-                </div>
-                <p className="text-xs sm:text-sm text-[var(--text-main)] leading-relaxed pl-6 font-normal">
-                  {explanation.boardTip}
                 </p>
               </div>
             )}

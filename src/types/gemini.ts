@@ -32,6 +32,8 @@ export interface ExplanationSource {
   title: string;
   relevance?: string;
   url?: string;
+  pmid?: string;
+  doi?: string;
 }
 
 export interface MCExplanationResponse {
@@ -42,6 +44,8 @@ export interface MCExplanationResponse {
   boardTip?: string;
   sources?: ExplanationSource[];
   isAiPowered?: boolean;
+  modelUsed?: string;
+  generationTimeMs?: number;
 }
 
 

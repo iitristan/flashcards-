@@ -23,13 +23,13 @@ export const GlobalMusicHost: React.FC = () => {
   return (
     <div
       aria-hidden="true"
-      className="fixed -left-[9999px] top-0 w-[320px] h-[240px] pointer-events-none overflow-hidden z-[-1]"
+      className="fixed bottom-0 right-0 w-[200px] h-[120px] pointer-events-none opacity-[0.001] z-[-50] overflow-hidden"
     >
       <iframe
         key={parsed.embedUrl}
         src={parsed.embedUrl}
-        width="320"
-        height="240"
+        width="200"
+        height="120"
         title="NutriAnki Persistent Background Audio"
         frameBorder="0"
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"

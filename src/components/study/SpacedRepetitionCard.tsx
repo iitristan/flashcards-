@@ -309,18 +309,18 @@ export const SpacedRepetitionCard: React.FC<SpacedRepetitionCardProps> = ({
 
               {/* On-Demand AI Overview Button for Flashcards (Save Tokens) */}
               {!aiExplanation && !isLoadingAi && (
-                <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] shadow-xs">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-[var(--text-muted)]">
-                    <Sparkles className="w-4 h-4 text-[var(--primary)]" />
-                    <span>Want deep clinical AI overview & sources?</span>
+                <div className="flex items-center justify-between gap-2 p-2.5 sm:p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] shadow-xs">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-[var(--text-muted)] min-w-0">
+                    <Sparkles className="w-4 h-4 text-[var(--primary)] flex-shrink-0" />
+                    <span className="truncate">Clinical AI Breakdown</span>
                   </div>
                   <button
                     type="button"
                     onClick={fetchAiExplanation}
-                    className="px-3.5 py-1.5 rounded-lg bg-[var(--bg-surface-subtle)] hover:bg-[var(--primary)]/10 border border-[var(--border-color)] hover:border-[var(--primary)]/30 text-xs font-bold text-[var(--text-main)] hover:text-[var(--primary)] transition-all shadow-xs flex items-center gap-1.5 active:scale-95"
+                    className="px-3 py-1.5 rounded-lg bg-[var(--bg-surface-subtle)] hover:bg-[var(--primary)]/10 border border-[var(--border-color)] hover:border-[var(--primary)]/30 text-xs font-bold text-[var(--text-main)] hover:text-[var(--primary)] transition-all shadow-xs flex items-center gap-1.5 flex-shrink-0 whitespace-nowrap active:scale-95 cursor-pointer"
                   >
-                    <Sparkles className="w-3.5 h-3.5 text-[var(--primary)]" />
-                    <span>Request AI Overview</span>
+                    <Sparkles className="w-3.5 h-3.5 text-[var(--primary)] flex-shrink-0" />
+                    <span>AI Overview</span>
                   </button>
                 </div>
               )}
@@ -335,10 +335,11 @@ export const SpacedRepetitionCard: React.FC<SpacedRepetitionCardProps> = ({
                 />
               )}
 
-              {/* Personal Self-Notes Scratchpad */}
+              {/* Personal Self-Notes & Card Correction */}
               <SelfNoteInput
                 cardId={card.id}
                 deckId={card.deckId}
+                card={card}
                 initialNote={card.userNotes || ''}
               />
             </motion.div>

@@ -3,10 +3,23 @@
 -- Run this in your Supabase Dashboard: SQL Editor -> New query
 -- ==========================================================
 
+-- 0. DROP LEGACY CONSTRAINTS & NOT NULL (Permits zero-login couple sync without Auth dependency)
+ALTER TABLE IF EXISTS public.decks DROP CONSTRAINT IF EXISTS decks_user_id_fkey;
+ALTER TABLE IF EXISTS public.flashcards DROP CONSTRAINT IF EXISTS flashcards_user_id_fkey;
+ALTER TABLE IF EXISTS public.playlists DROP CONSTRAINT IF EXISTS playlists_user_id_fkey;
+ALTER TABLE IF EXISTS public.study_sessions DROP CONSTRAINT IF EXISTS study_sessions_user_id_fkey;
+ALTER TABLE IF EXISTS public.study_logs DROP CONSTRAINT IF EXISTS study_logs_user_id_fkey;
+
+ALTER TABLE IF EXISTS public.decks ALTER COLUMN user_id DROP NOT NULL;
+ALTER TABLE IF EXISTS public.flashcards ALTER COLUMN user_id DROP NOT NULL;
+ALTER TABLE IF EXISTS public.playlists ALTER COLUMN user_id DROP NOT NULL;
+ALTER TABLE IF EXISTS public.study_sessions ALTER COLUMN user_id DROP NOT NULL;
+ALTER TABLE IF EXISTS public.study_logs ALTER COLUMN user_id DROP NOT NULL;
+
 -- 1. DECKS TABLE
 CREATE TABLE IF NOT EXISTS public.decks (
   id TEXT PRIMARY KEY,
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id UUID DEFAULT NULL,
   title TEXT NOT NULL,
   description TEXT DEFAULT '',
   category TEXT NOT NULL DEFAULT 'Clinical Nutrition',
@@ -21,7 +34,7 @@ CREATE TABLE IF NOT EXISTS public.decks (
 CREATE TABLE IF NOT EXISTS public.flashcards (
   id TEXT PRIMARY KEY,
   deck_id TEXT NOT NULL REFERENCES public.decks(id) ON DELETE CASCADE,
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id UUID DEFAULT NULL,
   front TEXT NOT NULL,
   back TEXT NOT NULL,
   rationale TEXT DEFAULT '',
@@ -39,7 +52,7 @@ CREATE TABLE IF NOT EXISTS public.flashcards (
 -- 3. PLAYLISTS TABLE
 CREATE TABLE IF NOT EXISTS public.playlists (
   id TEXT PRIMARY KEY,
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id UUID DEFAULT NULL,
   title TEXT NOT NULL,
   description TEXT DEFAULT '',
   deck_ids JSONB DEFAULT '[]'::jsonb,

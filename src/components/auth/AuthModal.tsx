@@ -23,7 +23,7 @@ interface AuthModalProps {
   syncStatus: 'idle' | 'syncing' | 'synced' | 'error' | 'offline';
   localDecksCount: number;
   onSyncNow: () => Promise<void>;
-  onApplyThisDeviceToCloud: () => Promise<{ success: boolean; decksUploaded: number; totalCards: number }>;
+  onApplyThisDeviceToCloud: () => Promise<{ success: boolean; decksUploaded: number; totalCards: number; error?: string }>;
   onResetLocalAndPullFromCloud: () => Promise<void>;
   onClose: () => void;
 }
@@ -43,9 +43,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setIsBusy(true);
     setActionType('sync');
     try {
+      console.log('[AuthModal] Starting manual cloud sync...');
       await onSyncNow();
       toast.success('Successfully synchronized with shared cloud!');
-    } catch {
+    } catch (err) {
+      console.error('[AuthModal] Sync failed:', err);
       toast.error('Sync failed. Please check network connection.');
     } finally {
       setIsBusy(false);
@@ -57,16 +59,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setIsBusy(true);
     setActionType('apply');
     try {
+      console.log('[AuthModal] Setting this device as master & pushing dataset to Cloud...');
       const res = await onApplyThisDeviceToCloud();
+      console.log('[AuthModal] Push result:', res);
       if (res.success) {
         toast.success(
           `Applied this device as master! ${res.decksUploaded} decks (${res.totalCards} cards) saved to Cloud.`
         );
       } else {
-        toast.error('Failed to apply data to cloud. Please try again.');
+        const errorMsg = res.error || 'Failed to apply data to cloud.';
+        console.error('[AuthModal] Push failed with reason:', errorMsg);
+        toast.error(errorMsg);
       }
-    } catch {
-      toast.error('Error applying data to cloud.');
+    } catch (err) {
+      console.error('[AuthModal] Unexpected exception applying data to cloud:', err);
+      toast.error('Error applying data to cloud. Check developer console for details.');
     } finally {
       setIsBusy(false);
       setActionType(null);

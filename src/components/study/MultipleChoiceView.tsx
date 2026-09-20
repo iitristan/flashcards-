@@ -45,24 +45,52 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
     return optionSplit.trim() || raw;
   }, [card.front]);
 
-  // Generate 4 randomized options
-  const options = useMemo(() => {
+  const [options, setOptions] = useState<string[]>([]);
+
+  // Dynamically randomize and interchange option slots (A, B, C, D) whenever card is presented/updated
+  useEffect(() => {
+    const cleanBack = cleanOptionLabel(card.back || '');
+    let pool: string[] = [];
+
     if (card.options && card.options.length >= 2) {
       const cleaned = card.options.map(opt => cleanOptionLabel(opt));
-      const cleanBack = cleanOptionLabel(card.back);
-      const uniqueOpts = Array.from(new Set([...cleaned, cleanBack]));
-      return shuffleArray(uniqueOpts.slice(0, 4));
+      pool = Array.from(new Set([...cleaned, cleanBack]));
+    } else {
+      pool = [
+        cleanBack,
+        'Increased dietary sodium intake',
+        'Normal metabolic steady-state',
+        'Standard clinical recommendation'
+      ];
     }
 
-    const cleanBack = cleanOptionLabel(card.back);
-    const fallback = [
-      cleanBack,
-      'Increased dietary sodium intake',
-      'Normal metabolic steady-state',
-      'Standard clinical recommendation'
-    ];
-    return shuffleArray(Array.from(new Set(fallback)));
-  }, [card.back, card.options]);
+    // Ensure 4 distinct options by pulling from other cards if needed
+    if (pool.length < 4) {
+      const allDecks = useNutriStore.getState().decks;
+      const otherAnswers = allDecks.flatMap(d => d.cards || [])
+        .map(c => cleanOptionLabel(c.back || ''))
+        .filter(ans => ans && ans.toLowerCase() !== cleanBack.toLowerCase());
+      
+      const shuffledOther = shuffleArray(Array.from(new Set(otherAnswers)));
+      pool = Array.from(new Set([cleanBack, ...pool, ...shuffledOther.slice(0, 4 - pool.length)]));
+    }
+
+    if (pool.length < 4) {
+      const fallbackDistractors = [
+        'Increased dietary sodium intake',
+        'Normal metabolic steady-state',
+        'Standard clinical recommendation',
+        'Decreased serum potassium concentration'
+      ];
+      pool = Array.from(new Set([...pool, ...fallbackDistractors]));
+    }
+
+    // Thoroughly shuffle so placement of correct answer changes (e.g. from 4th to 1st/A)
+    setOptions(shuffleArray(pool.slice(0, 4)));
+    setSelectedOption(null);
+    setHasSubmitted(false);
+    setAiExplanation(null);
+  }, [card.id, card.back, card.options, card.updatedAt, card.lastReviewedAt]);
 
   const normalizeForComparison = useCallback((str: string) => {
     return cleanOptionLabel(cleanRawHtml(str || '')).trim().toLowerCase();
@@ -121,7 +149,7 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
     }
   };
 
-  const handleNext = () => {
+  const handleNext = useCallback(() => {
     const isCorrect = selectedOption ? normalizeForComparison(selectedOption) === normalizeForComparison(card.back) : false;
     const rating: ReviewRating = isCorrect ? 'good' : 'again';
     onAnswer({
@@ -129,7 +157,7 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
       isCorrect,
       selectedOption: selectedOption || 'Time Expired'
     });
-  };
+  }, [selectedOption, normalizeForComparison, card.back, onAnswer]);
 
   // Keyboard navigation for Enter key to continue
   useEffect(() => {
@@ -141,7 +169,7 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  });
+  }, [hasSubmitted, handleNext]);
 
   const letters = ['A', 'B', 'C', 'D'];
 
@@ -266,26 +294,22 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
 
             {/* On-Demand AI Overview Button (Save Tokens - Only Fetches When Clicked) */}
             {!aiExplanation && !isLoadingAi && (
-              <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] shadow-xs">
-                <div className="flex items-center gap-2 text-xs font-semibold text-[var(--text-muted)]">
-                  <Sparkles className={`w-4 h-4 ${selectedOption && normalizeForComparison(selectedOption) === normalizeForComparison(card.back) ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}`} />
-                  <span>
-                    {selectedOption && normalizeForComparison(selectedOption) === normalizeForComparison(card.back)
-                      ? 'Correct! Want deep AI overview & differential breakdown?'
-                      : 'Want clinical AI overview & why this answer is right?'}
-                  </span>
+              <div className="flex items-center justify-between gap-2 p-2.5 sm:p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] shadow-xs">
+                <div className="flex items-center gap-2 text-xs font-semibold text-[var(--text-muted)] min-w-0">
+                  <Sparkles className={`w-4 h-4 flex-shrink-0 ${selectedOption && normalizeForComparison(selectedOption) === normalizeForComparison(card.back) ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}`} />
+                  <span className="truncate">Clinical AI Breakdown</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => fetchAiExplanation(selectedOption || card.back)}
-                  className={`px-3.5 py-1.5 rounded-lg bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-xs font-bold text-[var(--text-main)] transition-all shadow-xs flex items-center gap-1.5 active:scale-95 ${
+                  className={`px-3 py-1.5 rounded-lg bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-xs font-bold text-[var(--text-main)] transition-all shadow-xs flex items-center gap-1.5 flex-shrink-0 whitespace-nowrap active:scale-95 cursor-pointer ${
                     selectedOption && normalizeForComparison(selectedOption) === normalizeForComparison(card.back)
                       ? 'hover:bg-emerald-500/10 hover:border-emerald-500/30 hover:text-emerald-700 dark:hover:text-emerald-300'
                       : 'hover:bg-amber-500/10 hover:border-amber-500/30 hover:text-amber-700 dark:hover:text-amber-300'
                   }`}
                 >
-                  <Sparkles className={`w-3.5 h-3.5 ${selectedOption && normalizeForComparison(selectedOption) === normalizeForComparison(card.back) ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}`} />
-                  <span>Request AI Overview</span>
+                  <Sparkles className={`w-3.5 h-3.5 flex-shrink-0 ${selectedOption && normalizeForComparison(selectedOption) === normalizeForComparison(card.back) ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}`} />
+                  <span>AI Overview</span>
                 </button>
               </div>
             )}
@@ -302,19 +326,23 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
               />
             )}
 
-            {/* Self-Notes Per Item */}
+            {/* Self-Notes & Card Correction Per Item */}
             <SelfNoteInput
               cardId={card.id}
               deckId={card.deckId}
+              card={card}
               initialNote={card.userNotes || ''}
             />
 
             {/* Continue / Next Question Button */}
             <button
               onClick={handleNext}
-              className="w-full py-3.5 rounded-lg bg-[var(--primary)] hover:bg-[var(--primary-hover)] active:scale-[0.99] text-white font-semibold text-sm shadow-xs transition-all flex items-center justify-center gap-2"
+              className="w-full py-3.5 px-4 rounded-xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] active:scale-[0.99] text-white font-bold text-sm shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
-              <span>Continue (Press Enter)</span>
+              <span>Continue</span>
+              <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded bg-black/20 text-[11px] font-mono font-medium">
+                Enter ↵
+              </kbd>
               <ArrowRight className="w-4 h-4" />
             </button>
           </motion.div>

@@ -345,26 +345,22 @@ export const IdentificationView: React.FC<IdentificationViewProps> = ({
 
             {/* On-Demand AI Overview Button (Save Tokens - Only Fetches When Clicked) */}
             {!aiExplanation && !isLoadingAi && (
-              <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] shadow-xs">
-                <div className="flex items-center gap-2 text-xs font-semibold text-[var(--text-muted)]">
-                  <Sparkles className={`w-4 h-4 ${gradeResult.verdict === 'correct' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}`} />
-                  <span>
-                    {gradeResult.verdict === 'correct'
-                      ? 'Correct! Want deep clinical AI overview & sources?'
-                      : 'Want clinical AI overview & evidence breakdown?'}
-                  </span>
+              <div className="flex items-center justify-between gap-2 p-2.5 sm:p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] shadow-xs">
+                <div className="flex items-center gap-2 text-xs font-semibold text-[var(--text-muted)] min-w-0">
+                  <Sparkles className={`w-4 h-4 flex-shrink-0 ${gradeResult.verdict === 'correct' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}`} />
+                  <span className="truncate">Clinical AI Breakdown</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => fetchAiExplanation(inputAnswer || card.back)}
-                  className={`px-3.5 py-1.5 rounded-lg bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-xs font-bold text-[var(--text-main)] transition-all shadow-xs flex items-center gap-1.5 active:scale-95 ${
+                  className={`px-3 py-1.5 rounded-lg bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-xs font-bold text-[var(--text-main)] transition-all shadow-xs flex items-center gap-1.5 flex-shrink-0 whitespace-nowrap active:scale-95 cursor-pointer ${
                     gradeResult.verdict === 'correct'
                       ? 'hover:bg-emerald-500/10 hover:border-emerald-500/30 hover:text-emerald-700 dark:hover:text-emerald-300'
                       : 'hover:bg-amber-500/10 hover:border-amber-500/30 hover:text-amber-700 dark:hover:text-amber-300'
                   }`}
                 >
-                  <Sparkles className={`w-3.5 h-3.5 ${gradeResult.verdict === 'correct' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}`} />
-                  <span>Request AI Overview</span>
+                  <Sparkles className={`w-3.5 h-3.5 flex-shrink-0 ${gradeResult.verdict === 'correct' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}`} />
+                  <span>AI Overview</span>
                 </button>
               </div>
             )}
@@ -381,23 +377,25 @@ export const IdentificationView: React.FC<IdentificationViewProps> = ({
               />
             )}
 
-            {/* Self-Notes Per Item */}
+            {/* Self-Notes & Card Correction Per Item */}
             <SelfNoteInput
               cardId={card.id}
               deckId={card.deckId}
+              card={card}
               initialNote={card.userNotes || ''}
             />
 
             {/* Next Button */}
-            <motion.button
-              whileHover={{ scale: 1.01 }}
-              whileTap={{ scale: 0.99 }}
+            <button
               onClick={handleNext}
-              className="w-full py-3.5 rounded-lg bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white text-sm font-semibold shadow-xs transition-colors flex items-center justify-center gap-2"
+              className="w-full py-3.5 px-4 rounded-xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] active:scale-[0.99] text-white font-bold text-sm shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
-              <span>Next Question (Press Enter)</span>
+              <span>Next Question</span>
+              <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded bg-black/20 text-[11px] font-mono font-medium">
+                Enter ↵
+              </kbd>
               <ArrowRight className="w-4 h-4" />
-            </motion.button>
+            </button>
           </motion.div>
         )}
       </AnimatePresence>

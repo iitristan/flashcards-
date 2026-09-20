@@ -100,7 +100,17 @@ export async function POST(req: NextRequest) {
 
     // Call Google Gemini API
     const genAI = new GoogleGenerativeAI(apiKey);
-    const MODEL_CANDIDATES = ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.6-flash'];
+    const MODEL_CANDIDATES = [
+      'gemini-3.5-flash',
+      'gemini-3.5-flash-lite',
+      'gemini-3.5-pro',
+      'gemini-2.5-flash',
+      'gemini-2.5-pro',
+      'gemini-2.0-flash',
+      'gemini-2.0-flash-lite',
+      'gemini-1.5-flash',
+      'gemini-1.5-pro'
+    ];
 
     const prompt = `You are a strict yet encouraging Nutrition and Dietetics Board Exam reviewer professor.
 Evaluate the student's answer against the target answer for this flashcard question.

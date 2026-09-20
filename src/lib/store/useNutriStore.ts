@@ -46,7 +46,7 @@ interface NutriStore {
   initAuth: () => Promise<void>;
   syncWithCloud: () => Promise<void>;
   uploadLocalDecksToCloud: () => Promise<void>;
-  applyThisDeviceToCloudAndAllDevices: () => Promise<{ success: boolean; decksUploaded: number; totalCards: number }>;
+  applyThisDeviceToCloudAndAllDevices: () => Promise<{ success: boolean; decksUploaded: number; totalCards: number; error?: string }>;
   resetLocalAndPullFromCloud: () => Promise<void>;
 
   // Session & Progress Actions
@@ -164,35 +164,12 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
         });
         await get().syncWithCloud();
       } else {
-        // Automatically connect to shared couple sync workspace (zero-login)
-        const SHARED_EMAIL = 'couple@nutrianki.shared';
-        const SHARED_PASS = 'NutriAnkiCoupleSync2026!';
-        try {
-          const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
-            email: SHARED_EMAIL,
-            password: SHARED_PASS,
-          });
-
-          if (signInData?.user) {
-            set({
-              user: { id: signInData.user.id, email: signInData.user.email },
-            });
-            await get().syncWithCloud();
-          } else if (signInErr) {
-            const { data: signUpData } = await supabase.auth.signUp({
-              email: SHARED_EMAIL,
-              password: SHARED_PASS,
-            });
-            if (signUpData?.user) {
-              set({
-                user: { id: signUpData.user.id, email: signUpData.user.email },
-              });
-              await get().syncWithCloud();
-            }
-          }
-        } catch {
-          set({ syncStatus: 'idle' });
-        }
+        // Zero-login shared cloud sync (Works out-of-the-box without requiring user signup/auth)
+        const currentUser = await syncService.getCurrentUser();
+        set({
+          user: currentUser || { id: '00000000-0000-0000-0000-000000000001', email: 'shared@nutrianki.cloud' },
+        });
+        await get().syncWithCloud();
       }
 
       supabase.auth.onAuthStateChange(async (event, newSession) => {
@@ -233,11 +210,14 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
 
   syncWithCloud: async () => {
     const supabase = getSupabaseClient();
-    if (!supabase) return;
+    if (!supabase) {
+      set({ syncStatus: 'offline' });
+      return;
+    }
 
     const currentUser = await syncService.getCurrentUser();
     if (!currentUser) {
-      set({ user: null, syncStatus: 'idle' });
+      set({ syncStatus: 'idle' });
       return;
     }
 
@@ -356,11 +336,16 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
   applyThisDeviceToCloudAndAllDevices: async () => {
     set({ syncStatus: 'syncing' });
     try {
+      console.log('[Store] Loading local decks, playlists, and study logs for master overwrite...');
       const localDecks = await deckService.getDecks();
       const localPlaylists = await deckService.getPlaylists();
       const localLogs = await deckService.getReviewLogs();
       const prefs = get().preferences;
+      console.log(`[Store] Local data ready: ${localDecks.length} decks, ${localPlaylists.length} playlists, ${localLogs.length} logs`);
+
       const res = await syncService.overwriteCloudWithLocalData(localDecks, localPlaylists, prefs, localLogs);
+      console.log('[Store] overwriteCloudWithLocalData response:', res);
+
       if (res.success) {
         set({
           syncStatus: 'synced',
@@ -370,12 +355,13 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
         return res;
       } else {
         set({ syncStatus: 'error' });
-        return { success: false, decksUploaded: 0, totalCards: 0 };
+        return res;
       }
     } catch (err) {
-      console.error('Failed to apply this device to cloud:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[Store] Failed to apply this device to cloud:', err);
       set({ syncStatus: 'error' });
-      return { success: false, decksUploaded: 0, totalCards: 0 };
+      return { success: false, decksUploaded: 0, totalCards: 0, error: msg };
     }
   },
 
@@ -692,27 +678,36 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
   updateCard: async (deckId, cardId, updates) => {
     await deckService.updateCard(deckId, cardId, updates);
     await get().loadDecks();
-    if (get().user) {
-      const d = get().decks.find((deck) => deck.id === deckId);
-      if (d) syncService.pushDeckToCloud(d).catch(console.error);
+    const d = get().decks.find((deck) => deck.id === deckId);
+    if (d) syncService.pushDeckToCloud(d).catch(console.warn);
+
+    // Also update current card in active session if active
+    const { activeSession } = get();
+    if (activeSession) {
+      const updatedQueue = activeSession.cardsQueue.map((c) =>
+        c.id === cardId ? { ...c, ...updates, updatedAt: new Date().toISOString() } : c
+      );
+      set({
+        activeSession: {
+          ...activeSession,
+          cardsQueue: updatedQueue
+        }
+      });
     }
   },
 
   deleteCard: async (deckId, cardId) => {
     await deckService.deleteCard(deckId, cardId);
     await get().loadDecks();
-    if (get().user) {
-      const d = get().decks.find((deck) => deck.id === deckId);
-      if (d) syncService.pushDeckToCloud(d).catch(console.error);
-    }
+    const d = get().decks.find((deck) => deck.id === deckId);
+    if (d) syncService.pushDeckToCloud(d).catch(console.warn);
   },
 
   saveCardNote: async (deckId, cardId, note) => {
     const updatedCard = await deckService.saveCardNote(deckId, cardId, note);
     await get().loadDecks();
-    if (get().user) {
-      syncService.syncCardReview(deckId, updatedCard).catch((err) => console.error('Cloud sync note error:', err));
-    }
+    syncService.syncCardReview(deckId, updatedCard).catch((err) => console.warn('Cloud sync note error:', err));
+    
     // Also update current card in active session if active
     const { activeSession } = get();
     if (activeSession) {
@@ -816,11 +811,16 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       activeSession.mode
     );
 
-    if (get().user) {
-      syncService.syncCardReview(targetDeckId, updatedCard).catch((err) =>
-        console.error('Cloud sync error on recordReview:', err)
-      );
-    }
+    // Refresh decks list in store state so UI stats immediately reflect the review
+    try {
+      const updatedDecks = await deckService.getDecks();
+      set({ decks: updatedDecks });
+    } catch {}
+
+    // Cloud sync card review (zero-login shared workspace & authenticated sync)
+    syncService.syncCardReview(targetDeckId, updatedCard).catch((err) =>
+      console.warn('Cloud sync on recordReview:', err)
+    );
 
     const newResult: CardReviewResult = {
       cardId: currentCard.id,
@@ -860,40 +860,30 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       } catch {}
     }
 
-    // Persist to Supabase if authenticated
-    if (get().user) {
-      // 1. Save in-progress checkpoint
-      syncService.saveSessionCheckpoint(updatedSession).then(() => {
-        set({ saveStatus: 'saved' });
-        setTimeout(() => {
-          if (get().saveStatus === 'saved') set({ saveStatus: 'idle' });
-        }, 1500);
-      }).catch(() => {
-        set({ saveStatus: 'error' });
-      });
-
-      // 2. Push historical study log entry
-      syncService.pushStudyLog({
-        cardId: currentCard.id,
-        deckId: targetDeckId,
-        mode: activeSession.mode,
-        rating,
-        userAnswer,
-        isCorrect,
-        timeSpentSeconds,
-        verdict,
-        createdAt: new Date().toISOString()
-      }).catch(console.error);
-
-      // 3. If session completed, mark finished in cloud
-      if (isCompleted && updatedSession.id) {
-        syncService.completeStudySession(updatedSession.id).catch(console.error);
-      }
-    } else {
+    // Persist checkpoint & study log to cloud
+    syncService.saveSessionCheckpoint(updatedSession).then(() => {
       set({ saveStatus: 'saved' });
       setTimeout(() => {
         if (get().saveStatus === 'saved') set({ saveStatus: 'idle' });
-      }, 1200);
+      }, 1500);
+    }).catch(() => {
+      set({ saveStatus: 'saved' }); // Local save succeeded
+    });
+
+    syncService.pushStudyLog({
+      cardId: currentCard.id,
+      deckId: targetDeckId,
+      mode: activeSession.mode,
+      rating,
+      userAnswer,
+      isCorrect,
+      timeSpentSeconds,
+      verdict,
+      createdAt: new Date().toISOString()
+    }).catch(console.warn);
+
+    if (isCompleted && updatedSession.id) {
+      syncService.completeStudySession(updatedSession.id).catch(console.warn);
     }
 
     // If completed, trigger victory sound & update streak/daily stats

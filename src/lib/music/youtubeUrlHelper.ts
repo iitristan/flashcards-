@@ -47,7 +47,7 @@ export function parseYouTubeUrl(rawUrl: string): {
     // Direct playlist without video ID
     if (!videoId && playlistId) {
       return {
-        embedUrl: `https://www.youtube.com/embed/videoseries?list=${playlistId}&autoplay=1&enablejsapi=1&playsinline=1`,
+        embedUrl: `https://www.youtube.com/embed/videoseries?list=${playlistId}&autoplay=1&enablejsapi=1&playsinline=1&controls=0&iv_load_policy=3&rel=0`,
         playlistId,
         isValid: true
       };
@@ -57,7 +57,7 @@ export function parseYouTubeUrl(rawUrl: string): {
     if (videoId) {
       const extra = playlistId ? `&list=${playlistId}` : '';
       return {
-        embedUrl: `https://www.youtube.com/embed/${videoId}?autoplay=1&enablejsapi=1&playsinline=1${extra}`,
+        embedUrl: `https://www.youtube.com/embed/${videoId}?autoplay=1&enablejsapi=1&playsinline=1&controls=0&iv_load_policy=3&rel=0${extra}`,
         videoId,
         playlistId,
         isValid: true
@@ -66,8 +66,12 @@ export function parseYouTubeUrl(rawUrl: string): {
 
     // If already starts with https://www.youtube.com/embed/
     if (trimmed.startsWith('https://www.youtube.com/embed/')) {
+      const glue = trimmed.includes('?') ? '&' : '?';
+      const embedUrl = trimmed.includes('playsinline')
+        ? trimmed
+        : `${trimmed}${glue}autoplay=1&enablejsapi=1&playsinline=1&controls=0&iv_load_policy=3&rel=0`;
       return {
-        embedUrl: trimmed,
+        embedUrl,
         isValid: true
       };
     }
