@@ -46,6 +46,9 @@ export interface MCExplanationResponse {
   isAiPowered?: boolean;
   modelUsed?: string;
   generationTimeMs?: number;
+  unavailable?: boolean;
+  error?: string;
+  authorRationale?: string;
 }
 
 

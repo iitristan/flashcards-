@@ -252,13 +252,47 @@ class IndexedDbDeckService implements IDeckService {
     mode: StudyMode = 'spaced-repetition'
   ): Promise<Flashcard> {
     const decks = await this.loadStoredDecks();
-    const deck = decks.find(d => d.id === deckId);
-    if (!deck) throw new Error(`Deck not found`);
+    let deck = decks.find(d => d.id === deckId);
 
-    const card = deck.cards.find(c => c.id === cardId);
-    if (!card) throw new Error(`Card not found`);
+    // Fallback: If not found by deckId (e.g. playlist or race condition), search across all decks by cardId
+    if (!deck) {
+      deck = decks.find(d => d.cards?.some(c => c.id === cardId));
+    }
 
     const now = new Date();
+
+    if (!deck) {
+      console.warn(`[DeckService] Deck ${deckId} not found in stored decks during review. Gracefully continuing.`);
+      return {
+        id: cardId,
+        deckId,
+        front: 'Card',
+        back: 'Answer',
+        rationale: '',
+        leitnerBox: 1,
+        sm2: calculateSM2(undefined, rating, now),
+        lastReviewedAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        createdAt: now.toISOString()
+      };
+    }
+
+    const card = deck.cards.find(c => c.id === cardId);
+    if (!card) {
+      console.warn(`[DeckService] Card ${cardId} not found in deck ${deck.id}. Gracefully continuing.`);
+      return {
+        id: cardId,
+        deckId: deck.id,
+        front: 'Card',
+        back: 'Answer',
+        rationale: '',
+        leitnerBox: 1,
+        sm2: calculateSM2(undefined, rating, now),
+        lastReviewedAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        createdAt: now.toISOString()
+      };
+    }
     const updatedSm2 = calculateSM2(card.sm2, rating, now);
 
     // Calculate Leitner Box (1 to 5) based on interval

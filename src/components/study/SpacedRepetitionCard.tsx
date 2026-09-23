@@ -6,6 +6,7 @@ import { RotateCw, BookOpen, Lightbulb, Tag, Check, ArrowRight, Sparkles } from 
 
 import { Flashcard, ReviewRating, MCExplanationResponse } from '@/types';
 import { getIntervalLabel } from '@/lib/services/flashcardService';
+import { useNutriStore } from '@/lib/store/useNutriStore';
 import { FormattedCardText } from './FormattedCardText';
 import { soundEffects } from '@/lib/soundEffects';
 import { SelfNoteInput } from './SelfNoteInput';
@@ -23,13 +24,14 @@ export const SpacedRepetitionCard: React.FC<SpacedRepetitionCardProps> = ({
   onRate,
   isExpired = false
 }) => {
+  const { preferences } = useNutriStore();
   const [isFlipped, setIsFlipped] = useState(false);
   const [showHint, setShowHint] = useState(false);
   const [aiExplanation, setAiExplanation] = useState<MCExplanationResponse | null>(null);
   const [isLoadingAi, setIsLoadingAi] = useState(false);
 
   const fetchAiExplanation = useCallback(async () => {
-    if (aiExplanation || isLoadingAi) return;
+    if (isLoadingAi || (aiExplanation && !aiExplanation.unavailable)) return;
     setIsLoadingAi(true);
     try {
       const res = await fetch('/api/explain-mc', {
@@ -40,19 +42,36 @@ export const SpacedRepetitionCard: React.FC<SpacedRepetitionCardProps> = ({
           userAnswer: card.back,
           correctAnswer: card.back,
           allOptions: [card.back],
-          rationale: card.rationale || ''
+          rationale: card.rationale || '',
+          apiKey: preferences.geminiApiKey || undefined
         })
       });
       if (res.ok) {
         const data: MCExplanationResponse = await res.json();
         setAiExplanation(data);
+      } else {
+        const errData = await res.json().catch(() => null);
+        setAiExplanation({
+          whyRight: '',
+          isAiPowered: false,
+          unavailable: true,
+          error: errData?.error || `Service temporarily unavailable (${res.status})`,
+          authorRationale: card.rationale || undefined
+        });
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn('Failed to fetch AI explanation in flashcard:', err);
+      setAiExplanation({
+        whyRight: '',
+        isAiPowered: false,
+        unavailable: true,
+        error: err?.message || 'Network error',
+        authorRationale: card.rationale || undefined
+      });
     } finally {
       setIsLoadingAi(false);
     }
-  }, [card.front, card.back, card.rationale, aiExplanation, isLoadingAi]);
+  }, [card.front, card.back, card.rationale, aiExplanation, isLoadingAi, preferences.geminiApiKey]);
 
   // Auto flip if timer expired
   useEffect(() => {

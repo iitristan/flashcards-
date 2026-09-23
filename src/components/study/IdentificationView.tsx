@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, Send, CheckCircle2, AlertCircle, XCircle, ArrowRight, Tag, BookOpen, Loader2 } from 'lucide-react';
 import { Flashcard, ReviewRating, AIGradeResponse, MCExplanationResponse } from '@/types';
 import { soundEffects } from '@/lib/soundEffects';
+import { useNutriStore } from '@/lib/store/useNutriStore';
 import { FormattedCardText } from './FormattedCardText';
 import { SelfNoteInput } from './SelfNoteInput';
 import { GoogleAiOverview } from './GoogleAiOverview';
@@ -27,6 +28,7 @@ export const IdentificationView: React.FC<IdentificationViewProps> = ({
   onAnswer,
   isExpired = false
 }) => {
+  const { preferences } = useNutriStore();
   const [inputAnswer, setInputAnswer] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [gradeResult, setGradeResult] = useState<AIGradeResponse | null>(null);
@@ -45,19 +47,36 @@ export const IdentificationView: React.FC<IdentificationViewProps> = ({
           userAnswer: userChoice,
           correctAnswer: card.back,
           allOptions: [card.back, userChoice].filter(Boolean),
-          rationale: card.rationale || ''
+          rationale: card.rationale || '',
+          apiKey: preferences.geminiApiKey || undefined
         })
       });
       if (res.ok) {
         const data: MCExplanationResponse = await res.json();
         setAiExplanation(data);
+      } else {
+        const errData = await res.json().catch(() => null);
+        setAiExplanation({
+          whyRight: '',
+          isAiPowered: false,
+          unavailable: true,
+          error: errData?.error || `Service temporarily unavailable (${res.status})`,
+          authorRationale: card.rationale || undefined
+        });
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn('Failed to fetch AI explanation in Identification:', err);
+      setAiExplanation({
+        whyRight: '',
+        isAiPowered: false,
+        unavailable: true,
+        error: err?.message || 'Network error',
+        authorRationale: card.rationale || undefined
+      });
     } finally {
       setIsLoadingAi(false);
     }
-  }, [card.front, card.back, card.rationale]);
+  }, [card.front, card.back, card.rationale, preferences.geminiApiKey]);
 
   const handleSubmit = useCallback(async (overrideAnswer?: string) => {
     const textToSubmit = overrideAnswer !== undefined ? overrideAnswer : inputAnswer;
@@ -73,7 +92,8 @@ export const IdentificationView: React.FC<IdentificationViewProps> = ({
           question: card.front,
           targetAnswer: card.back,
           userAnswer: textToSubmit,
-          rationale: card.rationale
+          rationale: card.rationale,
+          apiKey: preferences.geminiApiKey || undefined
         })
       });
 

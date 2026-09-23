@@ -224,12 +224,44 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     set({ syncStatus: 'syncing' });
     try {
       const cloudData = await syncService.pullFromCloud();
-      if (cloudData && cloudData.decks && cloudData.decks.length > 0) {
-        // Cloud is the single authoritative source of truth.
-        // Directly overwrite local storage with synced cloud decks & playlists.
-        // This removes any stale, zombie, or sample decks that only existed locally.
-        await deckService.setAllDecks(cloudData.decks);
-        await deckService.setAllPlaylists(cloudData.playlists || []);
+      if (cloudData && cloudData.decks) {
+        const localDecks = await deckService.getDecks();
+        const cloudDeckMap = new Map(cloudData.decks.map((d) => [d.id, d]));
+        const mergedDecks: Deck[] = [...cloudData.decks];
+        const unsyncedLocalDecks: Deck[] = [];
+
+        for (const localDeck of localDecks) {
+          const cloudDeck = cloudDeckMap.get(localDeck.id);
+          if (!cloudDeck) {
+            // New local deck created on this device not yet in cloud: PRESERVE IT!
+            mergedDecks.push(localDeck);
+            unsyncedLocalDecks.push(localDeck);
+          } else {
+            // Exists in both: if local was updated more recently, preserve local card changes
+            const localTime = new Date(localDeck.updatedAt || localDeck.createdAt || 0).getTime();
+            const cloudTime = new Date(cloudDeck.updatedAt || cloudDeck.createdAt || 0).getTime();
+            if (localTime > cloudTime && (localDeck.cards?.length || 0) >= (cloudDeck.cards?.length || 0)) {
+              const idx = mergedDecks.findIndex((d) => d.id === localDeck.id);
+              if (idx !== -1) {
+                mergedDecks[idx] = localDeck;
+              }
+            }
+          }
+        }
+
+        await deckService.setAllDecks(mergedDecks);
+        if (cloudData.playlists) {
+          await deckService.setAllPlaylists(cloudData.playlists);
+        }
+
+        // Auto-upload any local decks that were missing from the cloud
+        if (unsyncedLocalDecks.length > 0 && get().user) {
+          for (const unsynced of unsyncedLocalDecks) {
+            syncService.pushDeckToCloud(unsynced).catch((err) =>
+              console.warn('[Sync] Auto-uploading local deck to cloud failed:', err)
+            );
+          }
+        }
 
         // Sync preferences
         const cloudPrefs = await syncService.pullPreferences();

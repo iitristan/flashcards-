@@ -11,29 +11,29 @@ const flashcardSchema = z.object({
   ),
 });
 
-const SYSTEM_PROMPT = `You are a flashcard generator. Return ONLY valid JSON, no markdown fences.
+const SYSTEM_PROMPT = `You are an expert educational flashcard creator and subject-matter authority. Return ONLY valid JSON, no markdown fences.
 Schema: { "cards": [ { "front": string, "back": string } ] }
 Rules:
-- front: concise question or term (max 120 chars)
-- back: clear answer/explanation (max 400 chars)
+- STRICT PROHIBITION ON META-REFERENCING: NEVER start questions with phrases like:
+  ✖ "According to..."
+  ✖ "Based on the text/reference..."
+  ✖ "As noted in the guidelines..."
+  ✖ "What does the document state about..."
+  Formulate direct, objective, clinical/scientific questions testing the REAL concept itself. E.g., instead of "According to ASPEN, what is the protein requirement for hemodialysis?", write "What is the recommended protein requirement for an adult patient on hemodialysis?"
+- front: concise, direct question or term (max 150 chars). State the real clinical/factual question directly.
+- back: clear, concrete, factual answer/explanation (max 400 chars). Give exact values, mechanisms, formulas, or definitions directly.
 - No duplicate fronts
-- Educational, factually accurate
-- Focus on the most important concepts from the source material`;
+- Educational, factually accurate, high yield`;
 
 const MODEL_CANDIDATES = [
-  'gemini-3.5-flash',
+  'gemini-3.6-flash',
   'gemini-3.5-flash-lite',
-  'gemini-3.5-pro',
-  'gemini-2.5-flash',
-  'gemini-2.5-pro',
-  'gemini-2.0-flash',
-  'gemini-2.0-flash-lite',
-  'gemini-1.5-flash',
-  'gemini-1.5-pro'
+  'gemini-3.5-flash',
+  'gemini-3.5-pro'
 ];
 
-function getModel(modelName: string = MODEL_CANDIDATES[0]) {
-  const apiKey = process.env.GEMINI_API_KEY;
+function getModel(modelName: string = MODEL_CANDIDATES[0], customApiKey?: string) {
+  const apiKey = customApiKey || process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error("GEMINI_API_KEY is not configured");
   }
@@ -65,6 +65,7 @@ export async function generateFlashcards(options: {
   rawText?: string;
   fileContent?: string;
   count?: number;
+  apiKey?: string;
 }): Promise<GeneratedFlashcard[]> {
   const count = Math.min(Math.max(options.count ?? 10, 1), 30);
 
@@ -93,7 +94,7 @@ export async function generateFlashcards(options: {
 
   for (const modelName of MODEL_CANDIDATES) {
     try {
-      const model = getModel(modelName);
+      const model = getModel(modelName, options.apiKey);
       const result = await model.generateContent(prompt);
       const text = result.response.text();
 

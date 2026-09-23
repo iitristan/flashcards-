@@ -8,6 +8,7 @@ const requestSchema = z.object({
   rawText: z.string().optional(),
   fileContent: z.string().optional(),
   count: z.number().int().min(1).max(30).optional(),
+  apiKey: z.string().optional(),
 });
 
 const ALLOWED_EXTENSIONS = [".txt", ".md", ".pdf"];
@@ -54,6 +55,7 @@ export async function POST(request: Request) {
         payload = {
           fileContent,
           count: Number(formData.get("count") ?? 10),
+          apiKey: formData.get("apiKey")?.toString(),
         };
       } else {
         payload = requestSchema.parse({
@@ -61,6 +63,7 @@ export async function POST(request: Request) {
           rawText: formData.get("rawText")?.toString(),
           fileContent: formData.get("fileContent")?.toString(),
           count: Number(formData.get("count") ?? 10),
+          apiKey: formData.get("apiKey")?.toString(),
         });
       }
     } else {
@@ -68,7 +71,8 @@ export async function POST(request: Request) {
       payload = requestSchema.parse(body);
     }
 
-    const cards = await generateFlashcards(payload);
+    const clientApiKey = payload.apiKey || request.headers.get("x-gemini-key") || undefined;
+    const cards = await generateFlashcards({ ...payload, apiKey: clientApiKey });
     return NextResponse.json({ cards });
   } catch (error) {
     console.error("generate-cards error:", error);

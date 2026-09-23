@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Deck, DeckCategory } from '@/types';
 import { deckService } from '@/lib/services/deckService';
+import { useNutriStore } from '@/lib/store/useNutriStore';
 import { ankiImporter, AnkiDeckPreview } from '@/lib/importers/anki';
 import { pdfImporter } from '@/lib/importers/pdf/pdfImporter';
 import { parseQuizletExamText } from '@/lib/importers/pdf/quizletPdfParser';
@@ -104,7 +105,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
         throw new Error(result.errors.join('; '));
       }
 
-      await deckService.importMultipleDecks(result.decks);
+      await useNutriStore.getState().importMultipleDecks(result.decks);
       toast.success(`Imported ${result.decks.length} decks (${result.totalCards} cards) successfully! 🎉`);
       onImportSuccess();
       onClose();
@@ -165,7 +166,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
         throw new Error('No flashcards could be parsed from this PDF');
       }
 
-      await deckService.importMultipleDecks(result.decks);
+      await useNutriStore.getState().importMultipleDecks(result.decks);
       toast.success(`Created deck "${result.decks[0]?.title}" with ${result.totalCards} cards! 🎉`);
       onImportSuccess();
       onClose();

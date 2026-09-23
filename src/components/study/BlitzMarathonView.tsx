@@ -80,32 +80,48 @@ export const BlitzMarathonView: React.FC<BlitzMarathonViewProps> = ({
       const cleaned = card.options.map(opt => cleanOptionLabel(opt));
       pool = Array.from(new Set([...cleaned, cleanBack]));
     } else {
-      pool = [
-        cleanBack,
-        'Increased dietary sodium intake',
-        'Normal metabolic steady-state',
-        'Standard clinical recommendation'
-      ];
+      pool = [cleanBack];
     }
 
+    // Ensure 4 distinct options by pulling from other cards in the same deck first
+    if (pool.length < 4) {
+      const allDecks = useNutriStore.getState().decks;
+      const currentDeck = allDecks.find(d => d.cards?.some(c => c.id === card.id));
+      
+      const sameDeckAnswers = (currentDeck?.cards || [])
+        .filter(c => c.id !== card.id && c.back)
+        .map(c => cleanOptionLabel(c.back))
+        .filter(ans => ans && ans.toLowerCase() !== cleanBack.toLowerCase());
+      
+      const shuffledSame = shuffleArray(Array.from(new Set(sameDeckAnswers)));
+      pool = Array.from(new Set([...pool, ...shuffledSame.slice(0, 4 - pool.length)]));
+    }
+
+    // If still under 4, pull from other decks in the user's collection
     if (pool.length < 4) {
       const allDecks = useNutriStore.getState().decks;
       const otherAnswers = allDecks.flatMap(d => d.cards || [])
+        .filter(c => c.id !== card.id && c.back)
         .map(c => cleanOptionLabel(c.back || ''))
         .filter(ans => ans && ans.toLowerCase() !== cleanBack.toLowerCase());
       
       const shuffledOther = shuffleArray(Array.from(new Set(otherAnswers)));
-      pool = Array.from(new Set([cleanBack, ...pool, ...shuffledOther.slice(0, 4 - pool.length)]));
+      pool = Array.from(new Set([...pool, ...shuffledOther.slice(0, 4 - pool.length)]));
     }
 
+    // Only if the entire collection has fewer than 4 cards total, add neutral educational distractors
     if (pool.length < 4) {
-      const fallbackDistractors = [
-        'Increased dietary sodium intake',
-        'Normal metabolic steady-state',
-        'Standard clinical recommendation',
-        'Decreased serum potassium concentration'
+      const contextualFallbacks = [
+        'None of the above',
+        'Insufficient clinical criteria provided',
+        'Requires additional diagnostic markers'
       ];
-      pool = Array.from(new Set([...pool, ...fallbackDistractors]));
+      for (const fallback of contextualFallbacks) {
+        if (pool.length >= 4) break;
+        if (!pool.includes(fallback) && fallback.toLowerCase() !== cleanBack.toLowerCase()) {
+          pool.push(fallback);
+        }
+      }
     }
 
     setOptions(shuffleArray(pool.slice(0, 4)));
@@ -134,9 +150,25 @@ export const BlitzMarathonView: React.FC<BlitzMarathonViewProps> = ({
       if (res.ok) {
         const data: MCExplanationResponse = await res.json();
         setAiExplanation(data);
+      } else {
+        const errData = await res.json().catch(() => null);
+        setAiExplanation({
+          whyRight: '',
+          isAiPowered: false,
+          unavailable: true,
+          error: errData?.error || `Service temporarily unavailable (${res.status})`,
+          authorRationale: card.rationale || undefined
+        });
       }
-    } catch (e) {
-      console.warn('Failed to fetch AI explanation:', e);
+    } catch (e: any) {
+      console.warn('Failed to fetch AI explanation in Blitz:', e);
+      setAiExplanation({
+        whyRight: '',
+        isAiPowered: false,
+        unavailable: true,
+        error: e?.message || 'Network error',
+        authorRationale: card.rationale || undefined
+      });
     } finally {
       setIsLoadingAi(false);
     }

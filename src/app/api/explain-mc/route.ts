@@ -3,15 +3,11 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { MCExplanationRequest, MCExplanationResponse, ExplanationSource } from '@/types';
 
 const MODEL_CANDIDATES = [
-  'gemini-3.5-flash',
+  'gemini-3.6-flash',
   'gemini-3.5-flash-lite',
-  'gemini-3.5-pro',
+  'gemini-3.5-flash',
   'gemini-2.5-flash',
-  'gemini-2.5-pro',
-  'gemini-2.0-flash',
-  'gemini-2.0-flash-lite',
-  'gemini-1.5-flash',
-  'gemini-1.5-pro'
+  'gemini-flash'
 ];
 
 const STANDARD_SOURCES: ExplanationSource[] = [
@@ -96,13 +92,8 @@ function formatModelDisplayName(modelName: string): string {
     'gemini-3.6-flash': 'Gemini 3.6 Flash',
     'gemini-3.5-flash': 'Gemini 3.5 Flash',
     'gemini-3.5-flash-lite': 'Gemini 3.5 Flash-Lite',
-    'gemini-3.5-pro': 'Gemini 3.5 Pro',
     'gemini-2.5-flash': 'Gemini 2.5 Flash',
-    'gemini-2.5-pro': 'Gemini 2.5 Pro',
-    'gemini-2.0-flash': 'Gemini 2.0 Flash',
-    'gemini-2.0-flash-lite': 'Gemini 2.0 Flash-Lite',
-    'gemini-1.5-flash': 'Gemini 1.5 Flash',
-    'gemini-1.5-pro': 'Gemini 1.5 Pro'
+    'gemini-flash': 'Gemini Flash'
   };
   return map[modelName] || modelName;
 }
@@ -113,42 +104,22 @@ function generateFallbackExplanation(
   correctAnswer: string,
   rationale: string = '',
   allOptions: string[] = [],
-  modelUsed: string = 'Clinical Literature Engine',
-  generationTimeMs: number = 0
+  modelUsed: string = 'Unavailable',
+  generationTimeMs: number = 0,
+  errorMsg: string = 'Gemini service is temporarily experiencing high demand.'
 ): MCExplanationResponse {
-  const isDifferent = userAnswer && userAnswer.trim().toLowerCase() !== correctAnswer.trim().toLowerCase();
-
-  const searchOverview = rationale
-    ? `${correctAnswer}: ${rationale}`
-    : `"${correctAnswer}" is the specific clinical determination for: "${question}".`;
-
-  const whyRight = rationale
-    ? `${correctAnswer} is correct because: ${rationale}`
-    : `"${correctAnswer}" directly satisfies the clinical and biochemical requirements defined in the question.`;
-
-  let whyWrongChoices = '';
-  if (isDifferent) {
-    whyWrongChoices = `"${userAnswer}" refers to a different clinical parameter or intervention and does not meet the specific criteria of "${question}". In contrast, "${correctAnswer}" is the precise target.`;
-  } else if (allOptions.length > 1) {
-    const distractors = allOptions.filter(o => o.trim().toLowerCase() !== correctAnswer.trim().toLowerCase()).slice(0, 2);
-    if (distractors.length > 0) {
-      whyWrongChoices = `Alternative options like ${distractors.map(d => `"${d}"`).join(' and ')} apply to different diagnostic criteria or clinical scenarios rather than this question.`;
-    }
-  }
-
-  const keyDifference = isDifferent
-    ? `Differentiate "${userAnswer}" from "${correctAnswer}" by checking the exact biochemical mechanism or clinical diagnostic threshold.`
-    : `Review how "${correctAnswer}" is uniquely defined in board exam criteria.`;
-
   return {
-    searchOverview,
-    whyRight,
-    whyWrongChoices,
-    keyDifference,
-    sources: STANDARD_SOURCES,
+    searchOverview: '',
+    whyRight: '',
+    whyWrongChoices: '',
+    keyDifference: '',
+    sources: [],
     isAiPowered: false,
     modelUsed,
-    generationTimeMs
+    generationTimeMs,
+    unavailable: true,
+    error: errorMsg,
+    authorRationale: rationale || undefined
   };
 }
 
@@ -184,45 +155,47 @@ export async function POST(req: NextRequest) {
     const genAI = new GoogleGenerativeAI(apiKey);
     const isStudentCorrect = userAnswer && userAnswer.trim().toLowerCase() === correctAnswer.trim().toLowerCase();
 
-    const prompt = `You are a clinical dietetics and medical nutrition therapy board exam review authority.
-Provide a direct, factual, evidence-based clinical breakdown for this flashcard question.
+    const prompt = `You are a clinical dietetics and medical nutrition therapy board exam review authority and biomedical educator.
+Provide a direct, factual, evidence-based breakdown for this flashcard question.
 
 Question: "${question}"
 Available Options: ${JSON.stringify(allOptions)}
 Student Chose: "${userAnswer || 'Not answered'}"
 Correct Answer: "${correctAnswer}"
 Student Result: ${isStudentCorrect ? 'CORRECT' : 'INCORRECT'}
-Card Clinical Rationale: "${rationale}"
+Card Pre-existing Rationale: "${rationale || 'None provided. You MUST act as the primary expert and synthesize the complete, precise factual explanation yourself.'}"
 
-STRICT GUIDELINES:
-- DO NOT output vague meta-filler like "is verified by clinical nutrition reference standards" or "according to standard references". Get straight to the concrete medical, biochemical, or dietetic facts!
-- "searchOverview": A crisp 1-2 sentence direct answer synthesizing the clinical/nutritional concept and why "${correctAnswer}" is the precise solution.
-- "whyRight": Explain the actual physiological mechanism, biochemical pathway, nutrition guideline rule, or diagnostic criterion that makes "${correctAnswer}" correct. Include exact numerical values, units, or clinical thresholds if applicable.
-- "whyWrongChoices": Provide a clear differential breakdown explaining what each wrong option or distractor actually refers to (e.g. why choice A is wrong, what clinical scenario choice B belongs to). If the student answered incorrectly, explain why their choice ("${userAnswer}") does not apply.
-- "keyDifference": 1 concise sentence highlighting the core distinguishing diagnostic factor between "${correctAnswer}" and other options.
+CRITICAL INSTRUCTIONS ON TONE & DEPTH:
+- ZERO GENERIC META-FILLER: Absolutely NEVER write phrases like:
+  ✖ "is verified by clinical nutrition reference standards"
+  ✖ "according to standard references"
+  ✖ "based on clinical literature and guidelines"
+  ✖ "satisfies the clinical and biochemical requirements defined in the question"
+  ✖ "refers to a different clinical parameter"
+  ✖ "is the precise answer established for this question"
+- BE SPECIFIC, DEEP & CONCRETE: Explain the true mechanisms, biochemical pathways, molecules, organs, enzymes, diagnostic thresholds, or formulas. Match the high-yield depth of clinical board review materials.
 
-SOURCES — THIS IS CRITICAL:
-You MUST provide 2-3 real, specific, citable academic or clinical sources. These are for a student who wants to verify and read the actual material, like in real research.
+EXEMPLAR STYLE (MATCH THIS CALIBER):
+For a question like "Which of the following is true about megaloblastic anemia? I. it is clinically manifested by neuropathy II. vitamin E is required for its dietary management":
+• searchOverview: "Megaloblastic anemia is primarily caused by deficiencies in Vitamin B12 (cobalamin) or Vitamin B9 (folate), which impair DNA synthesis and nuclear maturation in erythroid precursors."
+• whyRight: "Neuropathy (subacute combined degeneration of the spinal cord) is specific to Vitamin B12 deficiency due to impaired myelin synthesis, but is NOT present in pure folate-induced megaloblastic anemia. Furthermore, dietary management requires Vitamin B12 and/or Folate supplementation, NOT Vitamin E (which is involved in hemolytic anemia prevention). Therefore, both general statements as written are clinically incorrect."
+• whyWrongChoices: "Statement I is a common clinical board trap: while B12 deficiency causes neuropathy, folate deficiency causes megaloblastic anemia WITHOUT neurologic symptoms. Statement II is incorrect because Vitamin E deficiency causes hemolytic anemia with erythrocyte fragility, not megaloblastic anemia."
+• keyDifference: "Differentiate megaloblastic anemias by neuro symptoms (B12 deficiency exhibits neuropathy; folate deficiency does not; management requires B12/folate, not vitamin E)."
 
+SECTION GUIDELINES:
+- "searchOverview": A crisp 1-2 sentence direct, punchy answer explaining the core concept and why "${correctAnswer}" is the exact factual solution.
+- "whyRight": Explain the actual physiological, biochemical, or clinical mechanism why "${correctAnswer}" is correct. Detail the actual science, pathways, and reactions.
+- "whyWrongChoices": Provide a concrete breakdown of other options. Explain what those alternative concepts actually are in real biology/medicine and what condition or pathway they belong to.
+- "keyDifference": 1 concise sentence highlighting the single most critical differentiating fact or diagnostic hallmark.
+
+SOURCES:
+Provide 2-3 real, specific academic or clinical sources relevant to this topic.
 For EACH source, provide:
-- "title": The FULL citation — author(s), article/chapter title, journal or book name, year. Examples:
-  • "Mahan LK, Raymond JL. Krause and Mahan's Food & The Nutrition Care Process, 16th ed. Ch. 34: Medical Nutrition Therapy for Renal Disease. Elsevier, 2024."
-  • "KDOQI Clinical Practice Guideline for Nutrition in CKD: 2020 Update. Am J Kidney Dis. 2020;76(3 Suppl 1):S1-S107."
-  • "Diabetes Care. American Diabetes Association Standards of Care in Diabetes — 2024. Diabetes Care. 2024;47(Suppl 1)."
-- "relevance": The specific factual takeaway from this source (e.g. "Recommends 0.55-0.6 g/kg/day protein for CKD stages 3-5 without dialysis").
-- "pmid": If citing a PubMed-indexed article, provide the numeric PubMed ID (PMID). E.g. "32829751" for the KDOQI 2020 guideline. Only provide if you are confident it is the real PMID.
-- "doi": If known, provide the DOI. E.g. "10.1053/j.ajkd.2020.05.006". Only provide if you are confident it is the real DOI.
-- "url": A direct URL where the student can actually READ or verify the content. Acceptable examples:
-    • PubMed article page: "https://pubmed.ncbi.nlm.nih.gov/32829751/"
-    • Official clinical guideline page: "https://www.nutritioncare.org/..." or "https://diabetesjournals.org/care/..."
-    • Open-access journal article
-  NEVER provide:
-    • Paywalled publisher/bookstore pages (Cengage, Elsevier, Springer, Wiley, McGraw-Hill, Amazon, etc.)
-    • Generic Google Scholar or PubMed search links
-    • Bare homepage URLs
-  If the source is a textbook with no free online page, leave "url" as an empty string.
-
-If you are NOT confident about a specific PMID or DOI, leave those fields as empty strings — do NOT make them up.
+- "title": Full citation (author, book/guideline/article title, year).
+- "relevance": The specific factual takeaway from this source.
+- "pmid": Numeric PubMed ID if known (or empty string).
+- "doi": DOI if known (or empty string).
+- "url": Direct non-paywalled link if known (or empty string).
 
 Return strictly valid JSON matching this schema:
 {
@@ -237,69 +210,84 @@ Return strictly valid JSON matching this schema:
 
     let lastError: unknown = null;
     for (const modelName of MODEL_CANDIDATES) {
-      try {
-        const model = genAI.getGenerativeModel({
-          model: modelName,
-          generationConfig: {
-            responseMimeType: 'application/json',
-            temperature: 0.2
-          }
-        });
-
-        const result = await model.generateContent(prompt);
-        const text = result.response.text();
-
-        let cleanJson = (text || '').trim();
-        if (cleanJson.startsWith('```')) {
-          cleanJson = cleanJson.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-        }
-
-        const parsed = JSON.parse(cleanJson);
-        const fallback = generateFallbackExplanation(question, userAnswer, correctAnswer, rationale, allOptions);
-        const generationTimeMs = Date.now() - startTime;
-        const displayName = formatModelDisplayName(modelName);
-
-        // Resolve each source to its best direct URL from PMID/DOI/url
-        const rawSources = (Array.isArray(parsed.sources) && parsed.sources.length > 0) ? parsed.sources : fallback.sources;
-        const resolvedSources: ExplanationSource[] = rawSources.map((s: Record<string, string>) => {
-          const directUrl = resolveSourceUrl({
-            url: s.url,
-            pmid: s.pmid,
-            doi: s.doi,
-            title: s.title
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const model = genAI.getGenerativeModel({
+            model: modelName,
+            generationConfig: {
+              responseMimeType: 'application/json',
+              temperature: 0.2
+            }
           });
 
-          return {
-            title: s.title || 'Clinical Reference',
-            relevance: s.relevance || '',
-            url: directUrl || undefined,
-            pmid: s.pmid || undefined,
-            doi: s.doi || undefined
-          };
-        });
+          const result = await model.generateContent(prompt);
+          const text = result.response.text();
 
-        return NextResponse.json({
-          searchOverview: parsed.searchOverview || fallback.searchOverview,
-          whyRight: parsed.whyRight || fallback.whyRight,
-          whyWrongChoices: parsed.whyWrongChoices || fallback.whyWrongChoices,
-          keyDifference: parsed.keyDifference || fallback.keyDifference,
-          sources: resolvedSources.length > 0 ? resolvedSources : fallback.sources,
-          isAiPowered: true,
-          modelUsed: displayName,
-          generationTimeMs
-        });
-      } catch (err) {
-        lastError = err;
-        console.warn(`Model ${modelName} encountered error in explain-mc, trying next:`, err);
+          let cleanJson = (text || '').trim();
+          if (cleanJson.startsWith('```')) {
+            cleanJson = cleanJson.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+          }
+
+          const parsed = JSON.parse(cleanJson);
+          if (!parsed.whyRight || !parsed.searchOverview) {
+            throw new Error('AI returned incomplete explanation fields');
+          }
+
+          const generationTimeMs = Date.now() - startTime;
+          const displayName = formatModelDisplayName(modelName);
+
+          // Resolve each source to its best direct URL from PMID/DOI/url
+          const rawSources = Array.isArray(parsed.sources) ? parsed.sources : [];
+          const resolvedSources: ExplanationSource[] = rawSources.map((s: Record<string, string>) => {
+            const directUrl = resolveSourceUrl({
+              url: s.url,
+              pmid: s.pmid,
+              doi: s.doi,
+              title: s.title
+            });
+
+            return {
+              title: s.title || 'Clinical Reference',
+              relevance: s.relevance || '',
+              url: directUrl || undefined,
+              pmid: s.pmid || undefined,
+              doi: s.doi || undefined
+            };
+          });
+
+          return NextResponse.json({
+            searchOverview: parsed.searchOverview,
+            whyRight: parsed.whyRight,
+            whyWrongChoices: parsed.whyWrongChoices || '',
+            keyDifference: parsed.keyDifference || '',
+            sources: resolvedSources,
+            isAiPowered: true,
+            modelUsed: displayName,
+            generationTimeMs,
+            authorRationale: rationale || undefined
+          });
+        } catch (err: any) {
+          lastError = err;
+          const isRetryable = err?.status === 503 || String(err?.message || '').includes('503') || err?.status === 429 || String(err?.message || '').includes('429');
+          if (isRetryable && attempt === 0) {
+            console.warn(`Model ${modelName} encountered 503/429 load spike. Backing off 1.2s and retrying...`);
+            await new Promise((r) => setTimeout(r, 1200));
+            continue;
+          }
+          console.warn(`Model ${modelName} error (attempt ${attempt + 1}):`, err?.message || err);
+          break;
+        }
       }
     }
 
+    const lastErrorMsg = (lastError as any)?.message || 'Gemini service is temporarily experiencing high demand (503/429).';
     console.error('All Gemini candidate models failed in /api/explain-mc:', lastError);
     return NextResponse.json(
-      generateFallbackExplanation(question, userAnswer, correctAnswer, rationale, allOptions, 'Clinical Literature Fallback', Date.now() - startTime)
+      generateFallbackExplanation(question, userAnswer, correctAnswer, rationale, allOptions, 'Unavailable', Date.now() - startTime, lastErrorMsg)
     );
   } catch (error: unknown) {
     console.error('Fatal error in /api/explain-mc:', error);
+    const fatalMsg = (error as any)?.message || 'Service unavailable';
     return NextResponse.json(
       generateFallbackExplanation(
         body.question || '',
@@ -307,8 +295,9 @@ Return strictly valid JSON matching this schema:
         body.correctAnswer || '',
         body.rationale || '',
         body.allOptions || [],
-        'Clinical Literature Fallback',
-        Date.now() - startTime
+        'Unavailable',
+        Date.now() - startTime,
+        fatalMsg
       )
     );
   }

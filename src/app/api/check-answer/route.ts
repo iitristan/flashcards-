@@ -7,6 +7,7 @@ interface GradeRequestBody {
   targetAnswer: string;
   userAnswer: string;
   rationale?: string;
+  apiKey?: string;
 }
 
 function evaluateHeuristics(userAnswer: string, targetAnswer: string, rationale: string = ''): AIGradeResponse {
@@ -18,7 +19,7 @@ function evaluateHeuristics(userAnswer: string, targetAnswer: string, rationale:
       verdict: 'incorrect',
       score: 0,
       feedback: 'No answer was provided.',
-      rationale: rationale || 'Please review the standard dietetic definition.',
+      rationale: rationale || 'Please review the standard definition.',
       suggestedAnswer: targetAnswer
     };
   }
@@ -77,7 +78,7 @@ function evaluateHeuristics(userAnswer: string, targetAnswer: string, rationale:
 export async function POST(req: NextRequest) {
   try {
     const body: GradeRequestBody = await req.json();
-    const { question, targetAnswer, userAnswer, rationale = '' } = body;
+    const { question, targetAnswer, userAnswer, rationale = '', apiKey: clientApiKey } = body;
 
     if (!question || !targetAnswer) {
       return NextResponse.json(
@@ -86,7 +87,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = clientApiKey || req.headers.get('x-gemini-key') || process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY;
 
     // Fallback to intelligent semantic heuristics if API key is not configured
     if (!apiKey) {
@@ -94,22 +95,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         ...fallbackResult,
         isAiPowered: false,
-        note: 'Evaluated using built-in semantic matcher (Add GEMINI_API_KEY in .env.local for full Gemini AI analysis).'
+        note: 'Evaluated using built-in semantic matcher.'
       });
     }
 
     // Call Google Gemini API
     const genAI = new GoogleGenerativeAI(apiKey);
     const MODEL_CANDIDATES = [
-      'gemini-3.5-flash',
+      'gemini-3.6-flash',
       'gemini-3.5-flash-lite',
-      'gemini-3.5-pro',
-      'gemini-2.5-flash',
-      'gemini-2.5-pro',
-      'gemini-2.0-flash',
-      'gemini-2.0-flash-lite',
-      'gemini-1.5-flash',
-      'gemini-1.5-pro'
+      'gemini-3.5-flash',
+      'gemini-3.5-pro'
     ];
 
     const prompt = `You are a strict yet encouraging Nutrition and Dietetics Board Exam reviewer professor.
