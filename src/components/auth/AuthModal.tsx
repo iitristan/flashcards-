@@ -14,7 +14,8 @@ import {
   Heart,
   ShieldCheck,
   Zap,
-  Trash2
+  Trash2,
+  AlertCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -39,7 +40,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [isBusy, setIsBusy] = useState(false);
   const [actionType, setActionType] = useState<string | null>(null);
 
+  const isConfigured = Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL &&
+    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)
+  );
+
   const handleSync = async () => {
+    if (!isConfigured) {
+      toast.error('Supabase keys are missing on this deployment. Please add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to your Vercel Environment Variables.');
+      return;
+    }
     setIsBusy(true);
     setActionType('sync');
     try {
@@ -56,6 +66,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   const handleApplyThisDevice = async () => {
+    if (!isConfigured) {
+      toast.error('Supabase keys are missing on this deployment. Please add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to your Vercel Environment Variables.');
+      return;
+    }
     setIsBusy(true);
     setActionType('apply');
     try {
@@ -81,6 +95,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   const handleResetAndPull = async () => {
+    if (!isConfigured) {
+      toast.error('Supabase keys are missing on this deployment. Please add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to your Vercel Environment Variables.');
+      return;
+    }
     const confirmed = window.confirm(
       'This will remove any local-only decks on this device and replace them with the latest data from the Cloud. Continue?'
     );
@@ -135,29 +153,43 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         </div>
 
         {/* Modal Body */}
-        <div className="p-5 space-y-4">
+        <div className="p-4 sm:p-5 space-y-4">
           {/* Status Tile */}
-          <div className="p-3.5 rounded-xl bg-[var(--bg-surface-subtle)] border border-[var(--border-subtle)] flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 flex items-center justify-center font-bold flex-shrink-0">
-                <CheckCircle2 className="w-5 h-5" />
+          <div className="p-3 sm:p-3.5 rounded-xl bg-[var(--bg-surface-subtle)] border border-[var(--border-subtle)] flex items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold flex-shrink-0 ${
+                isConfigured 
+                  ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300' 
+                  : 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
+              }`}>
+                {isConfigured ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
               </div>
-              <div className="min-w-0">
-                <div className="text-[10px] text-[var(--text-subtle)] font-bold uppercase tracking-wider flex items-center gap-1.5">
+              <div className="min-w-0 flex-1">
+                <div className="text-[10px] text-[var(--text-subtle)] font-bold uppercase tracking-wider flex items-center gap-1.5 flex-wrap">
                   <span>Cloud Status</span>
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold">
-                    <Zap className="w-2.5 h-2.5" /> Realtime Active
-                  </span>
+                  {isConfigured ? (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold whitespace-nowrap">
+                      <Zap className="w-2.5 h-2.5" /> Realtime Active
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-amber-500/15 text-amber-700 dark:text-amber-300 font-semibold whitespace-nowrap">
+                      <AlertCircle className="w-2.5 h-2.5" /> Keys Missing
+                    </span>
+                  )}
                 </div>
-                <div className="text-xs font-semibold text-[var(--text-main)] truncate">
-                  {syncStatus === 'syncing' ? 'Synchronizing with cloud...' : 'Connected • Single Source of Truth'}
+                <div className="text-xs font-semibold text-[var(--text-main)] truncate mt-0.5">
+                  {!isConfigured 
+                    ? 'Cloud sync unconfigured (local-only mode)'
+                    : syncStatus === 'syncing' 
+                      ? 'Synchronizing with cloud...' 
+                      : 'Connected • Single Source of Truth'}
                 </div>
               </div>
             </div>
 
-            <div className="text-right flex-shrink-0">
-              <span className="text-xs font-bold text-[var(--primary)]">{localDecksCount}</span>
-              <span className="text-[11px] text-[var(--text-muted)] block">Decks loaded</span>
+            <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)] flex-shrink-0 whitespace-nowrap shadow-2xs">
+              <span className="font-bold text-[var(--primary)]">{localDecksCount}</span>
+              <span>decks</span>
             </div>
           </div>
 

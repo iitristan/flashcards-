@@ -41,8 +41,20 @@ export default function RootLayout({
         className="min-h-full flex flex-col selection:bg-emerald-200 selection:text-emerald-900"
       >
         {children}
-        <GlobalMusicHost />
-        <Toaster position="bottom-right" richColors />
+        <Toaster
+          position="bottom-center"
+          richColors
+          closeButton
+          toastOptions={{
+            style: {
+              maxWidth: 'calc(100vw - 32px)',
+              margin: '0 auto',
+              fontSize: '13px',
+              lineHeight: '1.4',
+              borderRadius: '14px',
+            },
+          }}
+        />
       </body>
     </html>
   );

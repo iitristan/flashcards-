@@ -15,6 +15,40 @@ import {
 } from 'lucide-react';
 import { MCExplanationResponse } from '@/types';
 
+const GeminiIcon: React.FC<{ className?: string }> = ({ className = 'w-3.5 h-3.5' }) => (
+  <svg
+    viewBox="0 0 24 24"
+    className={className}
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <defs>
+      <linearGradient id="gemini-star-grad" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stopColor="#4285F4" />
+        <stop offset="50%" stopColor="#9B72CB" />
+        <stop offset="100%" stopColor="#D96570" />
+      </linearGradient>
+    </defs>
+    <path
+      d="M12 2C12 7.523 7.523 12 2 12C7.523 12 12 16.477 12 22C12 16.477 16.477 12 22 12C16.477 12 12 7.523 12 2Z"
+      fill="url(#gemini-star-grad)"
+    />
+  </svg>
+);
+
+function getCleanModelBadge(rawModel?: string, isAiPowered?: boolean): string {
+  if (!rawModel) {
+    return isAiPowered !== false ? 'Gemini 3.5 Lite' : 'Literature Engine';
+  }
+  const lower = rawModel.toLowerCase();
+  if (lower.includes('3.6')) return 'Gemini 3.6 Flash';
+  if (lower.includes('3.5-flash-lite') || lower.includes('3.5 flash-lite')) return 'Gemini 3.5 Lite';
+  if (lower.includes('3.5')) return 'Gemini 3.5 Flash';
+  if (lower.includes('gemini')) return 'Gemini Flash';
+  if (lower.includes('literature') || lower.includes('local') || lower.includes('fallback')) return 'Literature Engine';
+  return rawModel.length > 18 ? rawModel.slice(0, 16) + '...' : rawModel;
+}
+
 interface GoogleAiOverviewProps {
   explanation: MCExplanationResponse | null;
   isLoading: boolean;
@@ -59,22 +93,23 @@ export const GoogleAiOverview: React.FC<GoogleAiOverviewProps> = ({
         {/* Animated top Google AI gradient accent line */}
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 via-purple-500 via-pink-500 to-amber-500 animate-pulse" />
 
-        <div className="flex items-center justify-between gap-2.5">
-          <div className="flex items-center gap-2.5">
-            <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-blue-500 to-purple-600 flex items-center justify-center text-white shadow-xs">
-              <Sparkles className="w-3.5 h-3.5 animate-spin" />
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-6 h-6 rounded-lg bg-gradient-to-tr from-blue-500/15 via-purple-500/15 to-pink-500/15 flex items-center justify-center border border-purple-500/20 flex-shrink-0 shadow-2xs">
+              <GeminiIcon className="w-3.5 h-3.5 animate-spin" />
             </div>
-            <div className="flex flex-col">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
+            <div className="flex flex-col min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent whitespace-nowrap">
                   AI Overview
                 </span>
-                <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 animate-pulse">
+                <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 animate-pulse whitespace-nowrap flex-shrink-0">
                   {seconds}s elapsed
                 </span>
               </div>
-              <span className="text-[11px] text-[var(--text-muted)] flex items-center gap-1 mt-0.5">
-                <Search className="w-3 h-3 text-[var(--primary)] animate-pulse" /> Querying Gemini 3.5 Flash & Clinical Literature...
+              <span className="text-[11px] text-[var(--text-muted)] flex items-center gap-1 mt-0.5 truncate">
+                <Search className="w-3 h-3 text-[var(--primary)] animate-pulse flex-shrink-0" />
+                <span className="truncate">Querying Gemini & Clinical Literature...</span>
               </span>
             </div>
           </div>
@@ -167,7 +202,7 @@ export const GoogleAiOverview: React.FC<GoogleAiOverviewProps> = ({
   }
 
   const sources = explanation.sources || [];
-  const modelName = explanation.modelUsed || (explanation.isAiPowered !== false ? 'Gemini 3.5 Flash' : 'Clinical Literature Engine');
+  const displayModel = getCleanModelBadge(explanation.modelUsed, explanation.isAiPowered);
   const elapsedFormatted = explanation.generationTimeMs !== undefined
     ? `${(explanation.generationTimeMs / 1000).toFixed(1)}s`
     : null;
@@ -183,37 +218,43 @@ export const GoogleAiOverview: React.FC<GoogleAiOverviewProps> = ({
       <div className="h-1 w-full bg-gradient-to-r from-blue-500 via-indigo-500 via-purple-500 via-pink-500 to-amber-500" />
 
       {/* Header bar */}
-      <div className="p-4 sm:p-4.5 pb-2 flex items-center justify-between border-b border-[var(--border-subtle)]/60">
-        <div className="flex items-center gap-2.5">
-          <div className="w-6 h-6 rounded-lg bg-gradient-to-tr from-blue-500/15 to-purple-500/15 text-blue-600 dark:text-blue-400 flex items-center justify-center border border-blue-500/20">
-            <Sparkles className="w-3.5 h-3.5 fill-current" />
+      <div className="p-3 sm:p-4 pb-2.5 flex items-center justify-between border-b border-[var(--border-subtle)]/60 gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          {/* Sleek, compact Gemini Logo */}
+          <div className="w-6 h-6 rounded-lg bg-gradient-to-tr from-blue-500/10 via-purple-500/10 to-pink-500/10 flex items-center justify-center border border-purple-500/20 flex-shrink-0 shadow-2xs">
+            <GeminiIcon className="w-3.5 h-3.5" />
           </div>
-          <div>
-            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-              <span className="text-xs sm:text-sm font-bold bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 bg-clip-text text-transparent">
+
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs sm:text-sm font-bold bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 bg-clip-text text-transparent whitespace-nowrap">
                 AI Overview
               </span>
 
-              {/* Model & Time Elapsed Pill */}
-              <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20 flex items-center gap-1">
-                <span>{modelName}</span>
-                {elapsedFormatted && <span>• {elapsedFormatted}</span>}
+              {/* Model & Time Pill - tightly bound whitespace-nowrap so bullet and time NEVER split */}
+              <span className="inline-flex items-center gap-1 text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20 whitespace-nowrap flex-shrink-0">
+                <span>{displayModel}</span>
+                {elapsedFormatted && (
+                  <span className="whitespace-nowrap flex-shrink-0 text-purple-600/80 dark:text-purple-400/80">
+                    • {elapsedFormatted}
+                  </span>
+                )}
               </span>
 
               {isCorrect !== undefined && (
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 border ${
+                <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border whitespace-nowrap flex-shrink-0 ${
                   isCorrect
                     ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20'
                     : 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20'
                 }`}>
                   {isCorrect ? (
                     <>
-                      <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
                       <span>Correct Breakdown</span>
                     </>
                   ) : (
                     <>
-                      <AlertCircle className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+                      <AlertCircle className="w-3 h-3 text-rose-600 dark:text-rose-400 flex-shrink-0" />
                       <span>Missed Review</span>
                     </>
                   )}
@@ -223,30 +264,24 @@ export const GoogleAiOverview: React.FC<GoogleAiOverviewProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1 flex-shrink-0">
           {onRetry && (
             <button
               onClick={onRetry}
               title="Regenerate explanation"
-              className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)] transition-colors text-xs"
+              className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)] transition-colors text-xs active:scale-95 cursor-pointer"
             >
               <RefreshCw className="w-3.5 h-3.5" />
             </button>
           )}
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)] transition-colors flex items-center gap-1 text-xs"
+            className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)] transition-colors flex items-center gap-1 text-xs active:scale-95 cursor-pointer"
           >
             {isExpanded ? (
-              <>
-                <span className="text-[11px] font-medium hidden sm:inline">Collapse</span>
-                <ChevronUp className="w-3.5 h-3.5" />
-              </>
+              <ChevronUp className="w-3.5 h-3.5" />
             ) : (
-              <>
-                <span className="text-[11px] font-medium hidden sm:inline">Expand</span>
-                <ChevronDown className="w-3.5 h-3.5" />
-              </>
+              <ChevronDown className="w-3.5 h-3.5" />
             )}
           </button>
         </div>

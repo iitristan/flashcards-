@@ -27,7 +27,7 @@ export class SyncService {
   async getCurrentUser(): Promise<CloudUser | null> {
     const supabase = getSupabaseClient();
     if (!supabase) {
-      console.warn('[SyncService] Supabase client is not available. Please verify NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local');
+      console.warn('[SyncService] Supabase client is not available. Please verify NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel or .env.local');
       return null;
     }
 
@@ -174,7 +174,7 @@ export class SyncService {
   async pushDeckToCloud(deck: Deck): Promise<{ ok: boolean; error?: string }> {
     const supabase = getSupabaseClient();
     if (!supabase) {
-      const msg = 'Supabase client is not available. Please verify NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local';
+      const msg = 'Supabase client is not configured. Please add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to your Vercel Environment Variables.';
       console.warn('[SyncService]', msg);
       return { ok: false, error: msg };
     }
@@ -701,7 +701,7 @@ export class SyncService {
   ): Promise<{ success: boolean; decksUploaded: number; totalCards: number; error?: string }> {
     const supabase = getSupabaseClient();
     if (!supabase) {
-      const msg = 'Supabase client is not configured. Please check NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local';
+      const msg = 'Supabase client is not configured. Please add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to your Vercel Environment Variables.';
       console.error('[SyncService]', msg);
       return { success: false, decksUploaded: 0, totalCards: 0, error: msg };
     }
