@@ -1,4 +1,4 @@
-import { Deck, Flashcard, ReviewRating, DeckCategory, DeckPlaylist, StudyMode, StudyLogEntry } from '@/types';
+import { Deck, Flashcard, ReviewRating, DeckCategory, DeckPlaylist, StudyMode, StudyLogEntry, Sm2Data } from '@/types';
 import { calculateSM2, computeDeckStats } from '@/lib/services/flashcardService';
 import { idbStorage } from '@/lib/storage/indexedDbStorage';
 
@@ -261,6 +261,13 @@ class IndexedDbDeckService implements IDeckService {
 
     const now = new Date();
 
+    const initialSm2: Sm2Data = {
+      interval: 0,
+      easeFactor: 2.5,
+      repetitions: 0,
+      dueDate: now.toISOString()
+    };
+
     if (!deck) {
       console.warn(`[DeckService] Deck ${deckId} not found in stored decks during review. Gracefully continuing.`);
       return {
@@ -269,8 +276,9 @@ class IndexedDbDeckService implements IDeckService {
         front: 'Card',
         back: 'Answer',
         rationale: '',
+        tags: [],
         leitnerBox: 1,
-        sm2: calculateSM2(undefined, rating, now),
+        sm2: calculateSM2(initialSm2, rating, now),
         lastReviewedAt: now.toISOString(),
         updatedAt: now.toISOString(),
         createdAt: now.toISOString()
@@ -286,8 +294,9 @@ class IndexedDbDeckService implements IDeckService {
         front: 'Card',
         back: 'Answer',
         rationale: '',
+        tags: [],
         leitnerBox: 1,
-        sm2: calculateSM2(undefined, rating, now),
+        sm2: calculateSM2(initialSm2, rating, now),
         lastReviewedAt: now.toISOString(),
         updatedAt: now.toISOString(),
         createdAt: now.toISOString()

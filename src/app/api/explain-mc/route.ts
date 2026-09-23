@@ -148,7 +148,16 @@ export async function POST(req: NextRequest) {
 
     if (!apiKey) {
       return NextResponse.json(
-        generateFallbackExplanation(question, userAnswer, correctAnswer, rationale, allOptions, 'Clinical Literature Engine (Local)', Date.now() - startTime)
+        generateFallbackExplanation(
+          question,
+          userAnswer,
+          correctAnswer,
+          rationale,
+          allOptions,
+          'Unavailable',
+          Date.now() - startTime,
+          'Gemini API key is not configured. Add GEMINI_API_KEY to your Vercel Environment Variables or enter your API key in Settings.'
+        )
       );
     }
 
