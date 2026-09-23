@@ -28,8 +28,7 @@ Rules:
 const MODEL_CANDIDATES = [
   'gemini-3.6-flash',
   'gemini-3.5-flash-lite',
-  'gemini-3.5-flash',
-  'gemini-3.5-pro'
+  'gemini-3.5-flash'
 ];
 
 function getModel(modelName: string = MODEL_CANDIDATES[0], customApiKey?: string) {

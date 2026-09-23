@@ -5,9 +5,7 @@ import { MCExplanationRequest, MCExplanationResponse, ExplanationSource } from '
 const MODEL_CANDIDATES = [
   'gemini-3.6-flash',
   'gemini-3.5-flash-lite',
-  'gemini-3.5-flash',
-  'gemini-2.5-flash',
-  'gemini-flash'
+  'gemini-3.5-flash'
 ];
 
 const STANDARD_SOURCES: ExplanationSource[] = [
@@ -218,43 +216,102 @@ Return strictly valid JSON matching this schema:
 }`;
 
     let lastError: unknown = null;
+    let hadDemandSpike = false;
+
     for (const modelName of MODEL_CANDIDATES) {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          const model = genAI.getGenerativeModel({
-            model: modelName,
-            generationConfig: {
-              responseMimeType: 'application/json',
-              temperature: 0.2
-            }
+      try {
+        const model = genAI.getGenerativeModel({
+          model: modelName,
+          generationConfig: {
+            responseMimeType: 'application/json',
+            temperature: 0.2
+          }
+        });
+
+        const result = await model.generateContent(prompt);
+        const text = result.response.text();
+
+        let cleanJson = (text || '').trim();
+        if (cleanJson.startsWith('```')) {
+          cleanJson = cleanJson.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+        }
+
+        const parsed = JSON.parse(cleanJson);
+        if (!parsed.whyRight || !parsed.searchOverview) {
+          throw new Error('AI returned incomplete explanation fields');
+        }
+
+        const generationTimeMs = Date.now() - startTime;
+        const displayName = formatModelDisplayName(modelName);
+
+        // Resolve each source to its best direct URL from PMID/DOI/url
+        const rawSources = Array.isArray(parsed.sources) ? parsed.sources : [];
+        const resolvedSources: ExplanationSource[] = rawSources.map((s: Record<string, string>) => {
+          const directUrl = resolveSourceUrl({
+            url: s.url,
+            pmid: s.pmid,
+            doi: s.doi,
+            title: s.title
           });
 
-          const result = await model.generateContent(prompt);
-          const text = result.response.text();
+          return {
+            title: s.title || 'Clinical Reference',
+            relevance: s.relevance || '',
+            url: directUrl || undefined,
+            pmid: s.pmid || undefined,
+            doi: s.doi || undefined
+          };
+        });
 
-          let cleanJson = (text || '').trim();
-          if (cleanJson.startsWith('```')) {
-            cleanJson = cleanJson.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+        return NextResponse.json({
+          searchOverview: parsed.searchOverview,
+          whyRight: parsed.whyRight,
+          whyWrongChoices: parsed.whyWrongChoices || '',
+          keyDifference: parsed.keyDifference || '',
+          sources: resolvedSources,
+          isAiPowered: true,
+          modelUsed: displayName,
+          generationTimeMs,
+          authorRationale: rationale || undefined
+        });
+      } catch (err: any) {
+        lastError = err;
+        const isDemandSpike = err?.status === 503 || String(err?.message || '').includes('503') || err?.status === 429 || String(err?.message || '').includes('429');
+        if (isDemandSpike) {
+          hadDemandSpike = true;
+          console.warn(`Model ${modelName} encountered 503/429 high demand spike. Immediately trying next candidate model...`);
+        } else {
+          console.warn(`Model ${modelName} error:`, err?.message || err);
+        }
+        // Immediately try the next candidate model
+        continue;
+      }
+    }
+
+    // If all models hit demand spikes, try a final retry with the highest-throughput model (gemini-3.5-flash-lite)
+    if (hadDemandSpike) {
+      try {
+        console.warn('All candidate models hit momentary demand spike. Performing final fallback attempt with gemini-3.5-flash-lite...');
+        await new Promise((r) => setTimeout(r, 1200));
+        const retryModel = genAI.getGenerativeModel({
+          model: 'gemini-3.5-flash-lite',
+          generationConfig: {
+            responseMimeType: 'application/json',
+            temperature: 0.2
           }
-
-          const parsed = JSON.parse(cleanJson);
-          if (!parsed.whyRight || !parsed.searchOverview) {
-            throw new Error('AI returned incomplete explanation fields');
-          }
-
+        });
+        const result = await retryModel.generateContent(prompt);
+        const text = result.response.text();
+        let cleanJson = (text || '').trim();
+        if (cleanJson.startsWith('```')) {
+          cleanJson = cleanJson.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+        }
+        const parsed = JSON.parse(cleanJson);
+        if (parsed.whyRight && parsed.searchOverview) {
           const generationTimeMs = Date.now() - startTime;
-          const displayName = formatModelDisplayName(modelName);
-
-          // Resolve each source to its best direct URL from PMID/DOI/url
           const rawSources = Array.isArray(parsed.sources) ? parsed.sources : [];
           const resolvedSources: ExplanationSource[] = rawSources.map((s: Record<string, string>) => {
-            const directUrl = resolveSourceUrl({
-              url: s.url,
-              pmid: s.pmid,
-              doi: s.doi,
-              title: s.title
-            });
-
+            const directUrl = resolveSourceUrl({ url: s.url, pmid: s.pmid, doi: s.doi, title: s.title });
             return {
               title: s.title || 'Clinical Reference',
               relevance: s.relevance || '',
@@ -271,25 +328,17 @@ Return strictly valid JSON matching this schema:
             keyDifference: parsed.keyDifference || '',
             sources: resolvedSources,
             isAiPowered: true,
-            modelUsed: displayName,
+            modelUsed: 'Gemini 3.5 Flash-Lite (Failover)',
             generationTimeMs,
             authorRationale: rationale || undefined
           });
-        } catch (err: any) {
-          lastError = err;
-          const isRetryable = err?.status === 503 || String(err?.message || '').includes('503') || err?.status === 429 || String(err?.message || '').includes('429');
-          if (isRetryable && attempt === 0) {
-            console.warn(`Model ${modelName} encountered 503/429 load spike. Backing off 1.2s and retrying...`);
-            await new Promise((r) => setTimeout(r, 1200));
-            continue;
-          }
-          console.warn(`Model ${modelName} error (attempt ${attempt + 1}):`, err?.message || err);
-          break;
         }
+      } catch (finalRetryErr) {
+        lastError = finalRetryErr;
       }
     }
 
-    const lastErrorMsg = (lastError as any)?.message || 'Gemini service is temporarily experiencing high demand (503/429).';
+    const lastErrorMsg = (lastError as any)?.message || 'Gemini models are temporarily experiencing peak demand across the network. Please tap Retry with Gemini.';
     console.error('All Gemini candidate models failed in /api/explain-mc:', lastError);
     return NextResponse.json(
       generateFallbackExplanation(question, userAnswer, correctAnswer, rationale, allOptions, 'Unavailable', Date.now() - startTime, lastErrorMsg)
