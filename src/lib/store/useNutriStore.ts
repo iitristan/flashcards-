@@ -173,6 +173,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       }
 
       supabase.auth.onAuthStateChange(async (event, newSession) => {
+        syncService.clearUserCache();
         if (newSession?.user) {
           set({
             user: { id: newSession.user.id, email: newSession.user.email },
@@ -180,6 +181,10 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
           if (event === 'SIGNED_IN') {
             await get().syncWithCloud();
           }
+        } else {
+          set({
+            user: { id: '00000000-0000-0000-0000-000000000001', email: 'shared@nutrianki.cloud' },
+          });
         }
       });
 

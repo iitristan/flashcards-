@@ -21,10 +21,23 @@ export class SyncService {
     return SyncService.SHARED_WORKSPACE_UUID;
   }
 
+  private cachedUser: CloudUser | null = null;
+
+  /**
+   * Clears cached user state (e.g. on auth state change or sign out).
+   */
+  clearUserCache() {
+    this.cachedUser = null;
+  }
+
   /**
    * Retrieves the currently authenticated Supabase user, or provides a zero-login shared workspace user.
    */
   async getCurrentUser(): Promise<CloudUser | null> {
+    if (this.cachedUser) {
+      return this.cachedUser;
+    }
+
     const supabase = getSupabaseClient();
     if (!supabase) {
       console.warn('[SyncService] Supabase client is not available. Please verify NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel or .env.local');
@@ -32,31 +45,19 @@ export class SyncService {
     }
 
     try {
-      // 1. Direct getUser()
-      const { data: { user }, error: userErr } = await supabase.auth.getUser();
-      if (user && !userErr) {
-        return { id: user.id, email: user.email };
-      }
-
-      // 2. Fallback: get active session
+      // 1. Check active session stored locally (fast, avoids unnecessary network roundtrips)
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
-        return { id: session.user.id, email: session.user.email };
+        this.cachedUser = { id: session.user.id, email: session.user.email };
+        return this.cachedUser;
       }
-
-      // 3. Fallback: try anonymous sign-in if enabled in Supabase
-      try {
-        const { data: anonData, error: anonErr } = await (supabase.auth as any).signInAnonymously();
-        if (anonData?.user && !anonErr) {
-          return { id: anonData.user.id, email: anonData.user.email };
-        }
-      } catch {}
     } catch (e) {
       console.warn('[SyncService] Supabase Auth check skipped:', e);
     }
 
-    // 4. Zero-login Shared Workspace Profile (Always active, no login required)
-    return { id: SyncService.SHARED_WORKSPACE_UUID, email: 'shared@nutrianki.cloud' };
+    // 2. Zero-login Shared Workspace Profile (Always active, no login required)
+    this.cachedUser = { id: SyncService.SHARED_WORKSPACE_UUID, email: 'shared@nutrianki.cloud' };
+    return this.cachedUser;
   }
 
   /**
@@ -464,18 +465,48 @@ export class SyncService {
     const targetUserId = user?.id || 'shared-preferences';
 
     try {
-      const { error } = await supabase
+      // 1. Check if user preference already exists for targetUserId
+      const { data: existing, error: selectErr } = await supabase
         .from('user_preferences')
-        .upsert(
-          {
+        .select('user_id')
+        .eq('user_id', targetUserId)
+        .maybeSingle();
+
+      if (!selectErr && existing) {
+        // Update existing preference
+        const { error: updateErr } = await supabase
+          .from('user_preferences')
+          .update({
+            preferences,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('user_id', targetUserId);
+
+        return !updateErr;
+      } else {
+        // Insert new preference
+        const { error: insertErr } = await supabase
+          .from('user_preferences')
+          .insert({
             user_id: targetUserId,
             preferences,
             updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'user_id' }
-        );
+          });
 
-      return !error;
+        if (insertErr) {
+          // If insert failed due to concurrent creation, fallback to update
+          const { error: fallbackErr } = await supabase
+            .from('user_preferences')
+            .update({
+              preferences,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('user_id', targetUserId);
+          return !fallbackErr;
+        }
+
+        return true;
+      }
     } catch {
       return false;
     }
