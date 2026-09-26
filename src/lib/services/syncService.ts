@@ -11,13 +11,10 @@ export class SyncService {
   public static readonly SHARED_WORKSPACE_UUID = '00000000-0000-0000-0000-000000000001';
 
   /**
-   * Helper to format user ID for database operations (returns user.id if logged in, or shared constant UUID).
-   * Guarantees a non-null valid UUID so NOT NULL constraints in PostgreSQL never fail.
+   * Helper to format user ID for database operations.
+   * Ensures all devices and users utilize the same shared database.
    */
-  private getDbUserId(user: CloudUser | null): string {
-    if (user?.id && user.id.length >= 20) {
-      return user.id;
-    }
+  private getDbUserId(_user?: CloudUser | null): string {
     return SyncService.SHARED_WORKSPACE_UUID;
   }
 

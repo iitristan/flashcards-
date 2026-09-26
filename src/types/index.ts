@@ -177,10 +177,6 @@ export interface LearningAnalyticsData {
   modeBreakdown: Record<StudyMode, number>;
 }
 
-export interface UserMusicSettings {
-  isPlaying: boolean;
-  customUrl: string;
-}
 
 
 export interface Sm2Fields {

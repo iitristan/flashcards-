@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Deck, Flashcard, StudyMode, ReviewRating, ThemeType, UserPreferences, StudySessionState, CardReviewResult, DeckPlaylist, UserMusicSettings } from '@/types';
+import { Deck, Flashcard, StudyMode, ReviewRating, ThemeType, UserPreferences, StudySessionState, CardReviewResult, DeckPlaylist } from '@/types';
 import { deckService } from '@/lib/services/deckService';
 import { soundEffects } from '@/lib/soundEffects';
 import { shuffleArray } from '@/lib/services/flashcardService';
@@ -7,7 +7,6 @@ import { syncService } from '@/lib/services/syncService';
 import { getSupabaseClient } from '@/lib/supabase/client';
 
 const PREFS_STORAGE_KEY = 'nutrianki_prefs_v1';
-const MUSIC_STORAGE_KEY = 'nutrianki_music_v1';
 const ACTIVE_SESSION_STORAGE_KEY = 'nutrianki_active_session_v1';
 
 const DEFAULT_PREFS: UserPreferences = {
@@ -18,11 +17,6 @@ const DEFAULT_PREFS: UserPreferences = {
   dailyGoal: 15,
   studyStreak: 1,
   lastStudyDate: null
-};
-
-const DEFAULT_MUSIC_SETTINGS: UserMusicSettings = {
-  isPlaying: false,
-  customUrl: ''
 };
 
 
@@ -54,11 +48,7 @@ interface NutriStore {
   resumeSession: () => void;
   dismissResumeSession: () => void;
 
-  // Music State
-  musicSettings: UserMusicSettings;
-  isMusicDrawerOpen: boolean;
-  setMusicSettings: (updates: Partial<UserMusicSettings>) => void;
-  setIsMusicDrawerOpen: (open: boolean) => void;
+
 
   // Deck Actions
   loadDecks: () => Promise<void>;
@@ -115,8 +105,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
   preferences: DEFAULT_PREFS,
   saveStatus: 'idle',
   resumeAvailableSession: null,
-  musicSettings: DEFAULT_MUSIC_SETTINGS,
-  isMusicDrawerOpen: false,
+
 
   // Cloud Sync State
   user: null,
@@ -144,7 +133,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     if (typeof window !== 'undefined') {
       localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
     }
-    if (get().user && session?.id) {
+    if (session?.id) {
       syncService.completeStudySession(session.id).catch(console.error);
     }
   },
@@ -260,7 +249,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
         }
 
         // Auto-upload any local decks that were missing from the cloud
-        if (unsyncedLocalDecks.length > 0 && get().user) {
+        if (unsyncedLocalDecks.length > 0) {
           for (const unsynced of unsyncedLocalDecks) {
             syncService.pushDeckToCloud(unsynced).catch((err) =>
               console.warn('[Sync] Auto-uploading local deck to cloud failed:', err)
@@ -423,19 +412,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     }
   },
 
-  setMusicSettings: (updates) => {
-    const updated = { ...get().musicSettings, ...updates };
-    set({ musicSettings: updated });
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem(MUSIC_STORAGE_KEY, JSON.stringify(updated));
-      } catch (e) {
-        console.error('Failed to save music settings to localStorage:', e);
-      }
-    }
-  },
 
-  setIsMusicDrawerOpen: (open) => set({ isMusicDrawerOpen: open }),
 
   initPreferences: () => {
     if (typeof window === 'undefined') return;
@@ -488,18 +465,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
         } catch {}
       }
 
-      // Load music preferences
-      const storedMusic = localStorage.getItem(MUSIC_STORAGE_KEY);
-      if (storedMusic) {
-        const parsedMusic: UserMusicSettings = JSON.parse(storedMusic);
-        set({
-          musicSettings: {
-            ...DEFAULT_MUSIC_SETTINGS,
-            ...parsedMusic,
-            isPlaying: false // Don't autoplay immediately on fresh load
-          }
-        });
-      }
+
     } catch {
       // Use defaults
     }
@@ -558,26 +524,23 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
   createPlaylist: async (playlistData) => {
     const created = await deckService.createPlaylist(playlistData);
     await get().loadPlaylists();
-    if (get().user) {
-      syncService.pushPlaylistsToCloud(get().playlists).catch(console.error);
-    }
+    syncService.pushPlaylistsToCloud(get().playlists).catch(console.error);
+    get().syncWithCloud().catch(() => {});
     return created;
   },
 
   updatePlaylist: async (id, updates) => {
     await deckService.updatePlaylist(id, updates);
     await get().loadPlaylists();
-    if (get().user) {
-      syncService.pushPlaylistsToCloud(get().playlists).catch(console.error);
-    }
+    syncService.pushPlaylistsToCloud(get().playlists).catch(console.error);
+    get().syncWithCloud().catch(() => {});
   },
 
   deletePlaylist: async (id) => {
     await deckService.deletePlaylist(id);
     await get().loadPlaylists();
-    if (get().user) {
-      syncService.deletePlaylistFromCloud(id).catch(console.error);
-    }
+    syncService.deletePlaylistFromCloud(id).catch(console.error);
+    get().syncWithCloud().catch(() => {});
   },
 
   startPlaylistSession: async (playlistId, mode, shuffle = true) => {
@@ -646,20 +609,18 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
   createDeck: async (deckData, initialCards) => {
     const created = await deckService.createDeck(deckData, initialCards);
     await get().loadDecks();
-    if (get().user) {
-      syncService.pushDeckToCloud(created).catch((err) => console.error('Sync createDeck error:', err));
-    }
+    syncService.pushDeckToCloud(created).catch((err) => console.error('Sync createDeck error:', err));
+    get().syncWithCloud().catch(() => {});
     return created;
   },
 
   updateDeck: async (id, updates) => {
     await deckService.updateDeck(id, updates);
     await get().loadDecks();
-    if (get().user) {
-      const updated = get().decks.find((d) => d.id === id);
-      if (updated) {
-        syncService.pushDeckToCloud(updated).catch((err) => console.error('Sync updateDeck error:', err));
-      }
+    const updated = get().decks.find((d) => d.id === id);
+    if (updated) {
+      syncService.pushDeckToCloud(updated).catch((err) => console.error('Sync updateDeck error:', err));
+      get().syncWithCloud().catch(() => {});
     }
   },
 
@@ -669,46 +630,43 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     if (get().activeDeckId === id) {
       set({ activeDeckId: null });
     }
-    if (get().user) {
-      syncService.deleteDeckFromCloud(id).catch((err) => console.error('Sync deleteDeck error:', err));
-    }
+    syncService.deleteDeckFromCloud(id).catch((err) => console.error('Sync deleteDeck error:', err));
+    get().syncWithCloud().catch(() => {});
   },
 
   resetDecks: async () => {
     await deckService.resetToDefaultDecks();
     await get().loadDecks();
-    if (get().user) {
-      const decks = get().decks;
-      const playlists = get().playlists;
-      syncService.migrateLocalToCloud(decks, playlists).catch((err) => console.error('Sync reset error:', err));
-    }
+    const decks = get().decks;
+    const playlists = get().playlists;
+    syncService.migrateLocalToCloud(decks, playlists).catch((err) => console.error('Sync reset error:', err));
+    get().syncWithCloud().catch(() => {});
   },
 
   importMultipleDecks: async (newDecks) => {
     await deckService.importMultipleDecks(newDecks);
     await get().loadDecks();
-    if (get().user) {
-      for (const d of newDecks) {
-        syncService.pushDeckToCloud(d).catch(console.error);
-      }
+    for (const d of newDecks) {
+      syncService.pushDeckToCloud(d).catch(console.error);
     }
+    get().syncWithCloud().catch(() => {});
   },
 
   importQuizletFoodServiceDeck: async () => {
     const deck = await deckService.importQuizletFoodServiceDeck();
     await get().loadDecks();
-    if (get().user) {
-      syncService.pushDeckToCloud(deck).catch(console.error);
-    }
+    syncService.pushDeckToCloud(deck).catch(console.error);
+    get().syncWithCloud().catch(() => {});
     return deck;
   },
 
   addCard: async (deckId, cardData) => {
     await deckService.addCard(deckId, cardData);
     await get().loadDecks();
-    if (get().user) {
-      const d = get().decks.find((deck) => deck.id === deckId);
-      if (d) syncService.pushDeckToCloud(d).catch(console.error);
+    const d = get().decks.find((deck) => deck.id === deckId);
+    if (d) {
+      syncService.pushDeckToCloud(d).catch(console.error);
+      get().syncWithCloud().catch(() => {});
     }
   },
 
@@ -716,7 +674,10 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     await deckService.updateCard(deckId, cardId, updates);
     await get().loadDecks();
     const d = get().decks.find((deck) => deck.id === deckId);
-    if (d) syncService.pushDeckToCloud(d).catch(console.warn);
+    if (d) {
+      syncService.pushDeckToCloud(d).catch(console.warn);
+      get().syncWithCloud().catch(() => {});
+    }
 
     // Also update current card in active session if active
     const { activeSession } = get();
@@ -737,7 +698,10 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     await deckService.deleteCard(deckId, cardId);
     await get().loadDecks();
     const d = get().decks.find((deck) => deck.id === deckId);
-    if (d) syncService.pushDeckToCloud(d).catch(console.warn);
+    if (d) {
+      syncService.pushDeckToCloud(d).catch(console.warn);
+      get().syncWithCloud().catch(() => {});
+    }
   },
 
   saveCardNote: async (deckId, cardId, note) => {
@@ -997,9 +961,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       } catch {}
     }
 
-    if (get().user) {
-      syncService.saveSessionCheckpoint(restartedSession).catch(console.error);
-    }
+    syncService.saveSessionCheckpoint(restartedSession).catch(console.error);
   },
 
   endStudySession: () => {
@@ -1011,9 +973,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
           localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify(activeSession));
         } catch {}
       }
-      if (user) {
-        syncService.saveSessionCheckpoint(activeSession).catch(console.error);
-      }
+      syncService.saveSessionCheckpoint(activeSession).catch(console.error);
     }
     set({ activeSession: null });
     get().loadDecks();

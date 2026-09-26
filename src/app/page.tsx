@@ -31,7 +31,6 @@ import { IdentificationView } from '@/components/study/IdentificationView';
 import { BlitzMarathonView } from '@/components/study/BlitzMarathonView';
 import { LearningAnalytics } from '@/components/study/LearningAnalytics';
 import { StudySessionSummary } from '@/components/study/StudySessionSummary';
-import { MusicPlayerWidget } from '@/components/music/MusicPlayerWidget';
 import { AuthModal } from '@/components/auth/AuthModal';
 import { toast } from 'sonner';
 
@@ -222,10 +221,6 @@ export default function NutriAnkiApp() {
             onTimerExpire={handleTimerExpire}
             isPaused={activeSession.isCompleted}
           />
-
-          {/* Persistent Music Bar during Study Session */}
-          <MusicPlayerWidget variant="study-bar" />
-
 
           {/* Body: Summary or Card View */}
           <AnimatePresence mode="wait">
@@ -450,61 +445,53 @@ export default function NutriAnkiApp() {
           </div>
         )}
 
-        {/* HERO SECTION: Review Metrics & Focus Audio (Balanced & Bento-Free) */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5 sm:gap-4 items-stretch">
-          {/* Review Overview Bar (Takes 2 cols on lg) */}
-          <div className="lg:col-span-2 p-4 sm:p-5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] shadow-xs flex flex-col justify-between">
-            <div className="flex items-center justify-between text-xs font-semibold text-[var(--text-subtle)] uppercase tracking-wider mb-2">
-              <span className="flex items-center gap-1.5 font-bold text-[var(--text-main)]">
-                <BookOpen className="w-3.5 h-3.5 text-[var(--primary)]" />
-                Review Overview
+        {/* HERO SECTION: Review Metrics */}
+        <div className="w-full p-4 sm:p-5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] shadow-xs flex flex-col justify-between">
+          <div className="flex items-center justify-between text-xs font-semibold text-[var(--text-subtle)] uppercase tracking-wider mb-2">
+            <span className="flex items-center gap-1.5 font-bold text-[var(--text-main)]">
+              <BookOpen className="w-3.5 h-3.5 text-[var(--primary)]" />
+              Review Overview
+            </span>
+            <span className="text-[11px] font-medium text-[var(--text-muted)] lowercase first-letter:uppercase">
+              Target: {Math.min(totalMastered, preferences.dailyGoal)} / {preferences.dailyGoal} cards
+            </span>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 text-center py-2">
+            <div>
+              <span className="text-xl sm:text-2xl font-bold text-[var(--text-main)] block">
+                {totalCardsCount}
               </span>
-              <span className="text-[11px] font-medium text-[var(--text-muted)] lowercase first-letter:uppercase">
-                Target: {Math.min(totalMastered, preferences.dailyGoal)} / {preferences.dailyGoal} cards
+              <span className="text-[11px] font-medium text-[var(--text-muted)]">
+                Total Cards
               </span>
             </div>
-
-            <div className="grid grid-cols-3 gap-2 text-center py-2">
-              <div>
-                <span className="text-xl sm:text-2xl font-bold text-[var(--text-main)] block">
-                  {totalCardsCount}
-                </span>
-                <span className="text-[11px] font-medium text-[var(--text-muted)]">
-                  Total Cards
-                </span>
-              </div>
-              <div className="border-x border-[var(--border-subtle)]">
-                <span className="text-xl sm:text-2xl font-bold text-amber-600 dark:text-amber-400 block">
-                  {totalDueToday}
-                </span>
-                <span className="text-[11px] font-medium text-[var(--text-muted)]">
-                  Due Today
-                </span>
-              </div>
-              <div>
-                <span className="text-xl sm:text-2xl font-bold text-teal-600 dark:text-teal-400 block">
-                  {totalMastered}
-                </span>
-                <span className="text-[11px] font-medium text-[var(--text-muted)]">
-                  Mastered
-                </span>
-              </div>
+            <div className="border-x border-[var(--border-subtle)]">
+              <span className="text-xl sm:text-2xl font-bold text-amber-600 dark:text-amber-400 block">
+                {totalDueToday}
+              </span>
+              <span className="text-[11px] font-medium text-[var(--text-muted)]">
+                Due Today
+              </span>
             </div>
-
-            {/* Daily Target Progress Bar */}
-            <div className="pt-2 mt-1 border-t border-[var(--border-subtle)]">
-              <div className="w-full h-1.5 bg-[var(--bg-surface-subtle)] rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-[var(--primary)] rounded-full transition-all duration-500"
-                  style={{ width: `${Math.min(100, Math.round((totalMastered / Math.max(1, preferences.dailyGoal)) * 100))}%` }}
-                />
-              </div>
+            <div>
+              <span className="text-xl sm:text-2xl font-bold text-teal-600 dark:text-teal-400 block">
+                {totalMastered}
+              </span>
+              <span className="text-[11px] font-medium text-[var(--text-muted)]">
+                Mastered
+              </span>
             </div>
           </div>
 
-          {/* Focus Study Audio (Takes 1 col on lg) */}
-          <div className="lg:col-span-1">
-            <MusicPlayerWidget variant="compact" />
+          {/* Daily Target Progress Bar */}
+          <div className="pt-2 mt-1 border-t border-[var(--border-subtle)]">
+            <div className="w-full h-1.5 bg-[var(--bg-surface-subtle)] rounded-full overflow-hidden">
+              <div
+                className="h-full bg-[var(--primary)] rounded-full transition-all duration-500"
+                style={{ width: `${Math.min(100, Math.round((totalMastered / Math.max(1, preferences.dailyGoal)) * 100))}%` }}
+              />
+            </div>
           </div>
         </div>
 

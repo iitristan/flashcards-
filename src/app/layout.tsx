@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, Nunito } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
-import { GlobalMusicHost } from "@/components/music/GlobalMusicHost";
 import { BrowserExtensionNoiseFilter } from "@/components/common/BrowserExtensionNoiseFilter";
 import "./globals.css";
 
@@ -151,7 +150,6 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: NOISE_FILTER_SCRIPT }} />
         <BrowserExtensionNoiseFilter />
         {children}
-        <GlobalMusicHost />
         <Toaster
           position="bottom-center"
           richColors
