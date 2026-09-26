@@ -33,6 +33,7 @@ export interface IDeckService {
   exportDeckToJson(deckId: string): Promise<string>;
   exportDeckToCsv(deckId: string): Promise<string>;
   importDeckFromJson(jsonString: string): Promise<Deck>;
+  importDecksFromJson(jsonString: string): Promise<Deck[]>;
   importDeckFromCsvOrTsv(title: string, category: DeckCategory, text: string): Promise<Deck>;
   importMultipleDecks(decks: Deck[]): Promise<Deck[]>;
   setAllDecks(decks: Deck[]): Promise<void>;
@@ -508,23 +509,48 @@ class IndexedDbDeckService implements IDeckService {
   }
 
   public async importDeckFromJson(jsonString: string): Promise<Deck> {
+    const decks = await this.importDecksFromJson(jsonString);
+    if (decks.length === 0) {
+      throw new Error('No valid deck found in JSON');
+    }
+    return decks[0];
+  }
+
+  public async importDecksFromJson(jsonString: string): Promise<Deck[]> {
     try {
       const parsed = JSON.parse(jsonString);
-      if (!parsed.title || !Array.isArray(parsed.cards)) {
-        throw new Error('Invalid JSON format. Expected an object with "title" and "cards" array.');
+      const rawDecks = Array.isArray(parsed)
+        ? parsed
+        : (parsed && typeof parsed === 'object' && 'decks' in parsed && Array.isArray(parsed.decks))
+          ? parsed.decks
+          : [parsed];
+
+      const createdDecks: Deck[] = [];
+
+      for (const item of rawDecks) {
+        if (!item || !item.title || !Array.isArray(item.cards)) {
+          continue;
+        }
+
+        const deck = await this.createDeck(
+          {
+            title: item.title,
+            description: item.description || `Imported deck with ${item.cards.length} cards.`,
+            category: item.category || 'General Dietetics',
+            icon: item.icon || 'Sparkles',
+            color: item.color || '#FF9A76',
+            tags: item.tags || ['Imported']
+          },
+          item.cards
+        );
+        createdDecks.push(deck);
       }
 
-      return this.createDeck(
-        {
-          title: parsed.title,
-          description: parsed.description || `Imported deck with ${parsed.cards.length} cards.`,
-          category: parsed.category || 'General Dietetics',
-          icon: parsed.icon || 'Sparkles',
-          color: parsed.color || '#FF9A76',
-          tags: parsed.tags || ['Imported']
-        },
-        parsed.cards
-      );
+      if (createdDecks.length === 0) {
+        throw new Error('Invalid JSON format. Expected an object or array with "title" and "cards" array.');
+      }
+
+      return createdDecks;
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Invalid JSON';
       throw new Error(`Failed to import JSON: ${msg}`);

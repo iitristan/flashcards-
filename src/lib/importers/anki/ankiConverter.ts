@@ -392,7 +392,7 @@ export async function convertAnkiCollectionToDecks(
       }
     }
 
-    const newDeckId = `anki-deck-${rawDeck.id}-${Date.now()}`;
+    const newDeckId = `anki-deck-${rawDeck.id}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const preparedCards = convertedCards.map(c => ({ ...c, deckId: newDeckId }));
 
     resultDecks.push({

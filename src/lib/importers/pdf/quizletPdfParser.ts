@@ -165,7 +165,7 @@ export function createDeckFromQuizletItems(
   const deckId = `deck-quizlet-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
   const preparedCards: Flashcard[] = cards.map((c, idx) => ({
-    id: c.id || `card-${Date.now()}-${idx}`,
+    id: c.id || `card-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`,
     deckId,
     front: c.front || 'Question',
     back: c.back || 'Answer',

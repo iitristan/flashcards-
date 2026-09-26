@@ -28,6 +28,35 @@ export interface ImportResult {
   errors: string[];
 }
 
+export type ImportableFileFormat = 'anki' | 'pdf' | 'csv' | 'json' | 'unknown';
+
+export interface BulkImportItem {
+  id: string;
+  file: File;
+  filename: string;
+  fileSize: number;
+  format: ImportableFileFormat;
+  status: 'pending' | 'previewing' | 'ready' | 'importing' | 'success' | 'error';
+  deckTitle: string;
+  category: DeckCategory;
+  estimatedCards: number;
+  detectedDecksCount: number;
+  selected: boolean;
+  progress: number;
+  progressMessage?: string;
+  errorMessage?: string;
+}
+
+export interface BulkImportResult {
+  totalFiles: number;
+  successfulFiles: number;
+  failedFiles: number;
+  totalDecks: number;
+  totalCards: number;
+  decks: Deck[];
+  errors: { filename: string; error: string }[];
+}
+
 export interface AnkiRawDeck {
   id: number | string;
   name: string;

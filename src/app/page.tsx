@@ -92,12 +92,12 @@ export default function NutriAnkiApp() {
   useEffect(() => {
     const store = useNutriStore.getState();
     store.initPreferences();
-    store.loadDecks();
-    store.initAuth();
+    store.loadDecks().catch(() => {});
+    store.initAuth().catch(() => {});
 
     // Auto-sync every 30 seconds in background silently
     const autoSyncInterval = setInterval(() => {
-      useNutriStore.getState().syncWithCloud();
+      useNutriStore.getState().syncWithCloud().catch(() => {});
     }, 30000);
 
     return () => clearInterval(autoSyncInterval);
