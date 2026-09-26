@@ -130,6 +130,10 @@ export class SyncService {
       // Group cards by deckId
       const cardsByDeck = new Map<string, Flashcard[]>();
       for (const raw of cloudCards || []) {
+        if (!raw.front?.trim() && !raw.back?.trim()) {
+          continue; // Filter out blank cards with no content
+        }
+
         const card: Flashcard = {
           id: raw.id,
           deckId: raw.deck_id,
@@ -160,10 +164,15 @@ export class SyncService {
       // Build Deck list
       const decks: Deck[] = (cloudDecks || []).map((raw) => {
         const cards = cardsByDeck.get(raw.id) || [];
+        const cleanDescription =
+          cards.length === 0 && /with \d+ cards/i.test(raw.description || '')
+            ? 'No flashcards added to this deck yet.'
+            : raw.description || '';
+
         return {
           id: raw.id,
           title: raw.title,
-          description: raw.description || '',
+          description: cleanDescription,
           category: raw.category,
           icon: raw.icon || '🥑',
           color: raw.color || '#7FA98B',
