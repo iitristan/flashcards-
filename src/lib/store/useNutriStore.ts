@@ -56,7 +56,6 @@ interface NutriStore {
   createDeck: (deck: Parameters<typeof deckService.createDeck>[0], cards?: Parameters<typeof deckService.createDeck>[1]) => Promise<Deck>;
   updateDeck: (id: string, updates: Parameters<typeof deckService.updateDeck>[1]) => Promise<void>;
   deleteDeck: (id: string) => Promise<void>;
-  purgeEmptyDecks: () => Promise<number>;
   resetDecks: () => Promise<void>;
   importMultipleDecks: (decks: Deck[]) => Promise<void>;
   importQuizletFoodServiceDeck: () => Promise<Deck>;
@@ -633,18 +632,6 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     }
     syncService.deleteDeckFromCloud(id).catch((err) => console.error('Sync deleteDeck error:', err));
     get().syncWithCloud().catch(() => {});
-  },
-
-  purgeEmptyDecks: async () => {
-    const emptyDecks = get().decks.filter((d) => (d.cards?.length || 0) === 0);
-    if (emptyDecks.length === 0) return 0;
-    for (const d of emptyDecks) {
-      await deckService.deleteDeck(d.id);
-      syncService.deleteDeckFromCloud(d.id).catch(console.error);
-    }
-    await get().loadDecks();
-    get().syncWithCloud().catch(() => {});
-    return emptyDecks.length;
   },
 
   resetDecks: async () => {

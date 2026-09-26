@@ -13,8 +13,7 @@ import {
   TrendingUp, 
   BookOpen,
   ArrowRight,
-  Play,
-  Trash2
+  Play
 } from 'lucide-react';
 
 import { useNutriStore } from '@/lib/store/useNutriStore';
@@ -56,7 +55,6 @@ export default function NutriAnkiApp() {
     uploadLocalDecksToCloud,
     applyThisDeviceToCloudAndAllDevices,
     resetLocalAndPullFromCloud,
-    purgeEmptyDecks,
     loadDecks,
     startStudySession,
     startPlaylistSession,
@@ -88,7 +86,6 @@ export default function NutriAnkiApp() {
   const [isImportExportOpen, setIsImportExportOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isTimerExpired, setIsTimerExpired] = useState(false);
-  const [hideEmptyDecks, setHideEmptyDecks] = useState(true);
 
   // Initialize on mount and maintain background auto-sync interval
   useEffect(() => {
@@ -117,15 +114,11 @@ export default function NutriAnkiApp() {
     }
   }, [preferences.theme]);
 
-  const emptyDecksCount = useMemo(() => {
-    return decks.filter((d) => (d.cards?.length || 0) === 0).length;
-  }, [decks]);
-
-  // Filtered decks calculation
+  // Filtered decks calculation: empty decks (no cards) are automatically excluded by default
   const filteredDecks = useMemo(() => {
     return decks.filter((deck) => {
-      const cardCount = deck.cards?.length || 0;
-      if (hideEmptyDecks && cardCount === 0) {
+      // Exclude decks with no cards by default
+      if ((deck.cards?.length || 0) === 0) {
         return false;
       }
 
@@ -139,7 +132,7 @@ export default function NutriAnkiApp() {
 
       return matchesSearch && matchesCategory;
     });
-  }, [decks, searchQuery, selectedCategory, hideEmptyDecks]);
+  }, [decks, searchQuery, selectedCategory]);
 
   // Filtered playlists calculation
   const filteredPlaylists = useMemo(() => {
@@ -151,10 +144,10 @@ export default function NutriAnkiApp() {
     });
   }, [playlists, searchQuery]);
 
-  // Categories list
+  // Categories list (only derived from decks that contain cards)
   const categories = useMemo(() => {
     const set = new Set<string>(['All']);
-    decks.forEach((d) => set.add(d.category));
+    decks.filter(d => (d.cards?.length || 0) > 0).forEach((d) => set.add(d.category));
     return Array.from(set);
   }, [decks]);
 
@@ -206,15 +199,6 @@ export default function NutriAnkiApp() {
   const handleExportDeck = (deckId: string) => {
     setSelectedExportDeckId(deckId);
     setIsImportExportOpen(true);
-  };
-
-  const handlePurgeEmptyDecks = async () => {
-    if (emptyDecksCount === 0) {
-      toast.info('No empty decks found to remove.');
-      return;
-    }
-    const count = await purgeEmptyDecks();
-    toast.success(`Removed ${count} empty deck${count === 1 ? '' : 's'} from database! 🎉`);
   };
 
   // --------------------------------------------------------------------------
@@ -530,10 +514,7 @@ export default function NutriAnkiApp() {
                 }`}
               >
                 <Layers className="w-3.5 h-3.5" />
-                <span>
-                  Decks ({filteredDecks.length}
-                  {filteredDecks.length !== decks.length ? ` / ${decks.length}` : ''})
-                </span>
+                <span>Decks ({filteredDecks.length})</span>
               </button>
 
               <button
@@ -608,43 +589,6 @@ export default function NutriAnkiApp() {
                   </button>
                 );
               })}
-
-              <div className="h-4 w-px bg-[var(--border-color)] mx-1 flex-shrink-0" />
-
-              {/* Filter toggle: Hide/Show decks with no cards */}
-              <button
-                onClick={() => setHideEmptyDecks(!hideEmptyDecks)}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap transition-all flex items-center gap-1.5 flex-shrink-0 cursor-pointer ${
-                  hideEmptyDecks
-                    ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
-                    : 'bg-[var(--bg-surface)] text-[var(--text-muted)] border border-[var(--border-color)] hover:bg-[var(--bg-surface-subtle)]'
-                }`}
-                title={
-                  hideEmptyDecks
-                    ? 'Filter active: Hiding decks with no cards. Click to show all.'
-                    : 'Showing all decks including empty ones. Click to hide empty.'
-                }
-              >
-                <Layers className="w-3 h-3" />
-                <span>{hideEmptyDecks ? 'Filtered: Cards Only' : 'Include Empty'}</span>
-                {emptyDecksCount > 0 && (
-                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-rose-500/15 text-rose-700 dark:text-rose-400">
-                    {emptyDecksCount} empty
-                  </span>
-                )}
-              </button>
-
-              {/* One-click purge empty decks button */}
-              {emptyDecksCount > 0 && (
-                <button
-                  onClick={handlePurgeEmptyDecks}
-                  className="px-2.5 py-1 rounded-md text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1 flex-shrink-0 text-rose-600 dark:text-rose-400 border border-rose-300 dark:border-rose-900 bg-rose-50/50 dark:bg-rose-950/30 hover:bg-rose-100 cursor-pointer"
-                  title="Permanently remove all empty decks from the database"
-                >
-                  <Trash2 className="w-3 h-3" />
-                  <span>Remove {emptyDecksCount} Empty</span>
-                </button>
-              )}
             </div>
           )}
         </div>
