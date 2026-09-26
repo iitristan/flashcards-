@@ -647,9 +647,9 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     await deckService.importMultipleDecks(newDecks);
     await get().loadDecks();
     for (const d of newDecks) {
-      syncService.pushDeckToCloud(d).catch(console.error);
+      await syncService.pushDeckToCloud(d).catch((err) => console.error('Sync import error:', err));
     }
-    get().syncWithCloud().catch(() => {});
+    await get().syncWithCloud().catch(() => {});
   },
 
   importQuizletFoodServiceDeck: async () => {

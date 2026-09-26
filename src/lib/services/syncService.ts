@@ -68,35 +68,63 @@ export class SyncService {
     if (!user) return null;
 
     try {
-      // 1. Fetch decks
-      const { data: cloudDecks, error: decksErr } = await supabase
-        .from('decks')
-        .select('*')
-        .order('updated_at', { ascending: false });
-
-      if (decksErr) {
-        console.error('Error fetching cloud decks:', decksErr);
-        return null;
+      // 1. Fetch decks (paginated)
+      const cloudDecks: any[] = [];
+      let deckPage = 0;
+      while (true) {
+        const { data: chunk, error: chunkErr } = await supabase
+          .from('decks')
+          .select('*')
+          .order('updated_at', { ascending: false })
+          .range(deckPage * 1000, (deckPage + 1) * 1000 - 1);
+        if (chunkErr) {
+          console.error('Error fetching cloud decks:', chunkErr);
+          break;
+        }
+        if (!chunk || chunk.length === 0) break;
+        cloudDecks.push(...chunk);
+        if (chunk.length < 1000) break;
+        deckPage++;
       }
 
-      // 2. Fetch cards
-      const { data: cloudCards, error: cardsErr } = await supabase
-        .from('flashcards')
-        .select('*');
+      // 2. Fetch all cards with pagination (PostgREST default limit is 1000)
+      const cloudCards: any[] = [];
+      let cardPage = 0;
+      while (true) {
+        const { data: chunk, error: cardsErr } = await supabase
+          .from('flashcards')
+          .select('*')
+          .range(cardPage * 1000, (cardPage + 1) * 1000 - 1);
 
-      if (cardsErr) {
-        console.error('Error fetching cloud cards:', cardsErr);
-        return null;
+        if (cardsErr) {
+          console.error(`Error fetching cloud cards chunk at page ${cardPage}:`, cardsErr);
+          break;
+        }
+
+        if (!chunk || chunk.length === 0) break;
+        cloudCards.push(...chunk);
+        if (chunk.length < 1000) break;
+        cardPage++;
       }
 
-      // 3. Fetch playlists
-      const { data: cloudPlaylists, error: playlistsErr } = await supabase
-        .from('playlists')
-        .select('*')
-        .order('updated_at', { ascending: false });
+      // 3. Fetch playlists (paginated)
+      const cloudPlaylists: any[] = [];
+      let playlistPage = 0;
+      while (true) {
+        const { data: chunk, error: playlistsErr } = await supabase
+          .from('playlists')
+          .select('*')
+          .order('updated_at', { ascending: false })
+          .range(playlistPage * 1000, (playlistPage + 1) * 1000 - 1);
 
-      if (playlistsErr) {
-        console.error('Error fetching cloud playlists:', playlistsErr);
+        if (playlistsErr) {
+          console.error('Error fetching cloud playlists:', playlistsErr);
+          break;
+        }
+        if (!chunk || chunk.length === 0) break;
+        cloudPlaylists.push(...chunk);
+        if (chunk.length < 1000) break;
+        playlistPage++;
       }
 
       // Group cards by deckId
@@ -216,20 +244,24 @@ export class SyncService {
       }
 
       // 2. Delete any existing cards for this deck that are not in the new deck.cards list
+      // SAFETY: Only delete remote cards if the local deck actually contains cards.
+      // If deck.cards is empty, do NOT wipe out existing remote cards!
       const currentCardIds = new Set((deck.cards || []).map((c) => c.id));
-      const { data: remoteCards, error: fetchCardsErr } = await supabase
-        .from('flashcards')
-        .select('id')
-        .eq('deck_id', deck.id);
+      if (deck.cards && deck.cards.length > 0) {
+        const { data: remoteCards, error: fetchCardsErr } = await supabase
+          .from('flashcards')
+          .select('id')
+          .eq('deck_id', deck.id);
 
-      if (fetchCardsErr) {
-        console.warn('[SyncService] Could not check remote cards:', fetchCardsErr.message);
-      }
+        if (fetchCardsErr) {
+          console.warn('[SyncService] Could not check remote cards:', fetchCardsErr.message);
+        }
 
-      if (remoteCards && remoteCards.length > 0) {
-        const toDelete = remoteCards.filter((r) => !currentCardIds.has(r.id)).map((r) => r.id);
-        if (toDelete.length > 0) {
-          await supabase.from('flashcards').delete().in('id', toDelete);
+        if (remoteCards && remoteCards.length > 0) {
+          const toDelete = remoteCards.filter((r) => !currentCardIds.has(r.id)).map((r) => r.id);
+          if (toDelete.length > 0) {
+            await supabase.from('flashcards').delete().in('id', toDelete);
+          }
         }
       }
 

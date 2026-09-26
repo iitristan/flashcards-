@@ -137,7 +137,9 @@ export const DeckCard: React.FC<DeckCardProps> = ({
 
         {/* Description */}
         <p className="text-xs text-[var(--text-muted)] line-clamp-2 mb-4 leading-relaxed">
-          {deck.description || 'No description provided.'}
+          {totalCards === 0 && /with \d+ cards/i.test(deck.description || '')
+            ? 'No flashcards added to this deck yet.'
+            : deck.description || 'No description provided.'}
         </p>
 
         {/* Tags */}
