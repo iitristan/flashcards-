@@ -36,12 +36,23 @@ export const IdentificationView: React.FC<IdentificationViewProps> = ({
   const [isLoadingAi, setIsLoadingAi] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Reset and pre-load cached AI explanation whenever card changes
+  // Reset input and grade ONLY when navigating to a new card
   useEffect(() => {
     setInputAnswer('');
     setGradeResult(null);
     setAiExplanation(card.aiExplanation || null);
+    setIsLoadingAi(false);
+  }, [card.id]);
 
+  // Sync AI explanation if updated externally without clearing the user's graded answer
+  useEffect(() => {
+    if (card.aiExplanation && (card.aiExplanation.whyRight || card.aiExplanation.searchOverview)) {
+      setAiExplanation(card.aiExplanation);
+    }
+  }, [card.aiExplanation]);
+
+  // Pre-load cached AI explanation whenever card.id changes
+  useEffect(() => {
     let isCancelled = false;
 
     if (card.aiExplanation && (card.aiExplanation.whyRight || card.aiExplanation.searchOverview)) {
@@ -80,7 +91,7 @@ export const IdentificationView: React.FC<IdentificationViewProps> = ({
     return () => {
       isCancelled = true;
     };
-  }, [card.id, card.front, card.back, card.aiExplanation, card.rationale]);
+  }, [card.id, card.front, card.back, card.rationale]);
 
   const fetchAiExplanation = useCallback(async (userChoice: string) => {
     setIsLoadingAi(true);

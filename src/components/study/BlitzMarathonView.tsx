@@ -125,7 +125,14 @@ export const BlitzMarathonView: React.FC<BlitzMarathonViewProps> = ({
     }
 
     setOptions(shuffleArray(pool.slice(0, 4)));
-  }, [card.id, card.back, card.options, card.updatedAt, card.lastReviewedAt]);
+  }, [card.id]);
+
+  // Sync AI explanation if updated externally without reshuffling options
+  useEffect(() => {
+    if (card.aiExplanation && (card.aiExplanation.whyRight || card.aiExplanation.searchOverview)) {
+      setAiExplanation(card.aiExplanation);
+    }
+  }, [card.aiExplanation]);
 
   // Pre-load already saved AI explanation from cache if available so it displays immediately
   useEffect(() => {
@@ -145,7 +152,7 @@ export const BlitzMarathonView: React.FC<BlitzMarathonViewProps> = ({
             question: displayQuestion,
             userAnswer: cleanOptionLabel(card.back),
             correctAnswer: cleanOptionLabel(card.back),
-            allOptions: options,
+            allOptions: options.length > 0 ? options : [card.back],
             rationale: card.rationale || '',
             cacheOnly: true
           })
@@ -167,7 +174,7 @@ export const BlitzMarathonView: React.FC<BlitzMarathonViewProps> = ({
     return () => {
       isCancelled = true;
     };
-  }, [card.id, displayQuestion, card.back, card.aiExplanation, options, card.rationale]);
+  }, [card.id, displayQuestion, card.back, card.rationale]);
 
   const normalizeForComparison = useCallback((str: string) => {
     return cleanOptionLabel(cleanRawHtml(str || '')).trim().toLowerCase();

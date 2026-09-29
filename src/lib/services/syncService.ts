@@ -527,13 +527,16 @@ export class SyncService {
     if (!supabase) return null;
 
     const user = await this.getCurrentUser();
-    const targetUserId = user?.id || 'shared-preferences';
+    const isRealAuthUser = user && user.id !== SyncService.SHARED_WORKSPACE_UUID;
+    if (!isRealAuthUser) {
+      return null;
+    }
 
     try {
       const { data, error } = await supabase
         .from('user_preferences')
         .select('preferences')
-        .eq('user_id', targetUserId)
+        .eq('user_id', user.id)
         .maybeSingle();
 
       if (error || !data) return null;
@@ -551,14 +554,17 @@ export class SyncService {
     if (!supabase) return false;
 
     const user = await this.getCurrentUser();
-    const targetUserId = user?.id || 'shared-preferences';
+    const isRealAuthUser = user && user.id !== SyncService.SHARED_WORKSPACE_UUID;
+    if (!isRealAuthUser) {
+      return true; // Unauthenticated shared mode stored in localStorage
+    }
 
     try {
       const { error } = await supabase
         .from('user_preferences')
         .upsert(
           {
-            user_id: targetUserId,
+            user_id: user.id,
             preferences,
             updated_at: new Date().toISOString(),
           },
