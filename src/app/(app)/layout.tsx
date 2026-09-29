@@ -9,7 +9,7 @@ export default async function AppLayout({
 }) {
   return (
     <div className="flex min-h-screen">
-      <Sidebar userEmail="student@nutrianki.local" />
+      <Sidebar userEmail="student@nutriboard.local" />
       <main className="flex-1 overflow-y-auto bg-background p-6 md:p-8">
         {children}
       </main>

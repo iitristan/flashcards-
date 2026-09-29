@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { Deck, Flashcard, DeckPlaylist, UserPreferences, StudySessionState, StudyLogEntry } from '@/types';
 import { computeDeckStats } from '@/lib/services/flashcardService';
@@ -7,6 +8,7 @@ export interface CloudUser {
   email?: string;
 }
 
+
 export class SyncService {
   public static readonly SHARED_WORKSPACE_UUID = '00000000-0000-0000-0000-000000000001';
 
@@ -15,6 +17,7 @@ export class SyncService {
    * Ensures all devices and users utilize the same shared database.
    */
   private getDbUserId(_user?: CloudUser | null): string {
+    void _user;
     return SyncService.SHARED_WORKSPACE_UUID;
   }
 
@@ -53,7 +56,7 @@ export class SyncService {
     }
 
     // 2. Zero-login Shared Workspace Profile (Always active, no login required)
-    this.cachedUser = { id: SyncService.SHARED_WORKSPACE_UUID, email: 'shared@nutrianki.cloud' };
+    this.cachedUser = { id: SyncService.SHARED_WORKSPACE_UUID, email: 'shared@nutriboard.cloud' };
     return this.cachedUser;
   }
 
@@ -68,15 +71,17 @@ export class SyncService {
     if (!user) return null;
 
     try {
-      // 1. Fetch decks (paginated)
-      const cloudDecks: any[] = [];
+      // 1. Fetch decks (paginated) — always fetch full deck registry so we never falsely think decks are missing
+      const cloudDecks: Record<string, any>[] = [];
       let deckPage = 0;
+      const deckColumns = 'id,title,description,category,icon,color,tags,created_at,updated_at';
       while (true) {
         const { data: chunk, error: chunkErr } = await supabase
           .from('decks')
-          .select('*')
+          .select(deckColumns)
           .order('updated_at', { ascending: false })
           .range(deckPage * 1000, (deckPage + 1) * 1000 - 1);
+
         if (chunkErr) {
           console.error('Error fetching cloud decks:', chunkErr);
           break;
@@ -87,14 +92,31 @@ export class SyncService {
         deckPage++;
       }
 
-      // 2. Fetch all cards with pagination (PostgREST default limit is 1000)
-      const cloudCards: any[] = [];
+      // 2. Fetch all cards with pagination — explicit columns to reduce payload
+      const cloudCards: Record<string, any>[] = [];
       let cardPage = 0;
+      const cardColumns = 'id,deck_id,front,back,rationale,options,tags,ndle_subject,difficulty,leitner_box,user_notes,sm2,last_reviewed_at,created_at,updated_at';
+      const fallbackCardColumns = 'id,deck_id,front,back,rationale,options,tags,difficulty,leitner_box,user_notes,sm2,last_reviewed_at,created_at,updated_at';
+      let useFallbackColumns = false;
+
       while (true) {
-        const { data: chunk, error: cardsErr } = await supabase
+        const cols = useFallbackColumns ? fallbackCardColumns : cardColumns;
+        const res: { data: any[] | null; error: any } = await supabase
           .from('flashcards')
-          .select('*')
+          .select(cols as any)
           .range(cardPage * 1000, (cardPage + 1) * 1000 - 1);
+        let chunk = res.data;
+        let cardsErr = res.error;
+
+        if (cardsErr && (cardsErr.message?.includes('ndle_subject') || cardsErr.message?.includes('column'))) {
+          useFallbackColumns = true;
+          const retry: { data: any[] | null; error: any } = await supabase
+            .from('flashcards')
+            .select(fallbackCardColumns as any)
+            .range(cardPage * 1000, (cardPage + 1) * 1000 - 1);
+          chunk = retry.data;
+          cardsErr = retry.error;
+        }
 
         if (cardsErr) {
           console.error(`Error fetching cloud cards chunk at page ${cardPage}:`, cardsErr);
@@ -107,13 +129,14 @@ export class SyncService {
         cardPage++;
       }
 
-      // 3. Fetch playlists (paginated)
-      const cloudPlaylists: any[] = [];
+      // 3. Fetch playlists (paginated) — explicit columns
+      const cloudPlaylists: Record<string, any>[] = [];
       let playlistPage = 0;
+      const playlistColumns = 'id,title,description,deck_ids,color,icon,created_at,updated_at';
       while (true) {
         const { data: chunk, error: playlistsErr } = await supabase
           .from('playlists')
-          .select('*')
+          .select(playlistColumns)
           .order('updated_at', { ascending: false })
           .range(playlistPage * 1000, (playlistPage + 1) * 1000 - 1);
 
@@ -142,6 +165,7 @@ export class SyncService {
           rationale: raw.rationale || '',
           options: Array.isArray(raw.options) ? raw.options : undefined,
           tags: Array.isArray(raw.tags) ? raw.tags : [],
+          ndleSubject: raw.ndle_subject || undefined,
           difficulty: raw.difficulty || undefined,
           leitnerBox: raw.leitner_box || 1,
           userNotes: raw.user_notes || '',
@@ -285,6 +309,7 @@ export class SyncService {
             rationale: c.rationale || '',
             options: c.options || [],
             tags: c.tags || [],
+            ndle_subject: c.ndleSubject || null,
             difficulty: c.difficulty || null,
             leitner_box: c.leitnerBox || 1,
             user_notes: c.userNotes || '',
@@ -307,7 +332,18 @@ export class SyncService {
             .from('flashcards')
             .upsert(chunk, { onConflict: 'id' });
 
-          if (cardsErr && (cardsErr.message.includes('user_id') || cardsErr.code === '23502' || cardsErr.code === '23503')) {
+          if (cardsErr && (cardsErr.message?.includes('ndle_subject') || cardsErr.message?.includes('schema cache'))) {
+            console.warn('[SyncService] Retrying cards chunk upsert without ndle_subject column...');
+            const retryChunk = chunk.map((r) => {
+              const copy = { ...r };
+              delete copy.ndle_subject;
+              return copy;
+            });
+            const retry = await supabase.from('flashcards').upsert(retryChunk, { onConflict: 'id' });
+            cardsErr = retry.error;
+          }
+
+          if (cardsErr && (cardsErr.message?.includes('user_id') || cardsErr.code === '23502' || cardsErr.code === '23503')) {
             console.warn('[SyncService] Retrying cards chunk upsert without user_id column...');
             const retryChunk = chunk.map((r) => {
               const copy = { ...r };
@@ -337,42 +373,57 @@ export class SyncService {
 
   /**
    * Pushes a single card's updated review state to Supabase.
+   * Optimization #9: Only sends review-relevant fields (not full card content).
    */
   async syncCardReview(deckId: string, card: Flashcard): Promise<boolean> {
     const supabase = getSupabaseClient();
     if (!supabase) return false;
 
-    const user = await this.getCurrentUser();
-    const dbUserId = this.getDbUserId(user);
-
     try {
-      const { error } = await supabase.from('flashcards').upsert(
-        {
+      // Only update review-relevant columns — front, back, rationale, options, tags are immutable during review
+      const reviewPayload = {
+        leitner_box: card.leitnerBox || 1,
+        user_notes: card.userNotes || '',
+        sm2: card.sm2 || { interval: 0, easeFactor: 2.5, repetitions: 0, dueDate: new Date().toISOString() },
+        difficulty: card.difficulty || null,
+        last_reviewed_at: card.lastReviewedAt || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error } = await supabase
+        .from('flashcards')
+        .update(reviewPayload)
+        .eq('id', card.id);
+
+      // If UPDATE affected 0 rows (card doesn't exist in cloud yet), fall back to a full upsert
+      if (error && (error.code === 'PGRST116' || error.message?.includes('0 rows'))) {
+        const user = await this.getCurrentUser();
+        const isRealAuthUser = user && user.id !== SyncService.SHARED_WORKSPACE_UUID;
+        const fullPayload: Record<string, any> = {
           id: card.id,
           deck_id: deckId,
-          user_id: dbUserId,
-          front: card.front,
-          back: card.back,
+          front: card.front || '',
+          back: card.back || '',
           rationale: card.rationale || '',
           options: card.options || [],
           tags: card.tags || [],
-          difficulty: card.difficulty || null,
-          leitner_box: card.leitnerBox || 1,
-          user_notes: card.userNotes || '',
-          sm2: card.sm2,
-          last_reviewed_at: card.lastReviewedAt || new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'id' }
-      );
+          ndle_subject: card.ndleSubject || null,
+          ...reviewPayload,
+        };
+        if (isRealAuthUser) fullPayload.user_id = user.id;
 
-      if (error) {
-        console.error('Failed to sync card review:', error);
+        const { error: upsertErr } = await supabase.from('flashcards').upsert(fullPayload, { onConflict: 'id' });
+        if (upsertErr) {
+          console.warn('[SyncService] Card review full upsert fallback failed:', upsertErr.message);
+          return false;
+        }
+      } else if (error) {
+        console.warn('[SyncService] Card review cloud sync deferred:', error.message || error.code || 'Unspecified error');
         return false;
       }
       return true;
     } catch (err) {
-      console.error('Error syncing card review:', err);
+      console.warn('[SyncService] Background card review sync error:', err);
       return false;
     }
   }
@@ -493,7 +544,7 @@ export class SyncService {
   }
 
   /**
-   * Pushes user preferences to Supabase.
+   * Pushes user preferences to Supabase — single UPSERT (Optimization #6).
    */
   async pushPreferences(preferences: UserPreferences): Promise<boolean> {
     const supabase = getSupabaseClient();
@@ -503,48 +554,22 @@ export class SyncService {
     const targetUserId = user?.id || 'shared-preferences';
 
     try {
-      // 1. Check if user preference already exists for targetUserId
-      const { data: existing, error: selectErr } = await supabase
+      const { error } = await supabase
         .from('user_preferences')
-        .select('user_id')
-        .eq('user_id', targetUserId)
-        .maybeSingle();
-
-      if (!selectErr && existing) {
-        // Update existing preference
-        const { error: updateErr } = await supabase
-          .from('user_preferences')
-          .update({
-            preferences,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('user_id', targetUserId);
-
-        return !updateErr;
-      } else {
-        // Insert new preference
-        const { error: insertErr } = await supabase
-          .from('user_preferences')
-          .insert({
+        .upsert(
+          {
             user_id: targetUserId,
             preferences,
             updated_at: new Date().toISOString(),
-          });
+          },
+          { onConflict: 'user_id' }
+        );
 
-        if (insertErr) {
-          // If insert failed due to concurrent creation, fallback to update
-          const { error: fallbackErr } = await supabase
-            .from('user_preferences')
-            .update({
-              preferences,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('user_id', targetUserId);
-          return !fallbackErr;
-        }
-
-        return true;
+      if (error) {
+        console.warn('[SyncService] Failed to upsert preferences:', error.message);
+        return false;
       }
+      return true;
     } catch {
       return false;
     }
@@ -562,6 +587,21 @@ export class SyncService {
     const sessionId = session.id || `sess-${session.deckId || 'deck'}-${session.startTime || Date.now()}`;
 
     try {
+      // Optimization #14: Slim session checkpoints — store only essential card fields to minimize payload
+      const slimCardsQueue = Array.isArray(session.cardsQueue)
+        ? session.cardsQueue.map((c) => ({
+            id: c.id,
+            deckId: c.deckId,
+            front: c.front,
+            back: c.back,
+            options: c.options,
+            rationale: c.rationale,
+            leitnerBox: c.leitnerBox,
+            difficulty: c.difficulty,
+            ndleSubject: c.ndleSubject,
+          }))
+        : [];
+
       const { error } = await supabase.from('study_sessions').upsert(
         {
           id: sessionId,
@@ -572,7 +612,7 @@ export class SyncService {
           current_index: typeof session.currentIndex === 'number' ? session.currentIndex : 0,
           is_completed: typeof session.isCompleted === 'boolean' ? session.isCompleted : false,
           timer_duration_seconds: typeof session.timerDurationSeconds === 'number' ? session.timerDurationSeconds : 0,
-          cards_queue: Array.isArray(session.cardsQueue) ? session.cardsQueue : [],
+          cards_queue: slimCardsQueue,
           results: Array.isArray(session.results) ? session.results : [],
           start_time: Number(session.startTime) || Date.now(),
           updated_at: new Date().toISOString(),
@@ -604,7 +644,7 @@ export class SyncService {
     try {
       let query = supabase
         .from('study_sessions')
-        .select('*')
+        .select('id,deck_id,deck_title,mode,current_index,is_completed,timer_duration_seconds,cards_queue,results,start_time,updated_at')
         .eq('is_completed', false)
         .order('updated_at', { ascending: false })
         .limit(1);
@@ -665,10 +705,14 @@ export class SyncService {
     }
   }
 
+  private pendingStudyLogs: StudyLogEntry[] = [];
+  private studyLogFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
   /**
-   * Pushes a completed review entry / study log to Supabase for historical analytics.
+   * Optimization #10: Pushes multiple study log entries in a single batch INSERT query.
    */
-  async pushStudyLog(log: StudyLogEntry): Promise<boolean> {
+  async pushStudyLogs(logs: StudyLogEntry[]): Promise<boolean> {
+    if (!logs || logs.length === 0) return true;
     const supabase = getSupabaseClient();
     if (!supabase) return false;
 
@@ -676,7 +720,7 @@ export class SyncService {
     const dbUserId = this.getDbUserId(user);
 
     try {
-      const { error } = await supabase.from('study_logs').insert({
+      const rows = logs.map((log) => ({
         id: log.id || `log-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         user_id: dbUserId,
         card_id: log.cardId || 'unknown-card',
@@ -688,18 +732,53 @@ export class SyncService {
         time_spent_seconds: typeof log.timeSpentSeconds === 'number' ? log.timeSpentSeconds : 0,
         verdict: log.verdict || (log.isCorrect ? 'correct' : 'incorrect'),
         created_at: log.createdAt || new Date().toISOString(),
-      });
+      }));
 
-      return !error;
+      const { error } = await supabase.from('study_logs').insert(rows);
+      if (error) {
+        console.warn('[SyncService] Batch study log insert warning:', error.message);
+        return false;
+      }
+      return true;
     } catch {
       return false;
     }
   }
 
   /**
-   * Pulls the user's historical study logs from Supabase.
+   * Flushes any buffered study logs immediately.
    */
-  async pullStudyLogs(): Promise<StudyLogEntry[]> {
+  async flushStudyLogs(): Promise<void> {
+    if (this.studyLogFlushTimer) {
+      clearTimeout(this.studyLogFlushTimer);
+      this.studyLogFlushTimer = null;
+    }
+    if (this.pendingStudyLogs.length === 0) return;
+    const batch = [...this.pendingStudyLogs];
+    this.pendingStudyLogs = [];
+    await this.pushStudyLogs(batch);
+  }
+
+  /**
+   * Optimization #10: Buffers review logs and flushes them in batches every 5 seconds
+   * instead of firing an HTTP POST on every card answer.
+   */
+  async pushStudyLog(log: StudyLogEntry): Promise<boolean> {
+    this.pendingStudyLogs.push(log);
+    if (!this.studyLogFlushTimer) {
+      this.studyLogFlushTimer = setTimeout(() => {
+        this.studyLogFlushTimer = null;
+        this.flushStudyLogs().catch(console.warn);
+      }, 5000);
+    }
+    return true;
+  }
+
+  /**
+   * Pulls the user's historical study logs from Supabase.
+   * Optimization #13: Supports conditional querying via `since` timestamp to avoid pulling 1000 logs every sync.
+   */
+  async pullStudyLogs(since?: string): Promise<StudyLogEntry[]> {
     const supabase = getSupabaseClient();
     if (!supabase) return [];
 
@@ -709,12 +788,16 @@ export class SyncService {
     try {
       let query = supabase
         .from('study_logs')
-        .select('*')
+        .select('id,user_id,card_id,deck_id,mode,rating,user_answer,is_correct,time_spent_seconds,verdict,created_at')
         .order('created_at', { ascending: false })
         .limit(1000);
 
       if (dbUserId) {
         query = query.eq('user_id', dbUserId);
+      }
+
+      if (since) {
+        query = query.gt('created_at', since);
       }
 
       const { data, error } = await query;

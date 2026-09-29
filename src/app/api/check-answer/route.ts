@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { getCachedAnswerGrade, setCachedAnswerGrade } from '@/lib/services/aiExplanationCache';
 import { AIGradeResponse } from '@/types';
 
 interface GradeRequestBody {
@@ -87,7 +88,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const apiKey = clientApiKey || req.headers.get('x-gemini-key') || process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+    // 0. Check database / memory cache first (instant response, zero API quota)
+    const cachedGrade = await getCachedAnswerGrade(question, userAnswer || '');
+    if (cachedGrade) {
+      return NextResponse.json({
+        ...cachedGrade,
+        isAiPowered: true,
+        note: 'Evaluated instantly from database cache.'
+      });
+    }
+
+    const apiKey =
+      clientApiKey ||
+      req.headers.get('x-gemini-key') ||
+      process.env.ADMIN_GEMINI_API_KEY ||
+      process.env.ADMIN_AI_KEY ||
+      process.env.GEMINI_API_KEY ||
+      process.env.NEXT_PUBLIC_GEMINI_API_KEY;
 
     // Fallback to intelligent semantic heuristics if API key is not configured
     if (!apiKey) {
@@ -102,6 +119,7 @@ export async function POST(req: NextRequest) {
     // Call Google Gemini API
     const genAI = new GoogleGenerativeAI(apiKey);
     const MODEL_CANDIDATES = [
+      'gemini-3.8-flash',
       'gemini-3.6-flash',
       'gemini-3.5-flash-lite',
       'gemini-3.5-flash'
@@ -128,13 +146,16 @@ Return ONLY valid JSON matching this schema:
 
     for (const modelName of MODEL_CANDIDATES) {
       try {
-        const model = genAI.getGenerativeModel({
-          model: modelName,
-          generationConfig: {
-            responseMimeType: 'application/json',
-            temperature: 0.2
-          }
-        });
+        const model = genAI.getGenerativeModel(
+          {
+            model: modelName,
+            generationConfig: {
+              responseMimeType: 'application/json',
+              temperature: 0.2
+            }
+          },
+          { timeout: 10000 }
+        );
 
         const result = await model.generateContent(prompt);
         const text = result.response.text();
@@ -147,10 +168,15 @@ Return ONLY valid JSON matching this schema:
         }
 
         const parsed: AIGradeResponse = JSON.parse(cleanText);
-        return NextResponse.json({
+        const gradePayload = {
           ...parsed,
           isAiPowered: true
-        });
+        };
+
+        // Persist grade evaluation to database cache
+        await setCachedAnswerGrade(question, userAnswer || '', gradePayload);
+
+        return NextResponse.json(gradePayload);
       } catch (err) {
         console.warn(`Model ${modelName} failed in check-answer, trying next:`, err);
       }

@@ -19,6 +19,32 @@ const DEFAULT_PREFS: UserPreferences = {
   lastStudyDate: null
 };
 
+// Module-level flags to prevent duplicate channel creation or duplicate auth listeners on re-mount
+let isAuthListenerAttached = false;
+let isRealtimeSubscribed = false;
+
+// Optimization: Debounce & dedup syncWithCloud to prevent rapid successive full-pulls
+let syncDebounceGlobal: ReturnType<typeof setTimeout> | null = null;
+let isSyncInProgress = false;
+
+// Optimization: Self-echo guard — suppress realtime-triggered re-pulls while we're actively pushing
+let isSelfPushing = false;
+let selfPushCooldownTimer: ReturnType<typeof setTimeout> | null = null;
+let checkpointDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+function markSelfPushStart() {
+  isSelfPushing = true;
+  if (selfPushCooldownTimer) clearTimeout(selfPushCooldownTimer);
+}
+
+function markSelfPushEnd() {
+  // Keep guard up for 3 seconds after push completes to allow realtime echo to pass
+  if (selfPushCooldownTimer) clearTimeout(selfPushCooldownTimer);
+  selfPushCooldownTimer = setTimeout(() => {
+    isSelfPushing = false;
+  }, 3000);
+}
+
 
 interface NutriStore {
   // State
@@ -156,46 +182,77 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
         // Zero-login shared cloud sync (Works out-of-the-box without requiring user signup/auth)
         const currentUser = await syncService.getCurrentUser();
         set({
-          user: currentUser || { id: '00000000-0000-0000-0000-000000000001', email: 'shared@nutrianki.cloud' },
+          user: currentUser || { id: '00000000-0000-0000-0000-000000000001', email: 'shared@nutriboard.cloud' },
         });
         await get().syncWithCloud();
       }
 
-      supabase.auth.onAuthStateChange(async (event, newSession) => {
-        syncService.clearUserCache();
-        if (newSession?.user) {
-          set({
-            user: { id: newSession.user.id, email: newSession.user.email },
-          });
-          if (event === 'SIGNED_IN') {
-            await get().syncWithCloud();
+      // Attach auth listener only once per browser session
+      if (!isAuthListenerAttached) {
+        isAuthListenerAttached = true;
+        supabase.auth.onAuthStateChange(async (event, newSession) => {
+          syncService.clearUserCache();
+          if (newSession?.user) {
+            set({
+              user: { id: newSession.user.id, email: newSession.user.email },
+            });
+            if (event === 'SIGNED_IN') {
+              await get().syncWithCloud();
+            }
+          } else {
+            set({
+              user: { id: '00000000-0000-0000-0000-000000000001', email: 'shared@nutriboard.cloud' },
+            });
           }
-        } else {
-          set({
-            user: { id: '00000000-0000-0000-0000-000000000001', email: 'shared@nutrianki.cloud' },
-          });
-        }
-      });
+        });
+      }
 
       // Realtime cross-device sync: listen for changes made on other devices
       let syncDebounceTimer: ReturnType<typeof setTimeout> | null = null;
       const triggerRealtimeSync = () => {
+        // Self-echo guard: skip re-pull if WE just pushed data (our own change echo)
+        if (isSelfPushing) {
+          return;
+        }
         if (syncDebounceTimer) clearTimeout(syncDebounceTimer);
         syncDebounceTimer = setTimeout(() => {
           get().syncWithCloud();
-        }, 1000);
+        }, 2000); // Increased debounce to 2s to batch multiple rapid realtime events
       };
 
-      try {
-        supabase
-          .channel('nutrianki_live_sync')
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'decks' }, triggerRealtimeSync)
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'flashcards' }, triggerRealtimeSync)
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'playlists' }, triggerRealtimeSync)
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'user_preferences' }, triggerRealtimeSync)
-          .subscribe();
-      } catch (realtimeErr) {
-        console.warn('Realtime subscription skipped:', realtimeErr);
+      // Subscribe to realtime changes only once per browser session
+      if (!isRealtimeSubscribed) {
+        try {
+          const channels = supabase.getChannels();
+          const existing = channels.find(
+            (c) =>
+              c.topic === 'realtime:nutriboard_live_sync' ||
+              c.topic === 'realtime:nutrianki_live_sync'
+          );
+
+          if (existing) {
+            // Already subscribed, do not re-add listeners to prevent Supabase Realtime error
+            if (existing.state === 'joined' || existing.state === 'joining') {
+              isRealtimeSubscribed = true;
+              return;
+            }
+            supabase.removeChannel(existing);
+          }
+
+          supabase
+            .channel('nutriboard_live_sync')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'decks' }, triggerRealtimeSync)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'playlists' }, triggerRealtimeSync)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'user_preferences' }, triggerRealtimeSync)
+            .subscribe((status) => {
+              if (status === 'SUBSCRIBED') {
+                isRealtimeSubscribed = true;
+              }
+            });
+          isRealtimeSubscribed = true;
+        } catch (realtimeErr) {
+          console.warn('Realtime subscription skipped:', realtimeErr);
+        }
       }
     } catch (err) {
       console.error('Failed to init auth listener:', err);
@@ -209,12 +266,22 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       return;
     }
 
+    // Dedup: if a sync is already in progress, debounce and skip
+    if (isSyncInProgress) {
+      if (syncDebounceGlobal) clearTimeout(syncDebounceGlobal);
+      syncDebounceGlobal = setTimeout(() => {
+        get().syncWithCloud();
+      }, 3000);
+      return;
+    }
+
     const currentUser = await syncService.getCurrentUser();
     if (!currentUser) {
       set({ syncStatus: 'idle' });
       return;
     }
 
+    isSyncInProgress = true;
     set({ syncStatus: 'syncing' });
     try {
       const cloudData = await syncService.pullFromCloud();
@@ -284,11 +351,21 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
           console.warn('Failed to fetch remote active session:', e);
         }
 
-        // Sync historical study logs for cross-device analytics
+        // Sync historical study logs for cross-device analytics (Optimization #13: conditional pull)
         try {
-          const remoteLogs = await syncService.pullStudyLogs();
+          const localLogs = await deckService.getReviewLogs();
+          let latestTimestamp: string | undefined = undefined;
+          if (localLogs && localLogs.length > 0) {
+            for (const l of localLogs) {
+              const ts = l.timestamp || l.createdAt;
+              if (ts && (!latestTimestamp || ts > latestTimestamp)) {
+                latestTimestamp = ts;
+              }
+            }
+          }
+
+          const remoteLogs = await syncService.pullStudyLogs(latestTimestamp);
           if (remoteLogs && remoteLogs.length > 0) {
-            const localLogs = await deckService.getReviewLogs();
             const logMap = new Map();
             for (const l of localLogs) logMap.set(l.timestamp || l.createdAt || l.cardId, l);
             for (const r of remoteLogs) {
@@ -313,8 +390,12 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
           console.warn('Failed to sync study logs:', e);
         }
 
-        await get().loadDecks();
+        const refreshedDecks = await deckService.getDecks();
+        const refreshedPlaylists = await deckService.getPlaylists();
         set({
+          decks: refreshedDecks,
+          playlists: refreshedPlaylists,
+          isLoadingDecks: false,
           syncStatus: 'synced',
           lastSyncedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         });
@@ -336,6 +417,8 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     } catch (err) {
       console.error('Failed to sync with cloud:', err);
       set({ syncStatus: 'error' });
+    } finally {
+      isSyncInProgress = false;
     }
   },
 
@@ -501,7 +584,10 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
   },
 
   loadDecks: async () => {
-    set({ isLoadingDecks: true });
+    // Only display full loading state on initial cold start when no decks are present in memory
+    if (get().decks.length === 0) {
+      set({ isLoadingDecks: true });
+    }
     try {
       const decks = await deckService.getDecks();
       const playlists = await deckService.getPlaylists();
@@ -524,33 +610,36 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
   createPlaylist: async (playlistData) => {
     const created = await deckService.createPlaylist(playlistData);
     await get().loadPlaylists();
-    syncService.pushPlaylistsToCloud(get().playlists).catch(console.error);
-    get().syncWithCloud().catch(() => {});
+    markSelfPushStart();
+    syncService.pushPlaylistsToCloud(get().playlists).catch(console.error).finally(markSelfPushEnd);
     return created;
   },
 
   updatePlaylist: async (id, updates) => {
     await deckService.updatePlaylist(id, updates);
     await get().loadPlaylists();
-    syncService.pushPlaylistsToCloud(get().playlists).catch(console.error);
-    get().syncWithCloud().catch(() => {});
+    markSelfPushStart();
+    syncService.pushPlaylistsToCloud(get().playlists).catch(console.error).finally(markSelfPushEnd);
   },
 
   deletePlaylist: async (id) => {
     await deckService.deletePlaylist(id);
     await get().loadPlaylists();
-    syncService.deletePlaylistFromCloud(id).catch(console.error);
-    get().syncWithCloud().catch(() => {});
+    markSelfPushStart();
+    syncService.deletePlaylistFromCloud(id).catch(console.error).finally(markSelfPushEnd);
   },
 
   startPlaylistSession: async (playlistId, mode, shuffle = true) => {
-    const playlists = await deckService.getPlaylists();
-    const playlist = playlists.find(p => p.id === playlistId);
+    let playlist = get().playlists.find(p => p.id === playlistId);
+    if (!playlist) {
+      const playlists = await deckService.getPlaylists();
+      playlist = playlists.find(p => p.id === playlistId);
+    }
     if (!playlist) {
       throw new Error('Playlist not found!');
     }
 
-    const allDecks = await deckService.getDecks();
+    const allDecks = get().decks.length > 0 ? get().decks : await deckService.getDecks();
     const includedDecks = allDecks.filter(d => playlist.deckIds.includes(d.id));
 
     let aggregatedCards: Flashcard[] = [];
@@ -609,8 +698,8 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
   createDeck: async (deckData, initialCards) => {
     const created = await deckService.createDeck(deckData, initialCards);
     await get().loadDecks();
-    syncService.pushDeckToCloud(created).catch((err) => console.error('Sync createDeck error:', err));
-    get().syncWithCloud().catch(() => {});
+    markSelfPushStart();
+    syncService.pushDeckToCloud(created).catch((err) => console.error('Sync createDeck error:', err)).finally(markSelfPushEnd);
     return created;
   },
 
@@ -619,8 +708,8 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     await get().loadDecks();
     const updated = get().decks.find((d) => d.id === id);
     if (updated) {
-      syncService.pushDeckToCloud(updated).catch((err) => console.error('Sync updateDeck error:', err));
-      get().syncWithCloud().catch(() => {});
+      markSelfPushStart();
+      syncService.pushDeckToCloud(updated).catch((err) => console.error('Sync updateDeck error:', err)).finally(markSelfPushEnd);
     }
   },
 
@@ -630,8 +719,8 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     if (get().activeDeckId === id) {
       set({ activeDeckId: null });
     }
-    syncService.deleteDeckFromCloud(id).catch((err) => console.error('Sync deleteDeck error:', err));
-    get().syncWithCloud().catch(() => {});
+    markSelfPushStart();
+    syncService.deleteDeckFromCloud(id).catch((err) => console.error('Sync deleteDeck error:', err)).finally(markSelfPushEnd);
   },
 
   resetDecks: async () => {
@@ -639,24 +728,28 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     await get().loadDecks();
     const decks = get().decks;
     const playlists = get().playlists;
-    syncService.migrateLocalToCloud(decks, playlists).catch((err) => console.error('Sync reset error:', err));
-    get().syncWithCloud().catch(() => {});
+    markSelfPushStart();
+    syncService.migrateLocalToCloud(decks, playlists).catch((err) => console.error('Sync reset error:', err)).finally(markSelfPushEnd);
   },
 
   importMultipleDecks: async (newDecks) => {
     await deckService.importMultipleDecks(newDecks);
     await get().loadDecks();
-    for (const d of newDecks) {
-      await syncService.pushDeckToCloud(d).catch((err) => console.error('Sync import error:', err));
+    markSelfPushStart();
+    try {
+      for (const d of newDecks) {
+        await syncService.pushDeckToCloud(d).catch((err) => console.error('Sync import error:', err));
+      }
+    } finally {
+      markSelfPushEnd();
     }
-    await get().syncWithCloud().catch(() => {});
   },
 
   importQuizletFoodServiceDeck: async () => {
     const deck = await deckService.importQuizletFoodServiceDeck();
     await get().loadDecks();
-    syncService.pushDeckToCloud(deck).catch(console.error);
-    get().syncWithCloud().catch(() => {});
+    markSelfPushStart();
+    syncService.pushDeckToCloud(deck).catch(console.error).finally(markSelfPushEnd);
     return deck;
   },
 
@@ -665,8 +758,8 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     await get().loadDecks();
     const d = get().decks.find((deck) => deck.id === deckId);
     if (d) {
-      syncService.pushDeckToCloud(d).catch(console.error);
-      get().syncWithCloud().catch(() => {});
+      markSelfPushStart();
+      syncService.pushDeckToCloud(d).catch(console.error).finally(markSelfPushEnd);
     }
   },
 
@@ -675,8 +768,8 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     await get().loadDecks();
     const d = get().decks.find((deck) => deck.id === deckId);
     if (d) {
-      syncService.pushDeckToCloud(d).catch(console.warn);
-      get().syncWithCloud().catch(() => {});
+      markSelfPushStart();
+      syncService.pushDeckToCloud(d).catch(console.warn).finally(markSelfPushEnd);
     }
 
     // Also update current card in active session if active
@@ -699,8 +792,8 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     await get().loadDecks();
     const d = get().decks.find((deck) => deck.id === deckId);
     if (d) {
-      syncService.pushDeckToCloud(d).catch(console.warn);
-      get().syncWithCloud().catch(() => {});
+      markSelfPushStart();
+      syncService.pushDeckToCloud(d).catch(console.warn).finally(markSelfPushEnd);
     }
   },
 
@@ -736,7 +829,10 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
   },
 
   startStudySession: async (deckId, mode, filterDueOnly = false) => {
-    const deck = await deckService.getDeckById(deckId);
+    let deck = get().decks.find(d => d.id === deckId);
+    if (!deck) {
+      deck = await deckService.getDeckById(deckId) || undefined;
+    }
     if (!deck || deck.cards.length === 0) {
       throw new Error('This deck has no cards to study!');
     }
@@ -861,15 +957,34 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       } catch {}
     }
 
-    // Persist checkpoint & study log to cloud
-    syncService.saveSessionCheckpoint(updatedSession).then(() => {
+    // Persist checkpoint & study log to cloud (Optimization #10: debounced checkpoint & buffered logs)
+    if (isCompleted) {
+      if (checkpointDebounceTimer) {
+        clearTimeout(checkpointDebounceTimer);
+        checkpointDebounceTimer = null;
+      }
+      if (updatedSession.id) {
+        syncService.completeStudySession(updatedSession.id).catch(console.warn);
+      }
+      syncService.flushStudyLogs().catch(console.warn);
       set({ saveStatus: 'saved' });
       setTimeout(() => {
         if (get().saveStatus === 'saved') set({ saveStatus: 'idle' });
       }, 1500);
-    }).catch(() => {
-      set({ saveStatus: 'saved' }); // Local save succeeded
-    });
+    } else {
+      if (checkpointDebounceTimer) clearTimeout(checkpointDebounceTimer);
+      checkpointDebounceTimer = setTimeout(() => {
+        checkpointDebounceTimer = null;
+        syncService.saveSessionCheckpoint(updatedSession).then(() => {
+          set({ saveStatus: 'saved' });
+          setTimeout(() => {
+            if (get().saveStatus === 'saved') set({ saveStatus: 'idle' });
+          }, 1500);
+        }).catch(() => {
+          set({ saveStatus: 'saved' });
+        });
+      }, 4000);
+    }
 
     syncService.pushStudyLog({
       cardId: currentCard.id,
@@ -882,10 +997,6 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       verdict,
       createdAt: new Date().toISOString()
     }).catch(console.warn);
-
-    if (isCompleted && updatedSession.id) {
-      syncService.completeStudySession(updatedSession.id).catch(console.warn);
-    }
 
     // If completed, trigger victory sound & update streak/daily stats
     if (isCompleted) {
@@ -965,7 +1076,11 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
   },
 
   endStudySession: () => {
-    const { activeSession, user } = get();
+    const { activeSession } = get();
+    if (checkpointDebounceTimer) {
+      clearTimeout(checkpointDebounceTimer);
+      checkpointDebounceTimer = null;
+    }
     if (activeSession && !activeSession.isCompleted && activeSession.currentIndex > 0) {
       // Save in-progress session checkpoint before closing
       if (typeof window !== 'undefined') {
@@ -975,6 +1090,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       }
       syncService.saveSessionCheckpoint(activeSession).catch(console.error);
     }
+    syncService.flushStudyLogs().catch(console.warn);
     set({ activeSession: null });
     get().loadDecks();
   }

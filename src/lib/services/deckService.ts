@@ -1,6 +1,7 @@
 import { Deck, Flashcard, ReviewRating, DeckCategory, DeckPlaylist, StudyMode, StudyLogEntry, Sm2Data } from '@/types';
 import { calculateSM2, computeDeckStats } from '@/lib/services/flashcardService';
 import { idbStorage } from '@/lib/storage/indexedDbStorage';
+import { classifyCardHeuristic } from '@/lib/services/ndleClassifierService';
 
 
 const STORAGE_KEY_DECKS = 'nutrianki_decks_v1';
@@ -109,25 +110,36 @@ class IndexedDbDeckService implements IDeckService {
     const newDeckId = `deck-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const now = new Date().toISOString();
 
-    const preparedCards: Flashcard[] = initialCards.map((c, idx) => ({
-      id: c.id || `card-${Date.now()}-${idx}`,
-      deckId: newDeckId,
-      front: c.front || 'Question',
-      back: c.back || 'Answer',
-      rationale: c.rationale || '',
-      options: c.options && c.options.length > 0 ? c.options : [c.back || 'Answer', 'Option B', 'Option C', 'Option D'],
-      tags: c.tags || deckData.tags || [],
-      difficulty: c.difficulty || 'medium',
-      leitnerBox: c.leitnerBox || 1,
-      sm2: c.sm2 || {
-        interval: 1,
-        easeFactor: 2.5,
-        repetitions: 0,
-        dueDate: now
-      },
-      createdAt: now,
-      updatedAt: now
-    }));
+    const preparedCards: Flashcard[] = initialCards.map((c, idx) => {
+      const subject = c.ndleSubject || classifyCardHeuristic({
+        front: c.front || '',
+        back: c.back || '',
+        rationale: c.rationale || '',
+        tags: c.tags,
+        deckCategory: deckData.category
+      }).subject;
+
+      return {
+        id: c.id || `card-${Date.now()}-${idx}`,
+        deckId: newDeckId,
+        front: c.front || 'Question',
+        back: c.back || 'Answer',
+        rationale: c.rationale || '',
+        options: c.options && c.options.length > 0 ? c.options : [c.back || 'Answer', 'Option B', 'Option C', 'Option D'],
+        tags: c.tags || deckData.tags || [],
+        ndleSubject: subject,
+        difficulty: c.difficulty || 'medium',
+        leitnerBox: c.leitnerBox || 1,
+        sm2: c.sm2 || {
+          interval: 1,
+          easeFactor: 2.5,
+          repetitions: 0,
+          dueDate: now
+        },
+        createdAt: now,
+        updatedAt: now
+      };
+    });
 
     const newDeck: Deck = {
       ...deckData,
@@ -177,10 +189,19 @@ class IndexedDbDeckService implements IDeckService {
     if (!deck) throw new Error(`Deck with id ${deckId} not found`);
 
     const now = new Date().toISOString();
+    const subject = cardData.ndleSubject || classifyCardHeuristic({
+      front: cardData.front || '',
+      back: cardData.back || '',
+      rationale: cardData.rationale || '',
+      tags: cardData.tags,
+      deckCategory: deck.category
+    }).subject;
+
     const newCard: Flashcard = {
       ...cardData,
       id: `card-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       deckId,
+      ndleSubject: subject,
       options: cardData.options && cardData.options.length === 4 ? cardData.options : [cardData.back, 'Option B', 'Option C', 'Option D'],
       tags: cardData.tags || deck.tags || [],
       sm2: {

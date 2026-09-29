@@ -1,28 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { MCExplanationRequest, MCExplanationResponse, ExplanationSource } from '@/types';
+import { getCachedMCExplanation, setCachedMCExplanation, normalizeQuestionText } from '@/lib/services/aiExplanationCache';
 
 const MODEL_CANDIDATES = [
+  'gemini-3.8-flash',
   'gemini-3.6-flash',
   'gemini-3.5-flash-lite',
   'gemini-3.5-flash'
-];
-
-const STANDARD_SOURCES: ExplanationSource[] = [
-  {
-    title: "Mahan LK, Raymond JL. Krause and Mahan's Food & The Nutrition Care Process, 16th ed. Elsevier, 2024.",
-    relevance: "Core Clinical Dietetics & Medical Nutrition Therapy"
-  },
-  {
-    title: "Academy of Nutrition and Dietetics — Evidence Analysis Library (EAL)",
-    relevance: "Official evidence-based nutrition practice guidelines",
-    url: "https://www.andeal.org/"
-  },
-  {
-    title: "ASPEN Clinical Guidelines — Journal of Parenteral and Enteral Nutrition",
-    relevance: "Clinical Nutrition Support & Metabolic Care Protocols",
-    url: "https://www.nutritioncare.org/Guidelines_and_Clinical_Resources/Clinical_Guidelines/"
-  }
 ];
 
 /**
@@ -87,6 +72,7 @@ function resolveSourceUrl(source: { url?: string; pmid?: string; doi?: string; t
 
 function formatModelDisplayName(modelName: string): string {
   const map: Record<string, string> = {
+    'gemini-3.8-flash': 'Gemini 3.8 Flash',
     'gemini-3.6-flash': 'Gemini 3.6 Flash',
     'gemini-3.5-flash': 'Gemini 3.5 Flash',
     'gemini-3.5-flash-lite': 'Gemini 3.5 Flash-Lite',
@@ -101,7 +87,7 @@ function generateFallbackExplanation(
   userAnswer: string,
   correctAnswer: string,
   rationale: string = '',
-  allOptions: string[] = [],
+  _allOptions: string[] = [],
   modelUsed: string = 'Unavailable',
   generationTimeMs: number = 0,
   errorMsg: string = 'Gemini service is temporarily experiencing high demand.'
@@ -109,7 +95,7 @@ function generateFallbackExplanation(
   return {
     searchOverview: '',
     whyRight: '',
-    whyWrongChoices: '',
+    whyWrongChoices: _allOptions.length > 0 ? `Alternative options: ${_allOptions.slice(0, 4).join(', ')}` : '',
     keyDifference: '',
     sources: [],
     isAiPowered: false,
@@ -142,7 +128,31 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const apiKey = clientApiKey || req.headers.get('x-gemini-key') || process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+    // 0. Check database / memory cache first (instant response, zero API quota)
+    const cached = await getCachedMCExplanation(question, userAnswer || '');
+    if (cached) {
+      return NextResponse.json({
+        ...cached,
+        generationTimeMs: Date.now() - startTime,
+        modelUsed: `${cached.modelUsed || 'Gemini'} (Database Cache)`,
+      });
+    }
+
+    // If caller only wanted to check if an explanation was already available:
+    if (body.cacheOnly) {
+      return NextResponse.json(
+        { cached: false, available: false },
+        { status: 200 }
+      );
+    }
+
+    const apiKey =
+      clientApiKey ||
+      req.headers.get('x-gemini-key') ||
+      process.env.ADMIN_GEMINI_API_KEY ||
+      process.env.ADMIN_AI_KEY ||
+      process.env.GEMINI_API_KEY ||
+      process.env.NEXT_PUBLIC_GEMINI_API_KEY;
 
     if (!apiKey) {
       return NextResponse.json(
@@ -160,7 +170,7 @@ export async function POST(req: NextRequest) {
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const isStudentCorrect = userAnswer && userAnswer.trim().toLowerCase() === correctAnswer.trim().toLowerCase();
+    const isStudentCorrect = Boolean(userAnswer && userAnswer.trim().toLowerCase() === correctAnswer.trim().toLowerCase());
 
     const prompt = `You are a clinical dietetics and medical nutrition therapy board exam review authority and biomedical educator.
 Provide a direct, factual, evidence-based breakdown for this flashcard question.
@@ -220,13 +230,16 @@ Return strictly valid JSON matching this schema:
 
     for (const modelName of MODEL_CANDIDATES) {
       try {
-        const model = genAI.getGenerativeModel({
-          model: modelName,
-          generationConfig: {
-            responseMimeType: 'application/json',
-            temperature: 0.2
-          }
-        });
+        const model = genAI.getGenerativeModel(
+          {
+            model: modelName,
+            generationConfig: {
+              responseMimeType: 'application/json',
+              temperature: 0.2
+            }
+          },
+          { timeout: 10000 }
+        );
 
         const result = await model.generateContent(prompt);
         const text = result.response.text();
@@ -263,7 +276,7 @@ Return strictly valid JSON matching this schema:
           };
         });
 
-        return NextResponse.json({
+        const resultPayload = {
           searchOverview: parsed.searchOverview,
           whyRight: parsed.whyRight,
           whyWrongChoices: parsed.whyWrongChoices || '',
@@ -273,15 +286,21 @@ Return strictly valid JSON matching this schema:
           modelUsed: displayName,
           generationTimeMs,
           authorRationale: rationale || undefined
-        });
-      } catch (err: any) {
+        };
+
+        // Cache explanation in database for future instant retrieval
+        await setCachedMCExplanation(question, userAnswer || '', isStudentCorrect, resultPayload);
+
+        return NextResponse.json(resultPayload);
+      } catch (err: unknown) {
         lastError = err;
-        const isDemandSpike = err?.status === 503 || String(err?.message || '').includes('503') || err?.status === 429 || String(err?.message || '').includes('429');
+        const errObj = err as { status?: number; message?: string };
+        const isDemandSpike = errObj?.status === 503 || String(errObj?.message || '').includes('503') || errObj?.status === 429 || String(errObj?.message || '').includes('429');
         if (isDemandSpike) {
           hadDemandSpike = true;
           console.warn(`Model ${modelName} encountered 503/429 high demand spike. Immediately trying next candidate model...`);
         } else {
-          console.warn(`Model ${modelName} error:`, err?.message || err);
+          console.warn(`Model ${modelName} error:`, errObj?.message || err);
         }
         // Immediately try the next candidate model
         continue;
@@ -321,7 +340,7 @@ Return strictly valid JSON matching this schema:
             };
           });
 
-          return NextResponse.json({
+          const failoverPayload = {
             searchOverview: parsed.searchOverview,
             whyRight: parsed.whyRight,
             whyWrongChoices: parsed.whyWrongChoices || '',
@@ -331,21 +350,25 @@ Return strictly valid JSON matching this schema:
             modelUsed: 'Gemini 3.5 Flash-Lite (Failover)',
             generationTimeMs,
             authorRationale: rationale || undefined
-          });
+          };
+
+          await setCachedMCExplanation(question, userAnswer || '', isStudentCorrect, failoverPayload);
+
+          return NextResponse.json(failoverPayload);
         }
       } catch (finalRetryErr) {
         lastError = finalRetryErr;
       }
     }
 
-    const lastErrorMsg = (lastError as any)?.message || 'Gemini models are temporarily experiencing peak demand across the network. Please tap Retry with Gemini.';
+    const lastErrorMsg = (lastError as Error)?.message || 'Gemini models are temporarily experiencing peak demand across the network. Please tap Retry with Gemini.';
     console.error('All Gemini candidate models failed in /api/explain-mc:', lastError);
     return NextResponse.json(
       generateFallbackExplanation(question, userAnswer, correctAnswer, rationale, allOptions, 'Unavailable', Date.now() - startTime, lastErrorMsg)
     );
   } catch (error: unknown) {
     console.error('Fatal error in /api/explain-mc:', error);
-    const fatalMsg = (error as any)?.message || 'Service unavailable';
+    const fatalMsg = (error as Error)?.message || 'Service unavailable';
     return NextResponse.json(
       generateFallbackExplanation(
         body.question || '',

@@ -67,7 +67,7 @@ export default function LoginPage() {
   return (
     <Card className="border shadow-sm">
       <CardHeader>
-        <CardTitle className="text-xl font-bold tracking-tight">Sign In to NutriAnki</CardTitle>
+        <CardTitle className="text-xl font-bold tracking-tight">Sign In to Nutriboard</CardTitle>
         <CardDescription>
           Access your cloud-synced flashcards, decks, and active study progress.
         </CardDescription>

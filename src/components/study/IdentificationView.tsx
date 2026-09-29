@@ -32,9 +32,55 @@ export const IdentificationView: React.FC<IdentificationViewProps> = ({
   const [inputAnswer, setInputAnswer] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [gradeResult, setGradeResult] = useState<AIGradeResponse | null>(null);
-  const [aiExplanation, setAiExplanation] = useState<MCExplanationResponse | null>(null);
+  const [aiExplanation, setAiExplanation] = useState<MCExplanationResponse | null>(card.aiExplanation || null);
   const [isLoadingAi, setIsLoadingAi] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Reset and pre-load cached AI explanation whenever card changes
+  useEffect(() => {
+    setInputAnswer('');
+    setGradeResult(null);
+    setAiExplanation(card.aiExplanation || null);
+
+    let isCancelled = false;
+
+    if (card.aiExplanation && (card.aiExplanation.whyRight || card.aiExplanation.searchOverview)) {
+      setAiExplanation(card.aiExplanation);
+      return;
+    }
+
+    const checkExistingExplanation = async () => {
+      try {
+        const res = await fetch('/api/explain-mc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            question: card.front,
+            userAnswer: card.back,
+            correctAnswer: card.back,
+            allOptions: [card.back],
+            rationale: card.rationale || '',
+            cacheOnly: true
+          })
+        });
+
+        if (!isCancelled && res.ok) {
+          const data = await res.json();
+          if (data && (data.whyRight || data.searchOverview) && !data.unavailable) {
+            setAiExplanation(data);
+          }
+        }
+      } catch {
+        // Silently ignore background check
+      }
+    };
+
+    checkExistingExplanation();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [card.id, card.front, card.back, card.aiExplanation, card.rationale]);
 
   const fetchAiExplanation = useCallback(async (userChoice: string) => {
     setIsLoadingAi(true);
@@ -54,6 +100,12 @@ export const IdentificationView: React.FC<IdentificationViewProps> = ({
       if (res.ok) {
         const data: MCExplanationResponse = await res.json();
         setAiExplanation(data);
+        if (data && (data.whyRight || data.searchOverview) && !data.unavailable) {
+          useNutriStore.getState().updateCard(card.deckId, card.id, {
+            aiExplanation: data,
+            rationale: card.rationale || data.whyRight || data.searchOverview || ''
+          });
+        }
       } else {
         const errData = await res.json().catch(() => null);
         setAiExplanation({
@@ -76,7 +128,7 @@ export const IdentificationView: React.FC<IdentificationViewProps> = ({
     } finally {
       setIsLoadingAi(false);
     }
-  }, [card.front, card.back, card.rationale, preferences.geminiApiKey]);
+  }, [card.id, card.deckId, card.front, card.back, card.rationale, preferences.geminiApiKey]);
 
   const handleSubmit = useCallback(async (overrideAnswer?: string) => {
     const textToSubmit = overrideAnswer !== undefined ? overrideAnswer : inputAnswer;

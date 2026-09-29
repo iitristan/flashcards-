@@ -12,7 +12,6 @@ import {
   FileCheck, 
   Loader2, 
   Sparkles,
-  Files,
   FileSpreadsheet,
   Code2,
   Trash2,
@@ -21,7 +20,7 @@ import {
   CheckCircle2,
   FolderUp,
   Layers,
-  ArrowRight
+  Award
 } from 'lucide-react';
 import { Deck, DeckCategory } from '@/types';
 import { deckService } from '@/lib/services/deckService';
@@ -31,6 +30,8 @@ import { pdfImporter } from '@/lib/importers/pdf/pdfImporter';
 import { parseQuizletExamText } from '@/lib/importers/pdf/quizletPdfParser';
 import { importService } from '@/lib/importers/importService';
 import { ImportableFileFormat } from '@/lib/importers/types';
+import { NDLESubject, NDLE_SUBJECT_LIST, NDLE_SUBJECT_CONFIGS } from '@/types/ndle';
+import { batchClassifyCards } from '@/lib/services/ndleClassifierService';
 import { toast } from 'sonner';
 
 interface ImportExportModalProps {
@@ -40,7 +41,7 @@ interface ImportExportModalProps {
   onClose: () => void;
 }
 
-type ImportTabMode = 'bulk' | 'anki' | 'pdf' | 'csv_json';
+type ImportTabMode = 'bulk' | 'anki' | 'pdf' | 'csv_json' | 'ndle_review';
 
 export interface QueuedImportFile {
   id: string;
@@ -151,6 +152,20 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   const [csvCategory, setCsvCategory] = useState<DeckCategory>('General Dietetics');
   const [csvDetectedCards, setCsvDetectedCards] = useState<number>(0);
 
+  // NDLE AI Categorization & Review State
+  const [ndlePasteText, setNdlePasteText] = useState('');
+  const [ndleDeckTitle, setNdleDeckTitle] = useState('NDLE Board Reviewer');
+  const [ndleParsedCards, setNdleParsedCards] = useState<Array<{
+    id: string;
+    front: string;
+    back: string;
+    rationale: string;
+    subject: NDLESubject;
+    confidence: number;
+    reasoning: string;
+  }>>([]);
+  const [isClassifyingNdle, setIsClassifyingNdle] = useState(false);
+
   // Export state
   const [exportDeckId, setExportDeckId] = useState<string>(selectedDeckId || decks[0]?.id || '');
   const [exportFormat, setExportFormat] = useState<'json' | 'csv'>('csv');
@@ -194,9 +209,13 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
     let isMounted = true;
 
     // Mark as previewing
-    setQueuedFiles((prev) =>
-      prev.map((item) => (item.id === pendingItem.id ? { ...item, status: 'previewing' } : item))
-    );
+    queueMicrotask(() => {
+      if (isMounted) {
+        setQueuedFiles((prev) =>
+          prev.map((item) => (item.id === pendingItem.id ? { ...item, status: 'previewing' } : item))
+        );
+      }
+    });
 
     importService
       .previewFile(pendingItem.file)
@@ -566,6 +585,123 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
     }
   };
 
+  const handleParseAndClassifyNdle = async () => {
+    if (!ndlePasteText.trim()) {
+      toast.error('Please paste card text or question pairs first');
+      return;
+    }
+
+    setIsClassifyingNdle(true);
+    try {
+      const rawLines = ndlePasteText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      const extracted: Array<{ front: string; back: string; rationale: string }> = [];
+
+      for (let i = 0; i < rawLines.length; i++) {
+        const line = rawLines[i];
+        if (line.includes('\t')) {
+          const parts = line.split('\t').map((p) => p.trim());
+          if (parts.length >= 2 && parts[0] && parts[1]) {
+            extracted.push({ front: parts[0], back: parts[1], rationale: parts[2] || '' });
+          }
+        } else if (line.includes(';') || line.includes(',')) {
+          const sep = line.includes(';') ? ';' : ',';
+          const parts = line.split(sep).map((p) => p.trim());
+          if (parts.length >= 2 && parts[0] && parts[1]) {
+            extracted.push({ front: parts[0], back: parts[1], rationale: parts[2] || '' });
+          }
+        } else if (line.toLowerCase().startsWith('q:') || line.toLowerCase().startsWith('question:')) {
+          const nextLine = rawLines[i + 1] || '';
+          if (nextLine.toLowerCase().startsWith('a:') || nextLine.toLowerCase().startsWith('answer:')) {
+            extracted.push({
+              front: line.replace(/^(q|question):\s*/i, '').trim(),
+              back: nextLine.replace(/^(a|answer):\s*/i, '').trim(),
+              rationale: '',
+            });
+            i++;
+          }
+        }
+      }
+
+      if (extracted.length === 0) {
+        toast.error('No card pairs detected. Use "Question [Tab] Answer" or "Question, Answer" on each line.');
+        setIsClassifyingNdle(false);
+        return;
+      }
+
+      const classified = await batchClassifyCards(extracted);
+      const cardsWithSubjects = classified.map((item, idx) => ({
+        id: `ndle-card-${idx}-${Date.now()}`,
+        front: item.card.front,
+        back: item.card.back || '',
+        rationale: item.card.rationale || '',
+        subject: item.classification.subject,
+        confidence: item.classification.confidence,
+        reasoning: item.classification.reasoning,
+      }));
+
+      setNdleParsedCards(cardsWithSubjects);
+      toast.success(`Classified ${cardsWithSubjects.length} cards across the 3 NDLE subjects! Verify or override tags below.`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Classification failed';
+      toast.error(msg);
+    } finally {
+      setIsClassifyingNdle(false);
+    }
+  };
+
+  const handleUpdateParsedCardSubject = (index: number, newSubject: NDLESubject) => {
+    setNdleParsedCards((prev) => {
+      const updated = [...prev];
+      if (updated[index]) {
+        updated[index] = {
+          ...updated[index],
+          subject: newSubject,
+          confidence: 1.0,
+          reasoning: 'Manually verified / overridden by user',
+        };
+      }
+      return updated;
+    });
+  };
+
+  const handleImportNdleCards = async () => {
+    if (ndleParsedCards.length === 0) {
+      toast.error('No classified cards to import');
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const deck = await deckService.createDeck(
+        {
+          title: ndleDeckTitle || 'NDLE Reviewer Deck',
+          description: `NDLE board exam flashcards auto-categorized into official PRC subjects.`,
+          category: 'Clinical Nutrition',
+          icon: 'Award',
+          color: '#059669',
+          tags: ['NDLE', 'PRC', 'Auto-Categorized'],
+        },
+        ndleParsedCards.map((c) => ({
+          front: c.front,
+          back: c.back,
+          rationale: c.rationale,
+          ndleSubject: c.subject,
+          tags: [NDLE_SUBJECT_CONFIGS[c.subject].code, 'NDLE'],
+        }))
+      );
+
+      await useNutriStore.getState().loadDecks();
+      toast.success(`Imported "${deck.title}" with ${ndleParsedCards.length} categorized board cards! 🎉`);
+      onImportSuccess();
+      onClose();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to import cards';
+      toast.error(msg);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   // ---------------------------------------------------------------------------
   // Export Handling
   // ---------------------------------------------------------------------------
@@ -586,11 +722,11 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
       if (exportFormat === 'json') {
         fileData = await deckService.exportDeckToJson(exportDeckId);
         fileType = 'application/json';
-        fileName = `nutrianki_${titleSlug}.json`;
+        fileName = `nutriboard_${titleSlug}.json`;
       } else {
         fileData = await deckService.exportDeckToCsv(exportDeckId);
         fileType = 'text/csv;charset=utf-8;';
-        fileName = `nutrianki_${titleSlug}.csv`;
+        fileName = `nutriboard_${titleSlug}.csv`;
       }
 
       const blob = new Blob([fileData], { type: fileType });
@@ -690,7 +826,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
           {activeTab === 'import' ? (
             <div className="space-y-4">
               {/* Import Type Selector Pills */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                 <button
                   type="button"
                   onClick={() => setImportType('bulk')}
@@ -746,6 +882,19 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
                 >
                   <FileSpreadsheet className="w-3.5 h-3.5 flex-shrink-0" />
                   <span className="truncate">CSV / JSON</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setImportType('ndle_review')}
+                  className={`py-2 px-2.5 rounded-2xl text-xs font-bold border-2 transition-all flex items-center justify-center gap-1.5 cursor-pointer col-span-2 sm:col-span-1 ${
+                    importType === 'ndle_review'
+                      ? 'border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary)] shadow-xs'
+                      : 'border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-muted)] hover:bg-[var(--bg-surface-subtle)]'
+                  }`}
+                >
+                  <Award className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                  <span className="truncate">AI NDLE Tag</span>
                 </button>
               </div>
 
@@ -1288,7 +1437,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
                         {csvFile ? csvFile.name : 'Tap or drop CSV, TSV, or JSON files here'}
                       </p>
                       <p className="text-[11px] text-[var(--text-muted)]">
-                        Supports Excel/Quizlet exports (Question, Answer, Rationale) and NutriAnki JSON backups
+                        Supports Excel/Quizlet exports (Question, Answer, Rationale) and Nutriboard JSON backups
                       </p>
                     </div>
                   </div>
@@ -1337,6 +1486,135 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
                       Column 1: Question | Column 2: Answer | Column 3 (opt): Rationale | Column 4: Tags
                     </p>
                   </div>
+                </div>
+              )}
+
+              {/* ----------------------------------------------------------- */}
+              {/* TAB 5: AI NDLE AUTO-TAG & MANUAL REVIEW                     */}
+              {/* ----------------------------------------------------------- */}
+              {importType === 'ndle_review' && (
+                <div className="space-y-4">
+                  <div className="p-4 rounded-3xl bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Award className="w-5 h-5 text-primary" />
+                      <div>
+                        <h4 className="font-bold text-xs text-[var(--text-main)]">
+                          AI NDLE Auto-Categorization & Review
+                        </h4>
+                        <p className="text-[11px] text-[var(--text-muted)]">
+                          Paste practice questions or flashcards below. Our AI classifier will tag each item into one of the 3 official NDLE subjects.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                      <div>
+                        <label className="block text-[11px] font-bold text-[var(--text-subtle)] mb-1">
+                          Deck Name
+                        </label>
+                        <input
+                          type="text"
+                          value={ndleDeckTitle}
+                          onChange={(e) => setNdleDeckTitle(e.target.value)}
+                          placeholder="e.g. NDLE Clinical Reviewer"
+                          className="w-full px-3 py-2 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] text-xs text-[var(--text-main)] outline-none focus:border-[var(--primary)] font-medium"
+                        />
+                      </div>
+                      <div className="flex items-end">
+                        <button
+                          type="button"
+                          onClick={handleParseAndClassifyNdle}
+                          disabled={isClassifyingNdle || !ndlePasteText.trim()}
+                          className="w-full py-2 px-3 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                        >
+                          {isClassifyingNdle ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Sparkles className="w-3.5 h-3.5" />
+                          )}
+                          <span>{isClassifyingNdle ? 'Classifying Cards...' : 'Inspect & Classify with AI'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-[var(--text-subtle)] mb-1">
+                        Paste Cards / Questions (Tab, Comma, or Q&A format)
+                      </label>
+                      <textarea
+                        rows={5}
+                        value={ndlePasteText}
+                        onChange={(e) => setNdlePasteText(e.target.value)}
+                        placeholder={`Question 1 [Tab] Correct Answer
+Question 2 [Tab] Correct Answer
+Or:
+Q: What is the primary medical nutrition therapy for CKD Stage 4?
+A: Protein restriction 0.6-0.8 g/kg/day with adequate caloric intake.`}
+                        className="w-full p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] text-xs text-[var(--text-main)] outline-none focus:border-[var(--primary)] font-mono resize-y"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Fallback Manual Review UI */}
+                  {ndleParsedCards.length > 0 && (
+                    <div className="space-y-3 pt-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="font-bold text-xs text-[var(--text-main)]">
+                            Classification Review ({ndleParsedCards.length} Cards)
+                          </span>
+                          <p className="text-[10px] text-[var(--text-muted)]">
+                            Review AI suggested subjects. You can override any tag using the dropdown selector before importing.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
+                        {ndleParsedCards.map((card, idx) => {
+                          const config = NDLE_SUBJECT_CONFIGS[card.subject];
+                          return (
+                            <div
+                              key={card.id || idx}
+                              className="p-3 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-surface)] space-y-2 hover:border-[var(--primary)]/60 transition-all text-xs"
+                            >
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                <div className="font-semibold text-[var(--text-main)] flex-1">
+                                  <span className="text-[var(--text-muted)] mr-1.5 font-bold">#{idx + 1}</span>
+                                  {card.front}
+                                </div>
+                                <div className="sm:w-64 shrink-0">
+                                  <select
+                                    value={card.subject}
+                                    onChange={(e) => handleUpdateParsedCardSubject(idx, e.target.value as NDLESubject)}
+                                    className="w-full py-1 px-2 rounded-lg bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-[11px] font-bold text-[var(--text-main)] outline-none cursor-pointer focus:border-[var(--primary)]"
+                                  >
+                                    {NDLE_SUBJECT_LIST.map((subj) => (
+                                      <option key={subj} value={subj}>
+                                        {NDLE_SUBJECT_CONFIGS[subj].code} ({NDLE_SUBJECT_CONFIGS[subj].weightPercentage}%) - {subj}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              </div>
+
+                              <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[var(--border-subtle)]/50 text-[11px]">
+                                <div className="text-[var(--text-muted)] truncate max-w-sm">
+                                  <strong className="text-[var(--text-main)]">Ans:</strong> {card.back}
+                                </div>
+                                <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-subtle)]">
+                                  <span className="px-1.5 py-0.5 rounded bg-muted font-bold text-foreground">
+                                    {config.code} ({config.weightPercentage}%)
+                                  </span>
+                                  <span>•</span>
+                                  <span>{Math.round(card.confidence * 100)}% match</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1388,7 +1666,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
                         : 'border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-muted)]'
                     }`}
                   >
-                    JSON (Full NutriAnki Backup)
+                    JSON (Full Nutriboard Backup)
                   </button>
                 </div>
               </div>
@@ -1448,6 +1726,21 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
               >
                 {isProcessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                 <span>{isProcessing ? 'Importing PDF...' : `Import ${pdfExtractedCards} Parsed Cards`}</span>
+              </button>
+            ) : importType === 'ndle_review' ? (
+              <button
+                onClick={handleImportNdleCards}
+                disabled={isProcessing || ndleParsedCards.length === 0}
+                className="px-6 py-2.5 rounded-2xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] disabled:opacity-40 text-white text-xs font-bold shadow-sm transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                {isProcessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Award className="w-3.5 h-3.5" />}
+                <span>
+                  {isProcessing
+                    ? 'Importing...'
+                    : ndleParsedCards.length === 0
+                    ? 'Classify Cards First'
+                    : `Approve & Import ${ndleParsedCards.length} Verified Cards`}
+                </span>
               </button>
             ) : (
               <button

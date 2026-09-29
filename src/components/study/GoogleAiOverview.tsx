@@ -38,9 +38,10 @@ const GeminiIcon: React.FC<{ className?: string }> = ({ className = 'w-3.5 h-3.5
 
 function getCleanModelBadge(rawModel?: string, isAiPowered?: boolean): string {
   if (!rawModel) {
-    return isAiPowered !== false ? 'Gemini 3.5 Lite' : 'Literature Engine';
+    return isAiPowered !== false ? 'Gemini 3.8 Flash' : 'Literature Engine';
   }
   const lower = rawModel.toLowerCase();
+  if (lower.includes('3.8')) return 'Gemini 3.8 Flash';
   if (lower.includes('3.6')) return 'Gemini 3.6 Flash';
   if (lower.includes('3.5-flash-lite') || lower.includes('3.5 flash-lite')) return 'Gemini 3.5 Lite';
   if (lower.includes('3.5')) return 'Gemini 3.5 Flash';

@@ -1,5 +1,5 @@
 -- ==========================================================
--- NutriAnki Cross-Device Cloud Sync Database Schema
+-- Nutriboard Cross-Device Cloud Sync Database Schema
 -- Run this in your Supabase Dashboard: SQL Editor -> New query
 -- ==========================================================
 
@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS public.flashcards (
   rationale TEXT DEFAULT '',
   options JSONB DEFAULT '[]'::jsonb,
   tags JSONB DEFAULT '[]'::jsonb,
+  ndle_subject TEXT DEFAULT NULL,
   difficulty TEXT,
   leitner_box INT DEFAULT 1,
   user_notes TEXT DEFAULT '',
@@ -48,6 +49,10 @@ CREATE TABLE IF NOT EXISTS public.flashcards (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Migration helper for existing databases:
+ALTER TABLE IF EXISTS public.flashcards ADD COLUMN IF NOT EXISTS ndle_subject TEXT DEFAULT NULL;
+
 
 -- 3. PLAYLISTS TABLE
 CREATE TABLE IF NOT EXISTS public.playlists (
@@ -107,6 +112,7 @@ CREATE INDEX IF NOT EXISTS idx_decks_updated_at ON public.decks(updated_at);
 CREATE INDEX IF NOT EXISTS idx_flashcards_deck_id ON public.flashcards(deck_id);
 CREATE INDEX IF NOT EXISTS idx_flashcards_user_id ON public.flashcards(user_id);
 CREATE INDEX IF NOT EXISTS idx_flashcards_updated_at ON public.flashcards(updated_at);
+CREATE INDEX IF NOT EXISTS idx_flashcards_ndle_subject ON public.flashcards(ndle_subject);
 CREATE INDEX IF NOT EXISTS idx_playlists_user_id ON public.playlists(user_id);
 CREATE INDEX IF NOT EXISTS idx_study_sessions_user ON public.study_sessions(user_id, is_completed, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_study_logs_user ON public.study_logs(user_id, created_at DESC);
@@ -162,4 +168,110 @@ CREATE POLICY "Allow all access to study_logs"
   FOR ALL
   USING (true)
   WITH CHECK (true);
+
+-- 10. CBLE EXAM RESULTS TABLE (PRC Computer-Based Licensure Examination History)
+CREATE TABLE IF NOT EXISTS public.cble_exam_results (
+  id TEXT PRIMARY KEY,
+  user_id UUID DEFAULT NULL,
+  examinee_name TEXT NOT NULL DEFAULT 'BRIGETTE',
+  examination_name TEXT NOT NULL DEFAULT 'NDLE PRC EXAMINATION',
+  subject TEXT NOT NULL DEFAULT 'MIXED SUBJECT',
+  total_questions INT NOT NULL DEFAULT 100,
+  correct_count INT NOT NULL DEFAULT 0,
+  score_percentage NUMERIC(5,2) NOT NULL DEFAULT 0.00,
+  is_passed BOOLEAN NOT NULL DEFAULT FALSE,
+  time_spent_seconds INT NOT NULL DEFAULT 0,
+  user_answers JSONB NOT NULL DEFAULT '{}'::jsonb,
+  category_breakdown JSONB NOT NULL DEFAULT '{}'::jsonb,
+  completed_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 11. CBLE QUESTIONS TABLE (Dedicated NDLE Mock Board Question Pool)
+CREATE TABLE IF NOT EXISTS public.cble_questions (
+  id TEXT PRIMARY KEY,
+  question_number INT,
+  subject TEXT NOT NULL DEFAULT 'MIXED SUBJECT',
+  category TEXT NOT NULL DEFAULT 'General Nutrition',
+  question TEXT NOT NULL,
+  image_url TEXT,
+  options JSONB NOT NULL DEFAULT '[]'::jsonb,
+  correct_answer TEXT NOT NULL DEFAULT 'A',
+  explanation TEXT DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 12. CBLE INDEXES
+CREATE INDEX IF NOT EXISTS idx_cble_exam_results_user_id ON public.cble_exam_results(user_id);
+CREATE INDEX IF NOT EXISTS idx_cble_exam_results_created_at ON public.cble_exam_results(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cble_questions_subject ON public.cble_questions(subject);
+CREATE INDEX IF NOT EXISTS idx_cble_questions_category ON public.cble_questions(category);
+
+-- 13. CBLE RLS & POLICIES
+ALTER TABLE public.cble_exam_results ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cble_questions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow all access to cble_exam_results" ON public.cble_exam_results;
+CREATE POLICY "Allow all access to cble_exam_results"
+  ON public.cble_exam_results
+  FOR ALL
+  USING (true)
+  WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow all access to cble_questions" ON public.cble_questions;
+CREATE POLICY "Allow all access to cble_questions"
+  ON public.cble_questions
+  FOR ALL
+  USING (true)
+  WITH CHECK (true);
+
+-- 14. AI EXPLANATION & ANSWER CACHE TABLES
+-- Caches AI-generated explanations and grades to eliminate repeat API requests and costs
+CREATE TABLE IF NOT EXISTS public.ai_explanation_cache (
+  id TEXT PRIMARY KEY,
+  question_text TEXT NOT NULL,
+  user_answer TEXT NOT NULL,
+  is_correct BOOLEAN NOT NULL DEFAULT FALSE,
+  ai_explanation JSONB NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.ai_grade_cache (
+  id TEXT PRIMARY KEY,
+  question_text TEXT NOT NULL,
+  user_answer TEXT NOT NULL,
+  grade_result JSONB NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 15. CBLE QUESTION REFRAMES CACHE
+-- Caches PRC board exam polished stems (capitalization, phrasing, structure fixes)
+CREATE TABLE IF NOT EXISTS public.cble_question_reframes (
+  original_stem TEXT PRIMARY KEY,
+  reframed_stem TEXT NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 16. INDEXES & RLS POLICIES FOR AI CACHE
+CREATE INDEX IF NOT EXISTS idx_ai_explanation_created ON public.ai_explanation_cache(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_grade_created ON public.ai_grade_cache(created_at DESC);
+
+ALTER TABLE public.ai_explanation_cache ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_grade_cache ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cble_question_reframes ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow all access to ai_explanation_cache" ON public.ai_explanation_cache;
+CREATE POLICY "Allow all access to ai_explanation_cache"
+  ON public.ai_explanation_cache FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow all access to ai_grade_cache" ON public.ai_grade_cache;
+CREATE POLICY "Allow all access to ai_grade_cache"
+  ON public.ai_grade_cache FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow all access to cble_question_reframes" ON public.cble_question_reframes;
+CREATE POLICY "Allow all access to cble_question_reframes"
+  ON public.cble_question_reframes FOR ALL USING (true) WITH CHECK (true);
+
+
 

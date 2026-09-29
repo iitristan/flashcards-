@@ -74,7 +74,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 Preferences & Themes
               </h2>
               <p className="text-xs text-[var(--text-muted)]">
-                Customize your cozy NutriAnki study space
+                Customize your cozy Nutriboard study space
               </p>
             </div>
           </div>
@@ -252,7 +252,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <div className="flex items-center justify-between p-6 border-t border-[var(--border-subtle)] bg-[var(--bg-surface-subtle)]/30">
           <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[var(--text-subtle)]">
             <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-            <span>NutriAnki v1.0.0</span>
+            <span>Nutriboard v1.0.0</span>
           </div>
 
           <button

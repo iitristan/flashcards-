@@ -26,6 +26,7 @@ export interface MCExplanationRequest {
   rationale?: string;
   studentReasoning?: string;
   apiKey?: string;
+  cacheOnly?: boolean;
 }
 
 export interface ExplanationSource {

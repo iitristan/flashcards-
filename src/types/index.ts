@@ -27,10 +27,12 @@ export interface Flashcard {
   rationale: string; // Detailed clinical or exam rationale & key takeaway
   options?: string[]; // 4 options for Multiple Choice mode (including the correct answer)
   tags: string[]; // e.g. ["CKD", "Renal", "MNT"]
+  ndleSubject?: import('./ndle').NDLESubject; // Canonical PRC NDLE Subject
   difficulty?: 'easy' | 'medium' | 'hard';
   leitnerBox?: number; // 1 to 5 (ARtLS box)
   userNotes?: string; // User personal notes / mnemonics per item
   sm2: Sm2Data;
+  aiExplanation?: import('./gemini').MCExplanationResponse;
   lastReviewedAt?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -185,5 +187,8 @@ export interface Sm2Fields {
   repetitions: number;
   dueDate: Date;
 }
+
+export * from './ndle';
+
 
 

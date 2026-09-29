@@ -57,7 +57,7 @@ export default function SignUpPage() {
         setErrorMsg(error.message);
         toast.error(error.message);
       } else if (data.session) {
-        toast.success("Account created successfully! Welcome to NutriAnki.");
+        toast.success("Account created successfully! Welcome to Nutriboard.");
         router.push("/");
       } else {
         toast.success("Account created! Please check your email to verify your account.");

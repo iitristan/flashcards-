@@ -104,8 +104,50 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
     setOptions(shuffleArray(pool.slice(0, 4)));
     setSelectedOption(null);
     setHasSubmitted(false);
-    setAiExplanation(null);
-  }, [card.id, card.back, card.options, card.updatedAt, card.lastReviewedAt]);
+    setAiExplanation(card.aiExplanation || null);
+  }, [card.id, card.back, card.options, card.updatedAt, card.lastReviewedAt, card.aiExplanation]);
+
+  // Pre-load already saved AI explanation from cache if available so it displays immediately
+  useEffect(() => {
+    let isCancelled = false;
+
+    if (card.aiExplanation && (card.aiExplanation.whyRight || card.aiExplanation.searchOverview)) {
+      setAiExplanation(card.aiExplanation);
+      return;
+    }
+
+    const checkExistingExplanation = async () => {
+      try {
+        const res = await fetch('/api/explain-mc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            question: displayQuestion,
+            userAnswer: cleanOptionLabel(card.back),
+            correctAnswer: cleanOptionLabel(card.back),
+            allOptions: options,
+            rationale: card.rationale || '',
+            cacheOnly: true
+          })
+        });
+
+        if (!isCancelled && res.ok) {
+          const data = await res.json();
+          if (data && (data.whyRight || data.searchOverview) && !data.unavailable) {
+            setAiExplanation(data);
+          }
+        }
+      } catch {
+        // Silently ignore background check
+      }
+    };
+
+    checkExistingExplanation();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [card.id, displayQuestion, card.back, card.aiExplanation, options, card.rationale]);
 
   const normalizeForComparison = useCallback((str: string) => {
     return cleanOptionLabel(cleanRawHtml(str || '')).trim().toLowerCase();
@@ -130,6 +172,12 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
       if (res.ok) {
         const data: MCExplanationResponse = await res.json();
         setAiExplanation(data);
+        if (data && (data.whyRight || data.searchOverview) && !data.unavailable) {
+          useNutriStore.getState().updateCard(card.deckId, card.id, {
+            aiExplanation: data,
+            rationale: card.rationale || data.whyRight || data.searchOverview || ''
+          });
+        }
       } else {
         const errData = await res.json().catch(() => null);
         setAiExplanation({
@@ -152,7 +200,7 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
     } finally {
       setIsLoadingAi(false);
     }
-  }, [displayQuestion, card.back, card.rationale, options, preferences.geminiApiKey]);
+  }, [displayQuestion, card.id, card.deckId, card.back, card.rationale, options, preferences.geminiApiKey]);
 
   // Handle timer expiration
   useEffect(() => {

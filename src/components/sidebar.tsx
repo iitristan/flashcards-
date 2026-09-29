@@ -9,6 +9,7 @@ import {
   LogOut,
   Play,
   Sparkles,
+  Award,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -16,7 +17,9 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 
 const navItems = [
-  { href: "/", label: "NutriAnki Hub", icon: LayoutDashboard },
+  { href: "/", label: "Nutriboard Hub", icon: LayoutDashboard },
+  { href: "/readiness", label: "Board Readiness", icon: Award },
+  { href: "/cble", label: "PRC CBLE Exam", icon: Brain },
   { href: "/dashboard", label: "Dashboard", icon: Layers },
   { href: "/create", label: "Create with AI", icon: Sparkles },
   { href: "/review", label: "Review Session", icon: Play },
@@ -36,7 +39,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
 
   const initials = userEmail
     ? userEmail.slice(0, 2).toUpperCase()
-    : "NA";
+    : "NB";
 
   return (
     <aside className="flex h-screen w-64 flex-col border-r bg-card">
@@ -45,7 +48,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
           <Brain className="h-5 w-5" />
         </div>
         <div>
-          <span className="text-base font-bold tracking-tight text-foreground">NutriAnki</span>
+          <span className="text-base font-bold tracking-tight text-foreground">Nutriboard</span>
           <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Board Reviewer</p>
         </div>
       </div>

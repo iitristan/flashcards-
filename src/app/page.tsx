@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import React, { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -9,37 +10,38 @@ import {
   Search, 
   Layers, 
   Filter, 
-  ListMusic, 
   TrendingUp, 
   BookOpen,
   ArrowRight,
-  Play
+  Play,
+  Award,
+  Brain,
+  Clock,
+  X
 } from 'lucide-react';
 
 import { useNutriStore } from '@/lib/store/useNutriStore';
-import { Deck, StudyMode, DeckPlaylist } from '@/types';
+import { Deck, StudyMode } from '@/types';
 import { DeckCard } from '@/components/deck/DeckCard';
 import { DeckManager } from '@/components/deck/DeckManager';
 import { ImportExportModal } from '@/components/deck/ImportExportModal';
 import { SettingsModal } from '@/components/ui/SettingsModal';
-import { PlaylistModal } from '@/components/deck/PlaylistModal';
-import { PlaylistCard } from '@/components/deck/PlaylistCard';
 import { StudyHeader } from '@/components/study/StudyHeader';
 import { SpacedRepetitionCard } from '@/components/study/SpacedRepetitionCard';
 import { MultipleChoiceView } from '@/components/study/MultipleChoiceView';
 import { IdentificationView } from '@/components/study/IdentificationView';
 import { BlitzMarathonView } from '@/components/study/BlitzMarathonView';
 import { LearningAnalytics } from '@/components/study/LearningAnalytics';
+import { BoardReadinessView } from '@/components/study/BoardReadinessView';
 import { StudySessionSummary } from '@/components/study/StudySessionSummary';
 import { AuthModal } from '@/components/auth/AuthModal';
 import { toast } from 'sonner';
 
 
 
-export default function NutriAnkiApp() {
+export default function NutriboardApp() {
   const {
     decks,
-    playlists,
     isLoadingDecks,
     activeSession,
     preferences,
@@ -52,12 +54,10 @@ export default function NutriAnkiApp() {
     isAuthModalOpen,
     setIsAuthModalOpen,
     syncWithCloud,
-    uploadLocalDecksToCloud,
     applyThisDeviceToCloudAndAllDevices,
     resetLocalAndPullFromCloud,
     loadDecks,
     startStudySession,
-    startPlaylistSession,
     recordAnswer,
     restartCurrentSession,
     endStudySession,
@@ -65,9 +65,6 @@ export default function NutriAnkiApp() {
     updateDeck,
     deleteDeck,
     resetDecks,
-    createPlaylist,
-    updatePlaylist,
-    deletePlaylist,
     addCard,
     updateCard,
     deleteCard,
@@ -75,31 +72,40 @@ export default function NutriAnkiApp() {
   } = useNutriStore();
 
   // Local UI states
-  const [activeTab, setActiveTab] = useState<'decks' | 'playlists' | 'analytics'>('decks');
+  const [activeTab, setActiveTab] = useState<'decks' | 'readiness' | 'analytics'>('decks');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [editingDeck, setEditingDeck] = useState<Deck | null>(null);
   const [isCreatingDeck, setIsCreatingDeck] = useState(false);
-  const [editingPlaylist, setEditingPlaylist] = useState<DeckPlaylist | null>(null);
-  const [isPlaylistModalOpen, setIsPlaylistModalOpen] = useState(false);
   const [selectedExportDeckId, setSelectedExportDeckId] = useState<string | null>(null);
   const [isImportExportOpen, setIsImportExportOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isTimerExpired, setIsTimerExpired] = useState(false);
+  const [isConfirmCBLEOpen, setIsConfirmCBLEOpen] = useState(false);
 
-  // Initialize on mount and maintain background auto-sync interval
+  // Initialize on mount; sync only when user returns to tab (not polling)
   useEffect(() => {
     const store = useNutriStore.getState();
     store.initPreferences();
     store.loadDecks().catch(() => {});
     store.initAuth().catch(() => {});
 
-    // Auto-sync every 30 seconds in background silently
-    const autoSyncInterval = setInterval(() => {
-      useNutriStore.getState().syncWithCloud().catch(() => {});
-    }, 30000);
+    // Optimization #8: Replace 30-second polling with visibility-based sync.
+    // Only sync when user returns to the tab after being away 10+ seconds.
+    let lastVisibleAt = Date.now();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        lastVisibleAt = Date.now();
+      } else if (document.visibilityState === 'visible') {
+        const awaySeconds = (Date.now() - lastVisibleAt) / 1000;
+        if (awaySeconds >= 10) {
+          useNutriStore.getState().syncWithCloud().catch(() => {});
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    return () => clearInterval(autoSyncInterval);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, []);
 
   // Apply theme to document on preference change
@@ -134,15 +140,6 @@ export default function NutriAnkiApp() {
     });
   }, [decks, searchQuery, selectedCategory]);
 
-  // Filtered playlists calculation
-  const filteredPlaylists = useMemo(() => {
-    return (playlists || []).filter((p) => {
-      return (
-        p.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.description.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-    });
-  }, [playlists, searchQuery]);
 
   // Categories list (only derived from decks that contain cards)
   const categories = useMemo(() => {
@@ -175,15 +172,6 @@ export default function NutriAnkiApp() {
     }
   };
 
-  const handleStartPlaylistStudy = (playlistId: string, mode: StudyMode) => {
-    try {
-      setIsTimerExpired(false);
-      startPlaylistSession(playlistId, mode);
-    } catch (err: unknown) {
-      const errorMsg = err instanceof Error ? err.message : 'Could not start playlist study session';
-      toast.error(errorMsg);
-    }
-  };
 
   const handleTimerExpire = () => {
     setIsTimerExpired(true);
@@ -322,7 +310,7 @@ export default function NutriAnkiApp() {
           {/* Logo & App Title */}
           <div className="flex flex-col justify-center flex-shrink-0">
             <h1 className="font-extrabold text-xl tracking-tight text-[var(--text-main)] leading-none">
-              NutriAnki
+              Nutriboard
             </h1>
             <p className="text-[11px] font-medium text-[var(--text-muted)] mt-1 hidden xs:block">
               Board Examination & Dietetics Reviewer
@@ -376,20 +364,6 @@ export default function NutriAnkiApp() {
             >
               <Settings className="w-3.5 h-3.5 text-[var(--text-muted)]" />
               <span className="hidden md:inline">Settings</span>
-            </button>
-
-            {/* Create Playlist Button */}
-            <button
-              onClick={() => {
-                setEditingPlaylist(null);
-                setIsPlaylistModalOpen(true);
-              }}
-              aria-label="Create multi-deck study playlist"
-              className="px-2.5 py-1.5 sm:px-3 rounded-lg border border-teal-200 dark:border-teal-800 bg-teal-50 dark:bg-teal-950/50 text-teal-800 dark:text-teal-200 hover:bg-teal-100 text-xs font-medium shadow-xs transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"
-              title="Create Study Playlist"
-            >
-              <ListMusic className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Playlist</span>
             </button>
 
             {/* Create Deck Button */}
@@ -450,64 +424,14 @@ export default function NutriAnkiApp() {
           </div>
         )}
 
-        {/* HERO SECTION: Review Metrics */}
-        <div className="w-full p-4 sm:p-5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] shadow-xs flex flex-col justify-between">
-          <div className="flex items-center justify-between text-xs font-semibold text-[var(--text-subtle)] uppercase tracking-wider mb-2">
-            <span className="flex items-center gap-1.5 font-bold text-[var(--text-main)]">
-              <BookOpen className="w-3.5 h-3.5 text-[var(--primary)]" />
-              Review Overview
-            </span>
-            <span className="text-[11px] font-medium text-[var(--text-muted)] lowercase first-letter:uppercase">
-              Target: {Math.min(totalMastered, preferences.dailyGoal)} / {preferences.dailyGoal} cards
-            </span>
-          </div>
-
-          <div className="grid grid-cols-3 gap-2 text-center py-2">
-            <div>
-              <span className="text-xl sm:text-2xl font-bold text-[var(--text-main)] block">
-                {totalCardsCount}
-              </span>
-              <span className="text-[11px] font-medium text-[var(--text-muted)]">
-                Total Cards
-              </span>
-            </div>
-            <div className="border-x border-[var(--border-subtle)]">
-              <span className="text-xl sm:text-2xl font-bold text-amber-600 dark:text-amber-400 block">
-                {totalDueToday}
-              </span>
-              <span className="text-[11px] font-medium text-[var(--text-muted)]">
-                Due Today
-              </span>
-            </div>
-            <div>
-              <span className="text-xl sm:text-2xl font-bold text-teal-600 dark:text-teal-400 block">
-                {totalMastered}
-              </span>
-              <span className="text-[11px] font-medium text-[var(--text-muted)]">
-                Mastered
-              </span>
-            </div>
-          </div>
-
-          {/* Daily Target Progress Bar */}
-          <div className="pt-2 mt-1 border-t border-[var(--border-subtle)]">
-            <div className="w-full h-1.5 bg-[var(--bg-surface-subtle)] rounded-full overflow-hidden">
-              <div
-                className="h-full bg-[var(--primary)] rounded-full transition-all duration-500"
-                style={{ width: `${Math.min(100, Math.round((totalMastered / Math.max(1, preferences.dailyGoal)) * 100))}%` }}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* VIEW TABS (Decks vs Playlists) & SEARCH BAR */}
+        {/* VIEW TABS & SEARCH BAR */}
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
             {/* View Switcher Tabs */}
             <div className="flex items-center gap-1 p-1 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-color)] shadow-xs overflow-x-auto scrollbar-none">
               <button
                 onClick={() => setActiveTab('decks')}
-                className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
                   activeTab === 'decks'
                     ? 'bg-[var(--primary)] text-white shadow-xs'
                     : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)]'
@@ -518,20 +442,20 @@ export default function NutriAnkiApp() {
               </button>
 
               <button
-                onClick={() => setActiveTab('playlists')}
-                className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap ${
-                  activeTab === 'playlists'
+                onClick={() => setActiveTab('readiness')}
+                className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                  activeTab === 'readiness'
                     ? 'bg-[var(--primary)] text-white shadow-xs'
                     : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)]'
                 }`}
               >
-                <ListMusic className="w-3.5 h-3.5" />
-                <span>Playlists ({(playlists || []).length})</span>
+                <Award className="w-3.5 h-3.5" />
+                <span>Board Readiness</span>
               </button>
 
               <button
                 onClick={() => setActiveTab('analytics')}
-                className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
                   activeTab === 'analytics'
                     ? 'bg-[var(--primary)] text-white shadow-xs'
                     : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)]'
@@ -542,16 +466,16 @@ export default function NutriAnkiApp() {
               </button>
             </div>
 
-            {/* Search Input (when not in analytics) */}
-            {activeTab !== 'analytics' && (
+            {/* Search Input (when in decks) */}
+            {activeTab === 'decks' && (
               <div className="relative flex-1 max-w-md">
                 <Search className="w-3.5 h-3.5 text-[var(--text-subtle)] absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  aria-label="Search flashcards, decks, or playlists"
-                  placeholder={activeTab === 'decks' ? "Search cards, formulas, diets, tags..." : "Search playlists..."}
+                  aria-label="Search flashcards or decks"
+                  placeholder="Search cards, formulas, diets, tags..."
                   className="w-full pl-9 pr-8 py-2 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-color)] focus:border-[var(--primary)] outline-none text-xs font-medium text-[var(--text-main)] placeholder:text-[var(--text-subtle)] shadow-xs transition-colors"
                 />
                 {searchQuery && (
@@ -595,6 +519,86 @@ export default function NutriAnkiApp() {
 
         {/* TAB CONTENT: DECKS TAB */}
         {activeTab === 'decks' && (
+          <div className="space-y-4 sm:space-y-5">
+            {/* PRC-CBLE MOCK BOARD EXAMINATION ACCESS CARD */}
+            <div className="relative overflow-hidden rounded-xl border border-slate-700 bg-[#263238] p-4 sm:p-5 text-white shadow-md">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-400 border border-emerald-500/30">
+                      Official Simulation
+                    </span>
+                    <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wide">
+                      PRC-CBLE Interface
+                    </span>
+                  </div>
+                  <h2 className="text-base sm:text-lg font-bold tracking-tight text-white">
+                    NDLE PRC Computer-Based Licensure Examination
+                  </h2>
+                  <p className="text-xs text-slate-300 max-w-xl leading-relaxed">
+                    Take the full 100-question timed mock board exam with digital countdown timer, on-screen calculator, question roadmap, and immediate scoring.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsConfirmCBLEOpen(true)}
+                  className="shrink-0 rounded-lg bg-[#00a2d9] hover:bg-[#0284c7] px-4 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-bold text-white shadow-sm transition-all flex items-center gap-2 active:scale-95 cursor-pointer"
+                >
+                  <span>Launch Mock Board (CBLE)</span>
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* HERO SECTION: Review Metrics */}
+            <div className="w-full p-4 sm:p-5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] shadow-xs flex flex-col justify-between">
+              <div className="flex items-center justify-between text-xs font-semibold text-[var(--text-subtle)] uppercase tracking-wider mb-2">
+                <span className="flex items-center gap-1.5 font-bold text-[var(--text-main)]">
+                  <BookOpen className="w-3.5 h-3.5 text-[var(--primary)]" />
+                  Review Overview
+                </span>
+                <span className="text-[11px] font-medium text-[var(--text-muted)] lowercase first-letter:uppercase">
+                  Target: {Math.min(totalMastered, preferences.dailyGoal)} / {preferences.dailyGoal} cards
+                </span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 text-center py-2">
+                <div>
+                  <span className="text-xl sm:text-2xl font-bold text-[var(--text-main)] block">
+                    {totalCardsCount}
+                  </span>
+                  <span className="text-[11px] font-medium text-[var(--text-muted)]">
+                    Total Cards
+                  </span>
+                </div>
+                <div className="border-x border-[var(--border-subtle)]">
+                  <span className="text-xl sm:text-2xl font-bold text-amber-600 dark:text-amber-400 block">
+                    {totalDueToday}
+                  </span>
+                  <span className="text-[11px] font-medium text-[var(--text-muted)]">
+                    Due Today
+                  </span>
+                </div>
+                <div>
+                  <span className="text-xl sm:text-2xl font-bold text-teal-600 dark:text-teal-400 block">
+                    {totalMastered}
+                  </span>
+                  <span className="text-[11px] font-medium text-[var(--text-muted)]">
+                    Mastered
+                  </span>
+                </div>
+              </div>
+
+              {/* Daily Target Progress Bar */}
+              <div className="pt-2 mt-1 border-t border-[var(--border-subtle)]">
+                <div className="w-full h-1.5 bg-[var(--bg-surface-subtle)] rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-[var(--primary)] rounded-full transition-all duration-500"
+                    style={{ width: `${Math.min(100, Math.round((totalMastered / Math.max(1, preferences.dailyGoal)) * 100))}%` }}
+                  />
+                </div>
+              </div>
+            </div>
           <div>
             {isLoadingDecks ? (
               <div className="py-20 text-center space-y-3">
@@ -661,70 +665,28 @@ export default function NutriAnkiApp() {
               </div>
             )}
           </div>
-        )}
-
-        {/* TAB CONTENT: PLAYLISTS TAB */}
-        {activeTab === 'playlists' && (
-          <div>
-            {(playlists || []).length === 0 ? (
-              <div className="p-12 text-center rounded-2xl bg-[var(--bg-surface)] border border-dashed border-[var(--border-color)] space-y-3.5">
-                <div className="w-12 h-12 mx-auto rounded-xl bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 flex items-center justify-center">
-                  <ListMusic className="w-6 h-6" />
-                </div>
-                <div className="space-y-1">
-                  <h3 className="text-sm font-bold text-[var(--text-main)]">
-                    Create a Multi-Deck Playlist
-                  </h3>
-                  <p className="text-xs text-[var(--text-muted)] max-w-md mx-auto leading-relaxed">
-                    Combine cards from multiple clinical domains into targeted study sessions (e.g. &ldquo;Board Exam Comprehensive Marathon&rdquo;, &ldquo;Renal + Biochemical Assessment&rdquo;).
-                  </p>
-                </div>
-                <div className="pt-2">
-                  <button
-                    onClick={() => {
-                      setEditingPlaylist(null);
-                      setIsPlaylistModalOpen(true);
-                    }}
-                    className="px-4 py-2 rounded-xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white text-xs font-semibold shadow-xs transition-all flex items-center gap-2 mx-auto cursor-pointer active:scale-95"
-                  >
-                    <ListMusic className="w-4 h-4" />
-                    <span>Create Deck Playlist</span>
-                  </button>
-                </div>
-              </div>
-            ) : filteredPlaylists.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {filteredPlaylists.map((playlist) => (
-                  <PlaylistCard
-                    key={playlist.id}
-                    playlist={playlist}
-                    allDecks={decks}
-                    onStartStudy={handleStartPlaylistStudy}
-                    onEdit={(pl) => {
-                      setEditingPlaylist(pl);
-                      setIsPlaylistModalOpen(true);
-                    }}
-                    onDelete={async (id) => {
-                      await deletePlaylist(id);
-                      toast.success('Playlist deleted');
-                    }}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="p-10 text-center rounded-3xl bg-[var(--bg-surface)] border border-[var(--border-color)]">
-                <p className="text-xs text-[var(--text-muted)] font-semibold">
-                  No playlists matched &ldquo;{searchQuery}&rdquo;.
-                </p>
-              </div>
-            )}
           </div>
         )}
+
+
 
         {/* TAB CONTENT: ANALYTICS TAB */}
         {activeTab === 'analytics' && (
           <div>
             <LearningAnalytics />
+          </div>
+        )}
+
+        {/* TAB CONTENT: BOARD READINESS TAB */}
+        {activeTab === 'readiness' && (
+          <div>
+            <BoardReadinessView
+              onStartSubjectPractice={() => {
+                if (decks.length > 0) {
+                  startStudySession(decks[0].id, 'multiple-choice');
+                }
+              }}
+            />
           </div>
         )}
       </div>
@@ -747,19 +709,7 @@ export default function NutriAnkiApp() {
         />
       )}
 
-      {/* 2. Playlist Manager (Create / Edit Multi-Deck Playlist) */}
-      {isPlaylistModalOpen && (
-        <PlaylistModal
-          initialPlaylist={editingPlaylist}
-          decks={decks}
-          onSave={createPlaylist}
-          onUpdate={updatePlaylist}
-          onClose={() => {
-            setIsPlaylistModalOpen(false);
-            setEditingPlaylist(null);
-          }}
-        />
-      )}
+
 
       {/* 3. Import / Export Modal */}
       {isImportExportOpen && (
@@ -795,6 +745,81 @@ export default function NutriAnkiApp() {
           onResetLocalAndPullFromCloud={resetLocalAndPullFromCloud}
           onClose={() => setIsAuthModalOpen(false)}
         />
+      )}
+
+      {/* 6. Launch Mock Board (CBLE) Confirmation Modal */}
+      {isConfirmCBLEOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-[var(--bg-surface)] text-[var(--text-main)] rounded-3xl border border-[var(--border-color)] shadow-2xl max-w-md w-full p-5 sm:p-6 space-y-4 animate-in zoom-in-95">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/20">
+                  <Brain className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base sm:text-lg text-[var(--text-main)] leading-snug">
+                    Launch Mock Board Exam?
+                  </h3>
+                  <p className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+                    Official NDLE PRC-CBLE Simulation
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsConfirmCBLEOpen(false)}
+                className="text-[var(--text-subtle)] hover:text-[var(--text-main)] p-1 rounded-lg hover:bg-[var(--bg-surface-subtle)] cursor-pointer transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 py-1 text-xs text-[var(--text-muted)] leading-relaxed">
+              <div className="p-3.5 rounded-2xl bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] space-y-2">
+                <div className="flex items-center gap-2 text-[var(--text-main)] font-bold text-xs">
+                  <Clock className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <span>Timed 2-Hour Examination (120 Minutes)</span>
+                </div>
+                <p className="text-[11px] text-[var(--text-muted)] leading-normal">
+                  You are about to start a full-length 100-question computer-based licensure simulation. Please ensure you have an uninterrupted testing block.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-[11px]">
+                <div className="p-2.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)]">
+                  <span className="font-bold text-[var(--text-main)] block">100 Questions</span>
+                  <span className="text-[var(--text-muted)]">Official NDLE TOS ratio</span>
+                </div>
+                <div className="p-2.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)]">
+                  <span className="font-bold text-[var(--text-main)] block">75% Passing GWA</span>
+                  <span className="text-[var(--text-muted)]">&ge;50% each subject cut-off</span>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-[var(--text-subtle)] leading-normal">
+                Includes on-screen scientific calculator, full question roadmap, and question bookmarking. Completed exams will automatically update your Board Readiness engine.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-[var(--border-color)]">
+              <button
+                type="button"
+                onClick={() => setIsConfirmCBLEOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)] transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <Link
+                href="/cble"
+                onClick={() => setIsConfirmCBLEOpen(false)}
+                className="px-5 py-2 rounded-xl bg-[#00a2d9] hover:bg-[#0284c7] text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+              >
+                <span>Begin Examination</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+          </div>
+        </div>
       )}
     </main>
   );
