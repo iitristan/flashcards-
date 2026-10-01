@@ -15,7 +15,7 @@ import {
   Home,
 } from "lucide-react";
 
-import { DEFAULT_EXAMINEE, CBLEQuestion } from "@/data/cble-mock-data";
+import { DEFAULT_EXAMINEE, CBLEQuestion, MOCK_CBLE_QUESTIONS } from "@/data/cble-mock-data";
 import { getCBLEExamQuestions, saveCBLEExamResult } from "@/actions/cble";
 import { CalculatorModal } from "@/components/cble/calculator-modal";
 import { RoadmapModal } from "@/components/cble/roadmap-modal";
@@ -24,10 +24,19 @@ import { SubmitDialog, ResultsModal } from "@/components/cble/submit-dialog";
 
 interface CBLEExamViewProps {
   initialQuestions: CBLEQuestion[];
+  initialItemCount?: number;
 }
 
-export function CBLEExamView({ initialQuestions }: CBLEExamViewProps) {
-  const [questions, setQuestions] = useState<CBLEQuestion[]>(initialQuestions || []);
+export function CBLEExamView({ initialQuestions, initialItemCount = 100 }: CBLEExamViewProps) {
+  const CBLE_ACTIVE_EXAM_STORAGE_KEY = "cble_active_exam_v1";
+
+  const [questions, setQuestions] = useState<CBLEQuestion[]>(() => {
+    if (initialQuestions && initialQuestions.length > 0) return initialQuestions;
+    return MOCK_CBLE_QUESTIONS;
+  });
+  const [selectedItemCount, setSelectedItemCount] = useState<100 | 200>(() => {
+    return initialItemCount === 200 || (initialQuestions && initialQuestions.length > 100) ? 200 : 100;
+  });
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userAnswers, setUserAnswers] = useState<Record<number, "A" | "B" | "C" | "D">>({});
   const [flaggedQuestions, setFlaggedQuestions] = useState<Set<number>>(new Set());
@@ -48,9 +57,12 @@ export function CBLEExamView({ initialQuestions }: CBLEExamViewProps) {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Timer tracking (Default to 2 hours / 120 mins)
+  // Timer tracking (Default: 120 mins for 100 items, 240 mins for 200 items)
   const [isExamStarted, setIsExamStarted] = useState(false);
-  const [timeRemainingSeconds, setTimeRemainingSeconds] = useState(DEFAULT_EXAMINEE.durationMinutes * 60);
+  const [timeRemainingSeconds, setTimeRemainingSeconds] = useState(() => {
+    const is200 = initialItemCount === 200 || (initialQuestions && initialQuestions.length > 100);
+    return (is200 ? 240 : 120) * 60;
+  });
   const [questionTimeSpent, setQuestionTimeSpent] = useState<Record<number, number>>({});
   const [totalTimeElapsed, setTotalTimeElapsed] = useState(0);
 
@@ -60,6 +72,90 @@ export function CBLEExamView({ initialQuestions }: CBLEExamViewProps) {
   const [showProfile, setShowProfile] = useState(false);
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
   const [showResults, setShowResults] = useState(false);
+
+  // Load saved in-progress exam session on mount
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const saved = localStorage.getItem(CBLE_ACTIVE_EXAM_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && Array.isArray(parsed.questions) && parsed.questions.length > 0 && !parsed.isCompleted) {
+          setQuestions(parsed.questions);
+          setCurrentIndex(parsed.currentIndex || 0);
+          setUserAnswers(parsed.userAnswers || {});
+          setFlaggedQuestions(new Set(Array.isArray(parsed.flaggedQuestions) ? parsed.flaggedQuestions : []));
+          if (typeof parsed.timeRemainingSeconds === "number" && parsed.timeRemainingSeconds > 0) {
+            setTimeRemainingSeconds(parsed.timeRemainingSeconds);
+          }
+          if (typeof parsed.totalTimeElapsed === "number") {
+            setTotalTimeElapsed(parsed.totalTimeElapsed);
+          }
+          if (parsed.questionTimeSpent) {
+            setQuestionTimeSpent(parsed.questionTimeSpent);
+          }
+          setIsExamStarted(true);
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to load saved CBLE exam session:", e);
+    }
+
+    if (questions.length === 0) {
+      setQuestions(initialQuestions && initialQuestions.length > 0 ? initialQuestions : MOCK_CBLE_QUESTIONS);
+    }
+  }, []);
+
+  // Ensure questions array is never empty
+  useEffect(() => {
+    if (questions.length === 0) {
+      setQuestions(initialQuestions && initialQuestions.length > 0 ? initialQuestions : MOCK_CBLE_QUESTIONS);
+    }
+  }, [questions.length, initialQuestions]);
+
+  // Optimization: Save heavy exam state (questions, answers, flags) on interaction, not every second tick
+  const timeRemainingRef = useRef(timeRemainingSeconds);
+  const totalTimeElapsedRef = useRef(totalTimeElapsed);
+  const questionTimeSpentRef = useRef(questionTimeSpent);
+
+  useEffect(() => {
+    timeRemainingRef.current = timeRemainingSeconds;
+    totalTimeElapsedRef.current = totalTimeElapsed;
+    questionTimeSpentRef.current = questionTimeSpent;
+  }, [timeRemainingSeconds, totalTimeElapsed, questionTimeSpent]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !isExamStarted || showResults || questions.length === 0) return;
+    try {
+      const payload = {
+        questions,
+        currentIndex,
+        userAnswers,
+        flaggedQuestions: Array.from(flaggedQuestions),
+        timeRemainingSeconds: timeRemainingRef.current,
+        totalTimeElapsed: totalTimeElapsedRef.current,
+        questionTimeSpent: questionTimeSpentRef.current,
+        isCompleted: false,
+        updatedAt: new Date().toISOString(),
+      };
+      localStorage.setItem(CBLE_ACTIVE_EXAM_STORAGE_KEY, JSON.stringify(payload));
+    } catch {}
+  }, [questions, currentIndex, userAnswers, flaggedQuestions, isExamStarted, showResults]);
+
+  // Periodic lightweight timer checkpoint every 10 seconds to avoid data loss on unexpected refresh
+  useEffect(() => {
+    if (!isExamStarted || showResults || totalTimeElapsed === 0 || totalTimeElapsed % 10 !== 0) return;
+    try {
+      const existing = localStorage.getItem(CBLE_ACTIVE_EXAM_STORAGE_KEY);
+      if (existing) {
+        const parsed = JSON.parse(existing);
+        parsed.timeRemainingSeconds = timeRemainingSeconds;
+        parsed.totalTimeElapsed = totalTimeElapsed;
+        localStorage.setItem(CBLE_ACTIVE_EXAM_STORAGE_KEY, JSON.stringify(parsed));
+      }
+    } catch {}
+  }, [totalTimeElapsed, isExamStarted, showResults, timeRemainingSeconds]);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -126,14 +222,14 @@ export function CBLEExamView({ initialQuestions }: CBLEExamViewProps) {
     return `${pad(hours)}:${pad(minutes)}:${pad(secs)}`;
   };
 
-  const handleSelectOption = (key: "A" | "B" | "C" | "D") => {
+  const handleSelectOption = useCallback((key: "A" | "B" | "C" | "D") => {
     setUserAnswers((prev) => ({
       ...prev,
       [currentIndex]: key,
     }));
-  };
+  }, [currentIndex]);
 
-  const handleToggleFlag = () => {
+  const handleToggleFlag = useCallback(() => {
     setFlaggedQuestions((prev) => {
       const next = new Set(prev);
       if (next.has(currentIndex)) {
@@ -143,21 +239,78 @@ export function CBLEExamView({ initialQuestions }: CBLEExamViewProps) {
       }
       return next;
     });
-  };
+  }, [currentIndex]);
 
-  const handleNext = () => {
+  const handleNext = useCallback(() => {
     if (currentIndex < questions.length - 1) {
       setCurrentIndex((prev) => prev + 1);
     } else {
       setShowSubmitDialog(true);
     }
-  };
+  }, [currentIndex, questions.length]);
 
-  const handlePrev = () => {
+  const handlePrev = useCallback(() => {
     if (currentIndex > 0) {
       setCurrentIndex((prev) => prev - 1);
     }
-  };
+  }, [currentIndex]);
+
+  const handleReviewUnanswered = useCallback(() => {
+    setShowSubmitDialog(false);
+    const firstUnansweredIdx = questions.findIndex((_, idx) => userAnswers[idx] === undefined);
+    if (firstUnansweredIdx !== -1) {
+      setCurrentIndex(firstUnansweredIdx);
+    }
+  }, [questions, userAnswers]);
+
+  // Global Keyboard Navigation for CBLE Exam:
+  // A, B, C, D or 1, 2, 3, 4: Select Option
+  // ArrowRight / Enter: Next
+  // ArrowLeft: Prev
+  // F: Flag
+  // R: Toggle Roadmap
+  useEffect(() => {
+    if (!isExamStarted || showResults) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (['INPUT', 'TEXTAREA'].includes(target?.tagName)) return;
+      if (showCalculator || showRoadmap || showProfile || showSubmitDialog) return;
+
+      const key = e.key.toUpperCase();
+
+      if (key === 'A' || key === '1') {
+        e.preventDefault();
+        handleSelectOption('A');
+      } else if (key === 'B' || key === '2') {
+        e.preventDefault();
+        handleSelectOption('B');
+      } else if (key === 'C' && !e.ctrlKey && !e.metaKey) {
+        if (questions[currentIndex]?.options?.some(o => o.key === 'C')) {
+          e.preventDefault();
+          handleSelectOption('C');
+        }
+      } else if (key === 'D' || key === '4') {
+        e.preventDefault();
+        handleSelectOption('D');
+      } else if (e.key === 'ArrowRight' || e.key === 'Enter') {
+        e.preventDefault();
+        handleNext();
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        handlePrev();
+      } else if (key === 'F') {
+        e.preventDefault();
+        handleToggleFlag();
+      } else if (key === 'R') {
+        e.preventDefault();
+        setShowRoadmap(prev => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isExamStarted, showResults, showCalculator, showRoadmap, showProfile, showSubmitDialog, questions, currentIndex, handleSelectOption, handleToggleFlag, handleNext, handlePrev]);
 
   const handleFinalizeSubmission = useCallback(async () => {
     setShowSubmitDialog(false);
@@ -181,7 +334,7 @@ export function CBLEExamView({ initialQuestions }: CBLEExamViewProps) {
 
     const total = questions.length || 1;
     const scorePercentage = Math.round((correctCount / total) * 100);
-    const isPassed = scorePercentage >= 75;
+    const isPassed = scorePercentage >= 80;
 
     // 1. Save locally to localStorage
     try {
@@ -201,6 +354,7 @@ export function CBLEExamView({ initialQuestions }: CBLEExamViewProps) {
       const existingHistory = JSON.parse(localStorage.getItem("cble_exam_history") || "[]");
       existingHistory.unshift(historyItem);
       localStorage.setItem("cble_exam_history", JSON.stringify(existingHistory.slice(0, 30)));
+      localStorage.removeItem(CBLE_ACTIVE_EXAM_STORAGE_KEY);
     } catch {
       // localStorage may fail in private mode
     }
@@ -220,16 +374,46 @@ export function CBLEExamView({ initialQuestions }: CBLEExamViewProps) {
     });
   }, [questions, userAnswers, totalTimeElapsed]);
 
+  const handleSelectCount = async (count: 100 | 200) => {
+    setSelectedItemCount(count);
+    const durationMins = count === 200 ? 240 : 120;
+    setTimeRemainingSeconds(durationMins * 60);
+
+    if (count === 200 && questions.length < 200) {
+      try {
+        const moreQuestions = await getCBLEExamQuestions(200);
+        if (moreQuestions && moreQuestions.length > 0) {
+          setQuestions(moreQuestions);
+        }
+      } catch (e) {
+        console.warn("Failed to load 200 questions:", e);
+      }
+    } else if (count === 100 && questions.length > 100) {
+      setQuestions(questions.slice(0, 100));
+    }
+  };
+
   const handleRestartExam = async () => {
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.removeItem(CBLE_ACTIVE_EXAM_STORAGE_KEY);
+      } catch {}
+    }
     setUserAnswers({});
     setFlaggedQuestions(new Set());
     setCurrentIndex(0);
-    setTimeRemainingSeconds(DEFAULT_EXAMINEE.durationMinutes * 60);
+    const durationMins = selectedItemCount === 200 ? 240 : 120;
+    setTimeRemainingSeconds(durationMins * 60);
     setTotalTimeElapsed(0);
     setQuestionTimeSpent({});
     setShowResults(false);
-    const freshQuestions = await getCBLEExamQuestions();
-    setQuestions(freshQuestions);
+    try {
+      const freshQuestions = await getCBLEExamQuestions(selectedItemCount);
+      setQuestions(freshQuestions && freshQuestions.length > 0 ? freshQuestions : MOCK_CBLE_QUESTIONS);
+    } catch {
+      setQuestions(MOCK_CBLE_QUESTIONS);
+    }
+    setIsExamStarted(true);
   };
 
   const totalQuestions = questions.length;
@@ -667,6 +851,25 @@ export function CBLEExamView({ initialQuestions }: CBLEExamViewProps) {
                       Finish Test
                     </button>
                   </div>
+
+                  {/* Hotkeys Quick Reference Bar */}
+                  <div className="hidden sm:flex items-center justify-center gap-4 pt-3 text-[11px] text-slate-600 border-t border-slate-100 mt-2">
+                    <span className="flex items-center gap-1">
+                      <kbd className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-300 font-mono text-[10px] text-slate-700">A</kbd>-<kbd className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-300 font-mono text-[10px] text-slate-700">D</kbd> Select
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <kbd className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-300 font-mono text-[10px] text-slate-700">→</kbd> / <kbd className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-300 font-mono text-[10px] text-slate-700">Enter</kbd> Next
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <kbd className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-300 font-mono text-[10px] text-slate-700">←</kbd> Prev
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <kbd className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-300 font-mono text-[10px] text-slate-700">F</kbd> Flag
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <kbd className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-300 font-mono text-[10px] text-slate-700">R</kbd> Roadmap
+                    </span>
+                  </div>
                 </div>
               </div>
             )}
@@ -700,6 +903,7 @@ export function CBLEExamView({ initialQuestions }: CBLEExamViewProps) {
         isOpen={showSubmitDialog}
         onClose={() => setShowSubmitDialog(false)}
         onConfirmSubmit={handleFinalizeSubmission}
+        onReviewUnanswered={handleReviewUnanswered}
         questions={questions}
         userAnswers={userAnswers}
         flaggedQuestions={flaggedQuestions}
@@ -733,7 +937,40 @@ export function CBLEExamView({ initialQuestions }: CBLEExamViewProps) {
               </div>
             </div>
 
-            <div className="space-y-3 text-xs leading-relaxed">
+            <div className="space-y-3.5 text-xs leading-relaxed">
+              {/* Item Count Selector */}
+              <div>
+                <span className="text-[11px] font-bold text-slate-700 block mb-1.5 uppercase tracking-wider">
+                  Select Exam Length:
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSelectCount(100)}
+                    className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                      selectedItemCount === 100
+                        ? "border-[#00838f] bg-[#00838f]/10 text-[#00838f] font-bold ring-2 ring-[#00838f]/20"
+                        : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                    }`}
+                  >
+                    <span className="block text-xs font-black">100 Questions</span>
+                    <span className="block text-[10px] text-slate-500 font-medium">120 Mins (2.0 Hrs)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectCount(200)}
+                    className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                      selectedItemCount === 200
+                        ? "border-[#00838f] bg-[#00838f]/10 text-[#00838f] font-bold ring-2 ring-[#00838f]/20"
+                        : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                    }`}
+                  >
+                    <span className="block text-xs font-black">200 Questions</span>
+                    <span className="block text-[10px] text-slate-500 font-medium">240 Mins (4.0 Hrs)</span>
+                  </button>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-2.5">
                 <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
                   <span className="text-[10px] uppercase font-bold text-slate-500 block">Examinee</span>
@@ -741,17 +978,19 @@ export function CBLEExamView({ initialQuestions }: CBLEExamViewProps) {
                 </div>
                 <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
                   <span className="text-[10px] uppercase font-bold text-slate-500 block">Time Allowed</span>
-                  <span className="font-bold text-sm text-slate-900">120 Minutes (2.0 Hrs)</span>
+                  <span className="font-bold text-sm text-slate-900">
+                    {selectedItemCount === 200 ? "240 Minutes (4.0 Hrs)" : "120 Minutes (2.0 Hrs)"}
+                  </span>
                 </div>
               </div>
 
               <div className="rounded-xl bg-amber-50 border border-amber-200 p-3.5 text-amber-900 space-y-1.5">
                 <p className="font-bold text-xs">Official Examination Instructions:</p>
                 <ul className="list-disc pl-4 space-y-1 text-[11px] text-amber-800">
-                  <li>Total of 100 questions representing official Philippine NDLE board exam standards.</li>
-                  <li>The 2-hour digital countdown timer begins immediately once you click Start.</li>
+                  <li>Total of {selectedItemCount} questions representing official Philippine NDLE board exam standards.</li>
+                  <li>The {selectedItemCount === 200 ? "4-hour" : "2-hour"} digital countdown timer begins immediately once you click Start.</li>
                   <li>You may use the on-screen scientific calculator and navigate questions freely.</li>
-                  <li>Passing threshold is &ge; 75.0% GWA with no subject below 50.0%.</li>
+                  <li>Passing threshold is &ge; 80.0% GWA with no subject below 50.0%.</li>
                 </ul>
               </div>
             </div>

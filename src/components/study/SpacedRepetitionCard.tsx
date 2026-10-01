@@ -253,7 +253,7 @@ export const SpacedRepetitionCard: React.FC<SpacedRepetitionCardProps> = ({
             {/* Top Card Header */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 flex-wrap">
-                {card.tags.map((tag) => (
+                {(card.tags || []).map((tag) => (
                   <span
                     key={tag}
                     className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-[var(--bg-surface-subtle)] text-[var(--text-muted)] border border-[var(--border-subtle)]"
@@ -296,8 +296,10 @@ export const SpacedRepetitionCard: React.FC<SpacedRepetitionCardProps> = ({
                 </button>
               ) : <div />}
 
-              <span className="text-xs font-bold text-[var(--primary)] flex items-center gap-1">
-                Reveal Answer <ArrowRight className="w-3 h-3" />
+              <span className="text-xs font-bold text-[var(--primary)] flex items-center gap-1.5">
+                <span>Reveal Answer</span>
+                <kbd className="hidden sm:inline-block px-1.5 py-0.5 rounded bg-[var(--bg-surface-subtle)] border border-[var(--border-subtle)] text-[10px] font-mono text-[var(--text-subtle)]">Space</kbd>
+                <ArrowRight className="w-3 h-3" />
               </span>
             </div>
 

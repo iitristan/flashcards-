@@ -57,17 +57,9 @@ const NOISE_FILTER_SCRIPT = `
       lower.indexOf('nkbihfbeogaeaoehlefnkodbefgpgknn') !== -1 ||
       lower.indexOf('chrome-extension') !== -1 ||
       lower.indexOf('moz-extension') !== -1 ||
-      lower.indexOf('failed to connect') !== -1 ||
-      lower.indexOf('error restoring session') !== -1 ||
       lower.indexOf('inpage.js') !== -1
     ) {
       return true;
-    }
-
-    if (typeof err === 'object' && !(err instanceof Error)) {
-      if (!err.stack || String(err.stack).indexOf('/src/') === -1) {
-        return true;
-      }
     }
 
     return false;
@@ -147,7 +139,6 @@ export default function RootLayout({
         suppressHydrationWarning
         className="min-h-full flex flex-col selection:bg-emerald-200 selection:text-emerald-900"
       >
-        <script dangerouslySetInnerHTML={{ __html: NOISE_FILTER_SCRIPT }} />
         <BrowserExtensionNoiseFilter />
         {children}
         <Toaster

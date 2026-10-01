@@ -511,7 +511,7 @@ class IndexedDbDeckService implements IDeckService {
     if (!deck) throw new Error('Deck not found');
 
     const headers = ['Front / Question', 'Back / Answer', 'Rationale / Explanation', 'Tags', 'Option A', 'Option B', 'Option C', 'Option D'];
-    const rows = deck.cards.map(card => {
+    const rows = (deck.cards || []).map(card => {
       const escape = (str: string) => `"${(str || '').replace(/"/g, '""')}"`;
       const options = card.options || [];
       return [

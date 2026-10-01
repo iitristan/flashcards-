@@ -49,7 +49,7 @@ export const DeckCard: React.FC<DeckCardProps> = ({
   const [showMenu, setShowMenu] = useState(false);
   const [showModeSelector, setShowModeSelector] = useState(false);
 
-  const totalCards = deck.cards.length;
+  const totalCards = deck.cards?.length || 0;
   const dueToday = deck.stats?.dueToday ?? totalCards;
   const masteredCards = deck.stats?.masteredCards ?? 0;
   const masteryPercentage = totalCards > 0 ? Math.round((masteredCards / totalCards) * 100) : 0;
@@ -144,7 +144,7 @@ export const DeckCard: React.FC<DeckCardProps> = ({
 
         {/* Tags */}
         <div className="flex flex-wrap gap-1.5 mb-4">
-          {deck.tags.slice(0, 3).map((tag) => (
+          {(deck.tags || []).slice(0, 3).map((tag) => (
             <span
               key={tag}
               className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-[var(--bg-surface-subtle)] text-[var(--text-muted)]"
@@ -153,9 +153,9 @@ export const DeckCard: React.FC<DeckCardProps> = ({
               {tag}
             </span>
           ))}
-          {deck.tags.length > 3 && (
+          {(deck.tags || []).length > 3 && (
             <span className="text-[10px] font-bold text-[var(--text-subtle)] px-1 py-0.5">
-              +{deck.tags.length - 3} more
+              +{(deck.tags || []).length - 3} more
             </span>
           )}
         </div>

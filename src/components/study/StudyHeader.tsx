@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Volume2, VolumeX, Sparkles, BookOpen, CheckCircle2, Flame } from 'lucide-react';
+import { ArrowLeft, Volume2, VolumeX, Sparkles, BookOpen, CheckCircle2, Flame, Keyboard, X } from 'lucide-react';
 import { StudyMode } from '@/types';
 import { StudyTimer } from './StudyTimer';
 import { soundEffects } from '@/lib/soundEffects';
@@ -35,6 +35,7 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
   isPaused
 }) => {
   const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [showShortcutsModal, setShowShortcutsModal] = useState(false);
 
   const modeDetails: Record<StudyMode, { label: string; icon: typeof Sparkles; color: string }> = {
     'spaced-repetition': {
@@ -60,9 +61,9 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
   };
 
 
-  const progressPercentage = Math.min(100, Math.round(((currentIndex) / totalCards) * 100));
-  const currentMode = modeDetails[mode];
-  const ModeIcon = currentMode.icon;
+  const progressPercentage = totalCards > 0 ? Math.min(100, Math.max(0, Math.round(((currentIndex) / totalCards) * 100))) : 0;
+  const currentMode = modeDetails[mode] || modeDetails['spaced-repetition'];
+  const ModeIcon = currentMode?.icon || Sparkles;
 
   const handleExitClick = () => {
     if (currentIndex > 0) {
@@ -115,11 +116,20 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
           )}
 
           <button
+            onClick={() => setShowShortcutsModal(true)}
+            className="p-2 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--primary)] transition-all active:scale-90 shadow-xs cursor-pointer"
+            title="View keyboard shortcuts"
+            aria-label="View keyboard shortcuts"
+          >
+            <Keyboard className="w-4 h-4" />
+          </button>
+
+          <button
             onClick={() => {
               onToggleSound();
               soundEffects.playFlip();
             }}
-            className="p-2 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--primary)] transition-all active:scale-90 shadow-xs"
+            className="p-2 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--primary)] transition-all active:scale-90 shadow-xs cursor-pointer"
             title={soundEnabled ? 'Mute sound effects' : 'Enable sound effects'}
             aria-label={soundEnabled ? 'Mute sound effects' : 'Enable sound effects'}
           >
@@ -140,8 +150,9 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
           </span>
         </div>
 
-        <div className="text-xs font-extrabold text-[var(--text-muted)] flex-shrink-0">
+        <div className="text-xs font-extrabold text-[var(--text-muted)] flex-shrink-0 flex items-center gap-1.5">
           <span>Card {Math.min(currentIndex + 1, totalCards)} of {totalCards}</span>
+          <span className="text-[11px] text-[var(--primary)] font-bold">({progressPercentage}%)</span>
         </div>
       </div>
 
@@ -164,6 +175,66 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
         </div>
       </div>
 
+      {/* Keyboard Shortcuts Reference Modal */}
+      {showShortcutsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="w-full max-w-sm rounded-2xl bg-[var(--bg-surface)] p-5 border border-[var(--border-color)] shadow-[var(--modal-shadow)] text-slate-800 dark:text-slate-100 space-y-4"
+          >
+            <div className="flex items-center justify-between border-b border-[var(--border-color)] pb-3">
+              <div className="flex items-center gap-2">
+                <Keyboard className="w-4 h-4 text-[var(--primary)]" />
+                <h3 className="text-sm font-bold text-[var(--text-main)]">Keyboard Shortcuts</h3>
+              </div>
+              <button
+                onClick={() => setShowShortcutsModal(false)}
+                className="p-1 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2 text-xs">
+              <div className="flex items-center justify-between p-2 rounded-lg bg-[var(--bg-surface-subtle)]">
+                <span className="text-[var(--text-muted)]">Flip Flashcard</span>
+                <kbd className="px-2 py-0.5 rounded bg-[var(--bg-surface)] border border-[var(--border-color)] font-mono text-[11px] font-bold">Space</kbd>
+              </div>
+              <div className="flex items-center justify-between p-2 rounded-lg bg-[var(--bg-surface-subtle)]">
+                <span className="text-[var(--text-muted)]">Rate: Again / Hard / Good / Easy</span>
+                <div className="flex gap-1">
+                  <kbd className="px-1.5 py-0.5 rounded bg-[var(--bg-surface)] border border-[var(--border-color)] font-mono text-[10px] font-bold">1</kbd>
+                  <kbd className="px-1.5 py-0.5 rounded bg-[var(--bg-surface)] border border-[var(--border-color)] font-mono text-[10px] font-bold">2</kbd>
+                  <kbd className="px-1.5 py-0.5 rounded bg-[var(--bg-surface)] border border-[var(--border-color)] font-mono text-[10px] font-bold">3</kbd>
+                  <kbd className="px-1.5 py-0.5 rounded bg-[var(--bg-surface)] border border-[var(--border-color)] font-mono text-[10px] font-bold">4</kbd>
+                </div>
+              </div>
+              <div className="flex items-center justify-between p-2 rounded-lg bg-[var(--bg-surface-subtle)]">
+                <span className="text-[var(--text-muted)]">Multiple Choice Selection</span>
+                <div className="flex gap-1">
+                  <kbd className="px-1.5 py-0.5 rounded bg-[var(--bg-surface)] border border-[var(--border-color)] font-mono text-[10px] font-bold">A</kbd>
+                  <kbd className="px-1.5 py-0.5 rounded bg-[var(--bg-surface)] border border-[var(--border-color)] font-mono text-[10px] font-bold">B</kbd>
+                  <kbd className="px-1.5 py-0.5 rounded bg-[var(--bg-surface)] border border-[var(--border-color)] font-mono text-[10px] font-bold">C</kbd>
+                  <kbd className="px-1.5 py-0.5 rounded bg-[var(--bg-surface)] border border-[var(--border-color)] font-mono text-[10px] font-bold">D</kbd>
+                </div>
+              </div>
+              <div className="flex items-center justify-between p-2 rounded-lg bg-[var(--bg-surface-subtle)]">
+                <span className="text-[var(--text-muted)]">Advance / Continue</span>
+                <kbd className="px-2 py-0.5 rounded bg-[var(--bg-surface)] border border-[var(--border-color)] font-mono text-[11px] font-bold">Enter</kbd>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowShortcutsModal(false)}
+              className="w-full py-2 bg-[var(--primary)] text-white text-xs font-bold rounded-xl shadow-xs hover:bg-[var(--primary-hover)] transition-colors cursor-pointer"
+            >
+              Got it
+            </button>
+          </motion.div>
+        </div>
+      )}
+
       {/* Confirm Exit Modal */}
       {showExitConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
@@ -185,7 +256,7 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
             <div className="flex gap-3 pt-2">
               <button
                 onClick={() => setShowExitConfirm(false)}
-                className="flex-1 py-2.5 rounded-2xl border border-[var(--border-color)] text-xs font-bold text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)] transition-colors"
+                className="flex-1 py-2.5 rounded-2xl border border-[var(--border-color)] text-xs font-bold text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)] transition-colors cursor-pointer"
               >
                 Keep Studying
               </button>
@@ -194,7 +265,7 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
                   setShowExitConfirm(false);
                   onExit();
                 }}
-                className="flex-1 py-2.5 rounded-2xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold transition-colors shadow-sm"
+                className="flex-1 py-2.5 rounded-2xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold transition-colors shadow-sm cursor-pointer"
               >
                 Yes, Exit
               </button>

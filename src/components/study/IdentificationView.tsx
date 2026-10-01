@@ -278,7 +278,7 @@ export const IdentificationView: React.FC<IdentificationViewProps> = ({
         {/* Tags */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5 flex-wrap">
-            {card.tags.map((tag) => (
+            {(card.tags || []).map((tag) => (
               <span
                 key={tag}
                 className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-medium bg-[var(--bg-surface-subtle)] text-[var(--text-muted)]"

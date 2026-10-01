@@ -395,6 +395,9 @@ export class SyncService {
         .update(reviewPayload)
         .eq('id', card.id);
 
+      // Touch parent deck updated_at in cloud
+      void Promise.resolve(supabase.from('decks').update({ updated_at: reviewPayload.updated_at }).eq('id', deckId)).catch(() => {});
+
       // If UPDATE affected 0 rows (card doesn't exist in cloud yet), fall back to a full upsert
       if (error && (error.code === 'PGRST116' || error.message?.includes('0 rows'))) {
         const user = await this.getCurrentUser();

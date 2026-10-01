@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useDeferredValue } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Plus, 
@@ -82,6 +82,35 @@ export default function NutriboardApp() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isTimerExpired, setIsTimerExpired] = useState(false);
   const [isConfirmCBLEOpen, setIsConfirmCBLEOpen] = useState(false);
+  const [cbleItemCount, setCbleItemCount] = useState<100 | 200>(100);
+
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+
+  // Global search hotkey (/ or Ctrl+K / Cmd+K)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (['INPUT', 'TEXTAREA'].includes(target?.tagName)) {
+        if (e.key === 'Escape' && target === searchInputRef.current) {
+          searchInputRef.current?.blur();
+        }
+        return;
+      }
+
+      if ((e.key === '/' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k')) && !activeSession) {
+        e.preventDefault();
+        setActiveTab('decks');
+        setTimeout(() => {
+          searchInputRef.current?.focus();
+          searchInputRef.current?.select();
+        }, 50);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeSession]);
 
   // Initialize on mount; sync only when user returns to tab (not polling)
   useEffect(() => {
@@ -122,29 +151,38 @@ export default function NutriboardApp() {
 
   // Filtered decks calculation: empty decks (no cards) are automatically excluded by default
   const filteredDecks = useMemo(() => {
+    const q = (deferredSearchQuery || '').trim().toLowerCase();
     return decks.filter((deck) => {
       // Exclude decks with no cards by default
       if ((deck.cards?.length || 0) === 0) {
         return false;
       }
 
+      const title = (deck.title || '').toLowerCase();
+      const desc = (deck.description || '').toLowerCase();
+      const tags = Array.isArray(deck.tags) ? deck.tags : [];
       const matchesSearch =
-        deck.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        deck.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        deck.tags.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()));
+        !q ||
+        title.includes(q) ||
+        desc.includes(q) ||
+        tags.some((t) => typeof t === 'string' && t.toLowerCase().includes(q));
 
       const matchesCategory =
         selectedCategory === 'All' || deck.category === selectedCategory;
 
       return matchesSearch && matchesCategory;
     });
-  }, [decks, searchQuery, selectedCategory]);
+  }, [decks, deferredSearchQuery, selectedCategory]);
 
 
   // Categories list (only derived from decks that contain cards)
   const categories = useMemo(() => {
     const set = new Set<string>(['All']);
-    decks.filter(d => (d.cards?.length || 0) > 0).forEach((d) => set.add(d.category));
+    decks
+      .filter((d) => (d.cards?.length || 0) > 0)
+      .forEach((d) => {
+        if (d.category) set.add(d.category);
+      });
     return Array.from(set);
   }, [decks]);
 
@@ -193,18 +231,20 @@ export default function NutriboardApp() {
   // ACTIVE STUDY SESSION VIEW
   // --------------------------------------------------------------------------
   if (activeSession) {
-    const currentCard = activeSession.cardsQueue[activeSession.currentIndex];
+    const queue = Array.isArray(activeSession.cardsQueue) ? activeSession.cardsQueue : [];
+    const isCompleted = activeSession.isCompleted || (queue.length > 0 && activeSession.currentIndex >= queue.length);
+    const currentCard = queue[activeSession.currentIndex];
 
     return (
       <main className="min-h-screen bg-[var(--bg-main)] px-4 py-6 sm:py-10 flex flex-col justify-between">
         <div className="w-full max-w-4xl mx-auto space-y-4">
           {/* Header */}
           <StudyHeader
-            deckTitle={activeSession.deckTitle}
-            mode={activeSession.mode}
-            currentIndex={activeSession.currentIndex}
-            totalCards={activeSession.cardsQueue.length}
-            timerDuration={activeSession.timerDurationSeconds}
+            deckTitle={activeSession.deckTitle || 'Study Session'}
+            mode={activeSession.mode || 'spaced-repetition'}
+            currentIndex={activeSession.currentIndex || 0}
+            totalCards={queue.length}
+            timerDuration={activeSession.timerDurationSeconds || 0}
             soundEnabled={preferences.soundEnabled}
             saveStatus={saveStatus}
             onToggleSound={() =>
@@ -212,22 +252,22 @@ export default function NutriboardApp() {
             }
             onExit={endStudySession}
             onTimerExpire={handleTimerExpire}
-            isPaused={activeSession.isCompleted}
+            isPaused={isCompleted}
           />
 
           {/* Body: Summary or Card View */}
           <AnimatePresence mode="wait">
-            {activeSession.isCompleted ? (
+            {isCompleted || !currentCard ? (
               <StudySessionSummary
                 key="summary"
-                deckTitle={activeSession.deckTitle}
-                results={activeSession.results}
-                startTime={activeSession.startTime}
-                streak={preferences.studyStreak}
+                deckTitle={activeSession.deckTitle || 'Study Session'}
+                results={activeSession.results || []}
+                startTime={activeSession.startTime || Date.now()}
+                streak={preferences.studyStreak || 1}
                 onRestart={(missedOnly) => restartCurrentSession(missedOnly)}
                 onReturnHome={endStudySession}
               />
-            ) : currentCard ? (
+            ) : (
               <motion.div
                 key={currentCard.id}
                 initial={{ opacity: 0, x: 20 }}
@@ -289,7 +329,7 @@ export default function NutriboardApp() {
                   />
                 )}
               </motion.div>
-            ) : null}
+            )}
           </AnimatePresence>
         </div>
 
@@ -471,18 +511,24 @@ export default function NutriboardApp() {
               <div className="relative flex-1 max-w-md">
                 <Search className="w-3.5 h-3.5 text-[var(--text-subtle)] absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
+                  ref={searchInputRef}
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   aria-label="Search flashcards or decks"
-                  placeholder="Search cards, formulas, diets, tags..."
-                  className="w-full pl-9 pr-8 py-2 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-color)] focus:border-[var(--primary)] outline-none text-xs font-medium text-[var(--text-main)] placeholder:text-[var(--text-subtle)] shadow-xs transition-colors"
+                  placeholder="Search cards, formulas, diets, tags... (Press /)"
+                  className="w-full pl-9 pr-14 py-2 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-color)] focus:border-[var(--primary)] outline-none text-xs font-medium text-[var(--text-main)] placeholder:text-[var(--text-subtle)] shadow-xs transition-colors"
                 />
+                {!searchQuery && (
+                  <span className="hidden sm:inline-flex items-center absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-surface-subtle)] border border-[var(--border-subtle)] text-[var(--text-subtle)] pointer-events-none">
+                    /
+                  </span>
+                )}
                 {searchQuery && (
                   <button
                     onClick={() => setSearchQuery('')}
                     aria-label="Clear search input"
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--text-subtle)] hover:text-[var(--text-main)]"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--text-subtle)] hover:text-[var(--text-main)] cursor-pointer"
                   >
                     ×
                   </button>
@@ -775,23 +821,58 @@ export default function NutriboardApp() {
             </div>
 
             <div className="space-y-3 py-1 text-xs text-[var(--text-muted)] leading-relaxed">
+              {/* Item Count Selector */}
+              <div>
+                <span className="text-[11px] font-bold text-[var(--text-main)] block mb-1.5 uppercase tracking-wider">
+                  Select Exam Length:
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCbleItemCount(100)}
+                    className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                      cbleItemCount === 100
+                        ? "border-[#00838f] bg-[#00838f]/10 text-[#00838f] font-bold ring-2 ring-[#00838f]/20"
+                        : "border-[var(--border-color)] bg-[var(--bg-surface-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)]"
+                    }`}
+                  >
+                    <span className="block text-xs font-black">100 Questions</span>
+                    <span className="block text-[10px] text-[var(--text-subtle)] font-medium">120 Mins (2.0 Hrs)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCbleItemCount(200)}
+                    className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                      cbleItemCount === 200
+                        ? "border-[#00838f] bg-[#00838f]/10 text-[#00838f] font-bold ring-2 ring-[#00838f]/20"
+                        : "border-[var(--border-color)] bg-[var(--bg-surface-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)]"
+                    }`}
+                  >
+                    <span className="block text-xs font-black">200 Questions</span>
+                    <span className="block text-[10px] text-[var(--text-subtle)] font-medium">240 Mins (4.0 Hrs)</span>
+                  </button>
+                </div>
+              </div>
+
               <div className="p-3.5 rounded-2xl bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] space-y-2">
                 <div className="flex items-center gap-2 text-[var(--text-main)] font-bold text-xs">
                   <Clock className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                  <span>Timed 2-Hour Examination (120 Minutes)</span>
+                  <span>
+                    Timed {cbleItemCount === 200 ? "4-Hour Examination (240 Minutes)" : "2-Hour Examination (120 Minutes)"}
+                  </span>
                 </div>
                 <p className="text-[11px] text-[var(--text-muted)] leading-normal">
-                  You are about to start a full-length 100-question computer-based licensure simulation. Please ensure you have an uninterrupted testing block.
+                  You are about to start a full-length {cbleItemCount}-question computer-based licensure simulation. Please ensure you have an uninterrupted testing block.
                 </p>
               </div>
 
               <div className="grid grid-cols-2 gap-2 text-[11px]">
                 <div className="p-2.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)]">
-                  <span className="font-bold text-[var(--text-main)] block">100 Questions</span>
+                  <span className="font-bold text-[var(--text-main)] block">{cbleItemCount} Questions</span>
                   <span className="text-[var(--text-muted)]">Official NDLE TOS ratio</span>
                 </div>
                 <div className="p-2.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)]">
-                  <span className="font-bold text-[var(--text-main)] block">75% Passing GWA</span>
+                  <span className="font-bold text-[var(--text-main)] block">80% Passing GWA</span>
                   <span className="text-[var(--text-muted)]">&ge;50% each subject cut-off</span>
                 </div>
               </div>
@@ -810,7 +891,7 @@ export default function NutriboardApp() {
                 Cancel
               </button>
               <Link
-                href="/cble"
+                href={`/cble?count=${cbleItemCount}`}
                 onClick={() => setIsConfirmCBLEOpen(false)}
                 className="px-5 py-2 rounded-xl bg-[#00a2d9] hover:bg-[#0284c7] text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
               >

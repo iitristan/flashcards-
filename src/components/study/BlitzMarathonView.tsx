@@ -76,7 +76,7 @@ export const BlitzMarathonView: React.FC<BlitzMarathonViewProps> = ({
     const cleanBack = cleanOptionLabel(card.back || '');
     let pool: string[] = [];
 
-    if (card.options && card.options.length >= 2) {
+    if (Array.isArray(card.options) && card.options.length >= 2) {
       const cleaned = card.options.map(opt => cleanOptionLabel(opt));
       pool = Array.from(new Set([...cleaned, cleanBack]));
     } else {
@@ -293,13 +293,30 @@ export const BlitzMarathonView: React.FC<BlitzMarathonViewProps> = ({
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (hasSubmitted && e.key === 'Enter') {
-        handleNext();
+      const target = e.target as HTMLElement;
+      if (['INPUT', 'TEXTAREA'].includes(target?.tagName)) return;
+
+      if (!hasSubmitted) {
+        const key = e.key.toUpperCase();
+        if (key === '1' || key === 'A') {
+          if (options[0]) handleSelectOption(options[0]);
+        } else if (key === '2' || key === 'B') {
+          if (options[1]) handleSelectOption(options[1]);
+        } else if (key === '3' || key === 'C') {
+          if (options[2]) handleSelectOption(options[2]);
+        } else if (key === '4' || key === 'D') {
+          if (options[3]) handleSelectOption(options[3]);
+        }
+      } else {
+        if (e.key === 'Enter' || e.code === 'Space') {
+          e.preventDefault();
+          handleNext();
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [hasSubmitted, handleNext]);
+  }, [hasSubmitted, handleNext, options]);
 
 
   const letters = ['A', 'B', 'C', 'D'];

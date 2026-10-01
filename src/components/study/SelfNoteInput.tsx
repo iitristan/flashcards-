@@ -48,7 +48,7 @@ export const SelfNoteInput: React.FC<SelfNoteInputProps> = ({
     const cleanBack = cleanOptionLabel(targetCard.back || '');
     let initialList: string[] = [];
 
-    if (targetCard.options && targetCard.options.length >= 2) {
+    if (Array.isArray(targetCard.options) && targetCard.options.length >= 2) {
       initialList = targetCard.options.map(opt => cleanOptionLabel(opt));
       if (!initialList.some(opt => opt.toLowerCase() === cleanBack.toLowerCase())) {
         initialList[0] = cleanBack;

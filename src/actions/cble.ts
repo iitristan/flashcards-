@@ -22,7 +22,7 @@ function shuffle<T>(array: T[]): T[] {
   return result;
 }
 
-export async function getCBLEExamQuestions(): Promise<CBLEQuestion[]> {
+export async function getCBLEExamQuestions(itemCount: number = 100): Promise<CBLEQuestion[]> {
   try {
     const rawCards: {
       id: string;
@@ -173,7 +173,7 @@ export async function getCBLEExamQuestions(): Promise<CBLEQuestion[]> {
     // Deduplicate cards by front prompt
     const seen = new Set<string>();
     const uniqueCards = rawCards.filter((c) => {
-      const cleanFront = c.front.trim().toLowerCase();
+      const cleanFront = (c.front || '').trim().toLowerCase();
       if (!cleanFront || seen.has(cleanFront)) return false;
       seen.add(cleanFront);
       return true;
@@ -186,25 +186,26 @@ export async function getCBLEExamQuestions(): Promise<CBLEQuestion[]> {
     // Shuffle cards so every session is a unique random experience
     const randomized = shuffle(uniqueCards);
 
-    // Standard board exam session: 100 questions (or all if < 100)
-    const examCards = randomized.slice(0, 100);
+    // Standard board exam session: 100 or 200 questions (or all if < requested)
+    const targetCount = itemCount >= 200 ? 200 : 100;
+    const examCards = randomized.slice(0, Math.min(targetCount, randomized.length));
 
     // Extract all possible answers to use as distractors
     const allBackAnswers = Array.from(
-      new Set(uniqueCards.map((c) => c.back.trim()))
+      new Set(uniqueCards.map((c) => (c.back || '').trim()))
     ).filter((b) => b.length > 0);
 
     // Convert to CBLEQuestion format
     const formattedQuestions: CBLEQuestion[] = examCards.map((card, idx) => {
       let optionTexts: string[] = [];
-      const correctAnsTrimmed = card.back.trim();
+      const correctAnsTrimmed = (card.back || '').trim();
 
-      if (card.options && card.options.length >= 4) {
+      if (card.options && Array.isArray(card.options) && card.options.length >= 4) {
         // Ensure card.back is included in options
         const hasBack = card.options.some(
-          (o) => o.trim().toLowerCase() === correctAnsTrimmed.toLowerCase()
+          (o) => (typeof o === 'string' ? o : String(o || '')).trim().toLowerCase() === correctAnsTrimmed.toLowerCase()
         );
-        const baseOptions = [...card.options];
+        const baseOptions = card.options.map((o) => (typeof o === 'string' ? o : String(o || '')));
         if (!hasBack) {
           baseOptions[0] = correctAnsTrimmed;
         }
@@ -226,7 +227,7 @@ export async function getCBLEExamQuestions(): Promise<CBLEQuestion[]> {
 
       // Check if this matches any mock item with SVG or image diagram
       const mockMatch = MOCK_CBLE_QUESTIONS.find(
-        (m) => m.question.trim().toLowerCase() === card.front.trim().toLowerCase()
+        (m) => (m.question || '').trim().toLowerCase() === (card.front || '').trim().toLowerCase()
       );
 
       // Map options to A, B, C, D

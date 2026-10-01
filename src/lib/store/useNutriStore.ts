@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { Deck, Flashcard, StudyMode, ReviewRating, ThemeType, UserPreferences, StudySessionState, CardReviewResult, DeckPlaylist } from '@/types';
 import { deckService } from '@/lib/services/deckService';
 import { soundEffects } from '@/lib/soundEffects';
-import { shuffleArray } from '@/lib/services/flashcardService';
+import { shuffleArray, computeDeckStats } from '@/lib/services/flashcardService';
 import { syncService } from '@/lib/services/syncService';
 import { getSupabaseClient } from '@/lib/supabase/client';
 
@@ -288,7 +288,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       if (cloudData && cloudData.decks) {
         const localDecks = await deckService.getDecks();
         const cloudDeckMap = new Map(cloudData.decks.map((d) => [d.id, d]));
-        const mergedDecks: Deck[] = [...cloudData.decks];
+        const mergedDecks: Deck[] = [];
         const unsyncedLocalDecks: Deck[] = [];
 
         for (const localDeck of localDecks) {
@@ -298,15 +298,61 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
             mergedDecks.push(localDeck);
             unsyncedLocalDecks.push(localDeck);
           } else {
-            // Exists in both: if local was updated more recently, preserve local card changes
-            const localTime = new Date(localDeck.updatedAt || localDeck.createdAt || 0).getTime();
-            const cloudTime = new Date(cloudDeck.updatedAt || cloudDeck.createdAt || 0).getTime();
-            if (localTime > cloudTime && (localDeck.cards?.length || 0) >= (cloudDeck.cards?.length || 0)) {
-              const idx = mergedDecks.findIndex((d) => d.id === localDeck.id);
-              if (idx !== -1) {
-                mergedDecks[idx] = localDeck;
+            // Exists in both: do a SMART CARD-LEVEL MERGE so no card review is ever lost!
+            const cloudCardsMap = new Map((cloudDeck.cards || []).map((c) => [c.id, c]));
+            const localCardsMap = new Map((localDeck.cards || []).map((c) => [c.id, c]));
+            const mergedCards: Flashcard[] = [];
+
+            for (const localCard of localDeck.cards || []) {
+              const cloudCard = cloudCardsMap.get(localCard.id);
+              if (!cloudCard) {
+                mergedCards.push(localCard);
+              } else {
+                const localReviewed = new Date(localCard.lastReviewedAt || 0).getTime();
+                const cloudReviewed = new Date(cloudCard.lastReviewedAt || 0).getTime();
+                const localRepetitions = localCard.sm2?.repetitions || 0;
+                const cloudRepetitions = cloudCard.sm2?.repetitions || 0;
+
+                if (localReviewed > cloudReviewed || localRepetitions > cloudRepetitions) {
+                  mergedCards.push(localCard);
+                } else if (cloudReviewed > localReviewed || cloudRepetitions > localRepetitions) {
+                  mergedCards.push(cloudCard);
+                } else {
+                  const localUpdated = new Date(localCard.updatedAt || localCard.createdAt || 0).getTime();
+                  const cloudUpdated = new Date(cloudCard.updatedAt || cloudCard.createdAt || 0).getTime();
+                  mergedCards.push(localUpdated >= cloudUpdated ? localCard : cloudCard);
+                }
               }
             }
+
+            for (const cloudCard of cloudDeck.cards || []) {
+              if (!localCardsMap.has(cloudCard.id)) {
+                mergedCards.push(cloudCard);
+              }
+            }
+
+            const updatedDeck: Deck = {
+              ...cloudDeck,
+              ...localDeck,
+              cards: mergedCards,
+              stats: computeDeckStats(mergedCards),
+              updatedAt: new Date(
+                Math.max(
+                  new Date(localDeck.updatedAt || localDeck.createdAt || 0).getTime(),
+                  new Date(cloudDeck.updatedAt || cloudDeck.createdAt || 0).getTime(),
+                  Date.now()
+                )
+              ).toISOString()
+            };
+            mergedDecks.push(updatedDeck);
+          }
+        }
+
+        // Include any cloud decks not present locally
+        const localDeckIdSet = new Set(localDecks.map((d) => d.id));
+        for (const cloudDeck of cloudData.decks) {
+          if (!localDeckIdSet.has(cloudDeck.id)) {
+            mergedDecks.push(cloudDeck);
           }
         }
 
@@ -341,11 +387,24 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
           await syncService.pushPreferences(get().preferences);
         }
 
-        // Check for cloud active session checkpoint
+        // Check for cloud active session checkpoint with timestamp & progress guard
         try {
           const remoteSession = await syncService.fetchActiveSession();
           if (remoteSession && !remoteSession.isCompleted && (remoteSession.currentIndex > 0 || remoteSession.results.length > 0)) {
-            set({ resumeAvailableSession: remoteSession });
+            const currentLocal = get().activeSession || get().resumeAvailableSession;
+            if (!currentLocal) {
+              set({ resumeAvailableSession: remoteSession });
+            } else {
+              const localTime = new Date(currentLocal.updatedAt || 0).getTime();
+              const remoteTime = new Date(remoteSession.updatedAt || 0).getTime();
+              // Only adopt remote session if it is strictly newer AND has at least equal progress
+              if (remoteTime > localTime && remoteSession.currentIndex >= currentLocal.currentIndex) {
+                set({ resumeAvailableSession: remoteSession });
+                if (get().activeSession?.id === remoteSession.id) {
+                  set({ activeSession: remoteSession });
+                }
+              }
+            }
           }
         } catch (e) {
           console.warn('Failed to fetch remote active session:', e);
@@ -537,13 +596,15 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
         }
       }
 
-      // Check for in-progress session checkpoint
+      // Check for in-progress session checkpoint and make it available for resumption
       const storedSession = localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY);
       if (storedSession) {
         try {
           const parsedSession: StudySessionState = JSON.parse(storedSession);
           if (parsedSession && !parsedSession.isCompleted && (parsedSession.currentIndex > 0 || parsedSession.results.length > 0)) {
-            set({ resumeAvailableSession: parsedSession });
+            set({
+              resumeAvailableSession: parsedSession
+            });
           }
         } catch {}
       }
@@ -829,6 +890,24 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
   },
 
   startStudySession: async (deckId, mode, filterDueOnly = false) => {
+    // Check if user already has an in-progress session for this deck & mode to preserve progression
+    const { activeSession, resumeAvailableSession } = get();
+    const existing = (activeSession?.deckId === deckId && !activeSession.isCompleted && activeSession.mode === mode)
+      ? activeSession
+      : (resumeAvailableSession?.deckId === deckId && !resumeAvailableSession.isCompleted && resumeAvailableSession.mode === mode)
+      ? resumeAvailableSession
+      : null;
+
+    if (existing && (existing.currentIndex > 0 || existing.results.length > 0)) {
+      set({
+        activeDeckId: deckId,
+        activeSession: existing,
+        resumeAvailableSession: null,
+        saveStatus: 'idle'
+      });
+      return;
+    }
+
     let deck = get().decks.find(d => d.id === deckId);
     if (!deck) {
       deck = await deckService.getDeckById(deckId) || undefined;
@@ -1081,7 +1160,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       clearTimeout(checkpointDebounceTimer);
       checkpointDebounceTimer = null;
     }
-    if (activeSession && !activeSession.isCompleted && activeSession.currentIndex > 0) {
+    if (activeSession && !activeSession.isCompleted && (activeSession.currentIndex > 0 || activeSession.results.length > 0)) {
       // Save in-progress session checkpoint before closing
       if (typeof window !== 'undefined') {
         try {
@@ -1089,9 +1168,12 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
         } catch {}
       }
       syncService.saveSessionCheckpoint(activeSession).catch(console.error);
+      // Preserve resumeAvailableSession so the user sees the resume banner on the dashboard
+      set({ activeSession: null, resumeAvailableSession: activeSession });
+    } else {
+      set({ activeSession: null });
     }
     syncService.flushStudyLogs().catch(console.warn);
-    set({ activeSession: null });
     get().loadDecks();
   }
 }));
