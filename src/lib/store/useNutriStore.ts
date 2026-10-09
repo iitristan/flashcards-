@@ -123,6 +123,9 @@ interface NutriStore {
       sort?: CardSortOption;
       filter?: CardFilterOption;
       sparkleStyle?: SparkleStyle;
+      resume?: boolean;
+      startFresh?: boolean;
+      missedOnly?: boolean;
     }
   ) => Promise<void>;
   updateSessionFilterAndSort: (options: {
@@ -194,6 +197,19 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
             return parsed;
           }
         }
+        if (deckId.startsWith('practice-area-')) {
+          const pCode = deckId.replace('practice-area-', '');
+          const pStored = localStorage.getItem(`nutriboard_practice_session_${pCode}`);
+          if (pStored) {
+            const parsed: StudySessionState = JSON.parse(pStored);
+            if (parsed && !parsed.isCompleted && (parsed.currentIndex > 0 || (parsed.results || []).length > 0)) {
+              set((state) => ({
+                deckCheckpoints: { ...state.deckCheckpoints, [deckId]: parsed }
+              }));
+              return parsed;
+            }
+          }
+        }
       } catch {}
     }
     return null;
@@ -203,6 +219,10 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     if (typeof window !== 'undefined') {
       try {
         localStorage.removeItem(`nutrianki_deck_session_${deckId}`);
+        if (deckId.startsWith('practice-area-')) {
+          const pCode = deckId.replace('practice-area-', '');
+          localStorage.removeItem(`nutriboard_practice_session_${pCode}`);
+        }
         const active = localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY);
         if (active) {
           const parsed = JSON.parse(active);
@@ -689,7 +709,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
         try {
           for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
-            if (key && key.startsWith('nutrianki_deck_session_')) {
+            if (key && (key.startsWith('nutrianki_deck_session_') || key.startsWith('nutriboard_practice_session_'))) {
               const val = localStorage.getItem(key);
               if (val) {
                 const parsed: StudySessionState = JSON.parse(val);
@@ -1066,6 +1086,17 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     } else if (options?.filter === 'mastered') {
       const mastered = cards.filter(c => (c.sm2?.interval || 0) >= 21 || (c.sm2?.repetitions || 0) >= 4);
       if (mastered.length > 0) cards = mastered;
+    } else if (options?.filter === 'wrong') {
+      const wrongCardIds = new Set<string>();
+      if (existing) {
+        (existing.results || []).filter(r => !r.isCorrect || r.rating === 'again' || r.rating === 'hard').forEach(r => wrongCardIds.add(r.cardId));
+      }
+      try {
+        const logs = await deckService.getReviewLogs();
+        logs.filter(l => !l.isCorrect || l.rating === 'again' || l.rating === 'hard').forEach(l => wrongCardIds.add(l.cardId));
+      } catch {}
+      const wrong = cards.filter(c => wrongCardIds.has(c.id) || (c.lastReviewedAt && (c.sm2?.repetitions || 0) === 0));
+      if (wrong.length > 0) cards = wrong;
     }
 
     // Sort cards
@@ -1136,7 +1167,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     const { decks, activeSession, resumeAvailableSession, preferences } = get();
     const mode = options?.mode || 'multiple-choice';
     const sort = options?.sort || 'default';
-    const filter = options?.filter || 'all';
+    const filter = options?.filter || (options?.missedOnly ? 'wrong' : 'all');
     const searchQuery = (options?.searchQuery || '').trim().toLowerCase();
 
     const config = NDLE_SUBJECT_CONFIGS[subject];
@@ -1144,26 +1175,43 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     const practiceDeckId = `practice-area-${code}`;
     const practiceStorageKey = `nutriboard_practice_session_${code}`;
 
-    // Check if user already has an in-progress session for THIS practice area
-    let existingSession: StudySessionState | null = null;
-    if (activeSession?.practiceArea === subject && !activeSession.isCompleted) {
-      existingSession = activeSession;
-    } else if (resumeAvailableSession?.practiceArea === subject && !resumeAvailableSession.isCompleted) {
-      existingSession = resumeAvailableSession;
-    } else if (typeof window !== 'undefined') {
-      try {
-        const stored = localStorage.getItem(practiceStorageKey);
-        if (stored) {
-          const parsed = JSON.parse(stored) as StudySessionState;
-          if (parsed.practiceArea === subject && !parsed.isCompleted && (parsed.cardsQueue || []).length > 0) {
-            existingSession = parsed;
-          }
-        }
-      } catch {}
+    // If startFresh is explicitly requested, clear existing checkpoint
+    if (options?.startFresh) {
+      get().clearDeckCheckpoint(practiceDeckId);
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.removeItem(practiceStorageKey);
+          localStorage.removeItem(`nutrianki_deck_session_${practiceDeckId}`);
+        } catch {}
+      }
     }
 
-    // If existing session exists and user didn't request a search or filter change that invalidates it
-    if (existingSession && !searchQuery && (!options?.filter || options.filter === existingSession.activeFilter) && (!options?.sort || options.sort === existingSession.activeSort) && (existingSession.currentIndex > 0 || existingSession.results.length > 0)) {
+    // Check if user already has an in-progress session for THIS practice area
+    let existingSession: StudySessionState | null = null;
+    if (!options?.startFresh) {
+      if (activeSession?.practiceArea === subject && !activeSession.isCompleted) {
+        existingSession = activeSession;
+      } else if (resumeAvailableSession?.practiceArea === subject && !resumeAvailableSession.isCompleted) {
+        existingSession = resumeAvailableSession;
+      } else {
+        existingSession = get().getDeckCheckpoint(practiceDeckId);
+        if (!existingSession && typeof window !== 'undefined') {
+          try {
+            const stored = localStorage.getItem(practiceStorageKey);
+            if (stored) {
+              const parsed = JSON.parse(stored) as StudySessionState;
+              if (parsed.practiceArea === subject && !parsed.isCompleted && (parsed.cardsQueue || []).length > 0) {
+                existingSession = parsed;
+              }
+            }
+          } catch {}
+        }
+      }
+    }
+
+    const shouldResume = options?.resume || (Boolean(existingSession) && !options?.startFresh && !options?.missedOnly && filter !== 'wrong' && !searchQuery);
+
+    if (shouldResume && existingSession && (existingSession.currentIndex > 0 || (existingSession.results || []).length > 0)) {
       set({
         activeDeckId: practiceDeckId,
         activeSession: existingSession,
@@ -1199,6 +1247,37 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       throw new Error(`No practice questions found for ${subject}.`);
     }
 
+    // Handle Missed / Wrong answers filter
+    if (options?.missedOnly || filter === 'wrong') {
+      const wrongCardIds = new Set<string>();
+      if (existingSession) {
+        (existingSession.results || [])
+          .filter(r => !r.isCorrect || r.rating === 'again' || r.rating === 'hard')
+          .forEach(r => wrongCardIds.add(r.cardId));
+      }
+      if (activeSession) {
+        (activeSession.results || [])
+          .filter(r => !r.isCorrect || r.rating === 'again' || r.rating === 'hard')
+          .forEach(r => wrongCardIds.add(r.cardId));
+      }
+      try {
+        const logs = await deckService.getReviewLogs();
+        logs
+          .filter(l => !l.isCorrect || l.rating === 'again' || l.rating === 'hard')
+          .forEach(l => wrongCardIds.add(l.cardId));
+      } catch {}
+
+      const wrongCards = subjectCards.filter(c =>
+        wrongCardIds.has(c.id) || (c.lastReviewedAt && (c.sm2?.repetitions || 0) === 0)
+      );
+
+      if (wrongCards.length > 0) {
+        subjectCards = wrongCards;
+      } else {
+        throw new Error(`No wrong answers recorded for ${config ? config.shortTitle : subject} yet! All your responses in this subject are correct.`);
+      }
+    }
+
     // Apply text search filtering if user entered text
     if (searchQuery) {
       const filteredBySearch = subjectCards.filter(c =>
@@ -1212,23 +1291,25 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       }
     }
 
-    // Apply progress filter segment
-    if (filter === 'unseen') {
-      const unseen = subjectCards.filter(c => !c.lastReviewedAt || (c.sm2?.repetitions || 0) === 0);
-      if (unseen.length > 0) subjectCards = unseen;
-    } else if (filter === 'learning') {
-      const learning = subjectCards.filter(c => (c.sm2?.repetitions || 0) > 0 && (c.sm2?.interval || 0) < 4);
-      if (learning.length > 0) subjectCards = learning;
-    } else if (filter === 'developing') {
-      const dev = subjectCards.filter(c => (c.sm2?.interval || 0) >= 4 && (c.sm2?.interval || 0) < 21);
-      if (dev.length > 0) subjectCards = dev;
-    } else if (filter === 'mastered') {
-      const mastered = subjectCards.filter(c => (c.sm2?.interval || 0) >= 21 || (c.sm2?.repetitions || 0) >= 4);
-      if (mastered.length > 0) subjectCards = mastered;
-    } else if (filter === 'due') {
-      const now = new Date();
-      const due = subjectCards.filter(c => !c.lastReviewedAt || new Date(c.sm2?.dueDate || 0) <= now);
-      if (due.length > 0) subjectCards = due;
+    // Apply progress filter segment (if not already filtered by wrong)
+    if (filter !== 'wrong' && !options?.missedOnly) {
+      if (filter === 'unseen') {
+        const unseen = subjectCards.filter(c => !c.lastReviewedAt || (c.sm2?.repetitions || 0) === 0);
+        if (unseen.length > 0) subjectCards = unseen;
+      } else if (filter === 'learning') {
+        const learning = subjectCards.filter(c => (c.sm2?.repetitions || 0) > 0 && (c.sm2?.interval || 0) < 4);
+        if (learning.length > 0) subjectCards = learning;
+      } else if (filter === 'developing') {
+        const dev = subjectCards.filter(c => (c.sm2?.interval || 0) >= 4 && (c.sm2?.interval || 0) < 21);
+        if (dev.length > 0) subjectCards = dev;
+      } else if (filter === 'mastered') {
+        const mastered = subjectCards.filter(c => (c.sm2?.interval || 0) >= 21 || (c.sm2?.repetitions || 0) >= 4);
+        if (mastered.length > 0) subjectCards = mastered;
+      } else if (filter === 'due') {
+        const now = new Date();
+        const due = subjectCards.filter(c => !c.lastReviewedAt || new Date(c.sm2?.dueDate || 0) <= now);
+        if (due.length > 0) subjectCards = due;
+      }
     }
 
     // Apply sorting
@@ -1249,14 +1330,17 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
 
     const timerDuration = mode === 'blitz-marathon' ? 15 : preferences.timerDuration;
     const sessionId = `practice-${code}-${Date.now()}`;
+    const isMissedMode = options?.missedOnly || filter === 'wrong';
 
     const newSession: StudySessionState = {
       id: sessionId,
       deckId: practiceDeckId,
-      deckTitle: config ? `${config.shortTitle} Practice` : `${subject} Practice`,
+      deckTitle: isMissedMode
+        ? `${config ? config.shortTitle : subject} (Wrong Answers)`
+        : (config ? `${config.shortTitle} Practice` : `${subject} Practice`),
       practiceArea: subject,
       activeSort: sort,
-      activeFilter: filter,
+      activeFilter: isMissedMode ? 'wrong' : filter,
       searchFilter: searchQuery || undefined,
       sparkleStyle: options?.sparkleStyle || preferences.sparkleStyle || 'clinical',
       mode,
@@ -1269,16 +1353,21 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       updatedAt: new Date().toISOString()
     };
 
-    set({
+    set((state) => ({
       activeDeckId: practiceDeckId,
       activeSession: newSession,
       resumeAvailableSession: null,
+      deckCheckpoints: {
+        ...state.deckCheckpoints,
+        [practiceDeckId]: newSession
+      },
       saveStatus: 'idle'
-    });
+    }));
 
     if (typeof window !== 'undefined') {
       try {
         localStorage.setItem(practiceStorageKey, JSON.stringify(newSession));
+        localStorage.setItem(`nutrianki_deck_session_${practiceDeckId}`, JSON.stringify(newSession));
         localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify(newSession));
       } catch {}
     }
@@ -1343,6 +1432,13 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       const now = new Date();
       const due = filteredCards.filter(c => !c.lastReviewedAt || new Date(c.sm2?.dueDate || 0) <= now);
       if (due.length > 0) filteredCards = due;
+    } else if (effectiveFilter === 'wrong') {
+      const wrongCardIds = new Set<string>();
+      (activeSession.results || [])
+        .filter(r => !r.isCorrect || r.rating === 'again' || r.rating === 'hard')
+        .forEach(r => wrongCardIds.add(r.cardId));
+      const wrong = filteredCards.filter(c => wrongCardIds.has(c.id) || (c.lastReviewedAt && (c.sm2?.repetitions || 0) === 0));
+      if (wrong.length > 0) filteredCards = wrong;
     }
 
     if (effectiveSort === 'progress-asc') {

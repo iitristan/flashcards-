@@ -278,6 +278,8 @@ export default function NutriboardApp() {
             activeSort={activeSession.activeSort}
             activeFilter={activeSession.activeFilter}
             sparkleStyle={activeSession.sparkleStyle || preferences.sparkleStyle}
+            missedCount={(activeSession.results || []).filter(r => !r.isCorrect || r.rating === 'again' || r.rating === 'hard').length}
+            onReviewMissed={() => restartCurrentSession(true)}
             onToggleSound={() =>
               updatePreferences({ soundEnabled: !preferences.soundEnabled })
             }
@@ -784,12 +786,15 @@ export default function NutriboardApp() {
           <div>
             <BoardReadinessView
               initialSearchQuery={searchQuery}
-              onStartSubjectPractice={(subject, searchTxt, filter, sort) => {
+              onStartSubjectPractice={(subject, searchTxt, filter, sort, options) => {
                 const effectiveQuery = (searchTxt || searchQuery || '').trim();
                 startPracticeAreaSession(subject, {
                   searchQuery: effectiveQuery,
                   filter,
-                  sort
+                  sort,
+                  resume: options?.resume,
+                  startFresh: options?.startFresh,
+                  missedOnly: options?.missedOnly
                 }).catch((err: unknown) => {
                   const errorMsg = err instanceof Error ? err.message : 'Could not launch practice area session';
                   toast.error(errorMsg);

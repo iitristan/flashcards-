@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Volume2, VolumeX, Sparkles, BookOpen, CheckCircle2, Flame, Keyboard, X, SlidersHorizontal, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Volume2, VolumeX, Sparkles, BookOpen, CheckCircle2, Flame, Keyboard, X, SlidersHorizontal, ShieldCheck, AlertCircle } from 'lucide-react';
 import { StudyMode, Flashcard, CardSortOption, CardFilterOption, SparkleStyle, getCardProgressInfo } from '@/types';
 import { NDLESubject, NDLE_SUBJECT_CONFIGS } from '@/types/ndle';
 import { StudyTimer } from './StudyTimer';
@@ -21,6 +21,8 @@ interface StudyHeaderProps {
   activeSort?: CardSortOption;
   activeFilter?: CardFilterOption;
   sparkleStyle?: SparkleStyle;
+  missedCount?: number;
+  onReviewMissed?: () => void;
   onToggleSound: () => void;
   onExit: () => void;
   onTimerExpire?: () => void;
@@ -43,6 +45,8 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
   activeSort = 'default',
   activeFilter = 'all',
   sparkleStyle = 'clinical',
+  missedCount = 0,
+  onReviewMissed,
   onToggleSound,
   onExit,
   onTimerExpire,
@@ -198,9 +202,22 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
           )}
         </div>
 
-        <div className="text-xs font-extrabold text-[var(--text-muted)] flex-shrink-0 flex items-center gap-1.5">
-          <span>Card {Math.min(currentIndex + 1, totalCards)} of {totalCards}</span>
-          <span className="text-[11px] text-[var(--primary)] font-bold">({progressPercentage}%)</span>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {missedCount > 0 && onReviewMissed && (
+            <button
+              type="button"
+              onClick={onReviewMissed}
+              title="Click to review and drill questions answered incorrectly"
+              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-300 dark:border-rose-900 shadow-2xs hover:scale-105 active:scale-95 transition-all cursor-pointer"
+            >
+              <AlertCircle className="w-3 h-3 text-rose-500" />
+              <span>{missedCount} Wrong (Review)</span>
+            </button>
+          )}
+          <div className="text-xs font-extrabold text-[var(--text-muted)] flex items-center gap-1.5">
+            <span>Card {Math.min(currentIndex + 1, totalCards)} of {totalCards}</span>
+            <span className="text-[11px] text-[var(--primary)] font-bold">({progressPercentage}%)</span>
+          </div>
         </div>
       </div>
 
@@ -290,7 +307,8 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
                   { id: 'learning', label: '🔄 In Learning' },
                   { id: 'developing', label: '📈 Developing' },
                   { id: 'mastered', label: '🏆 Mastered' },
-                  { id: 'due', label: '⏰ Due Cards' }
+                  { id: 'due', label: '⏰ Due Cards' },
+                  { id: 'wrong', label: '❌ Wrong / Missed' }
                 ] as const
               ).map(flt => (
                 <button

@@ -26,12 +26,15 @@ export default function BoardReadinessPage() {
         </div>
 
         <BoardReadinessView
-          onStartSubjectPractice={async (subject, searchTxt, filter, sort) => {
+          onStartSubjectPractice={async (subject, searchTxt, filter, sort, options) => {
             try {
               await startPracticeAreaSession(subject, {
                 searchQuery: searchTxt,
                 filter,
                 sort,
+                resume: options?.resume,
+                startFresh: options?.startFresh,
+                missedOnly: options?.missedOnly,
               });
               router.push("/");
             } catch (err: unknown) {

@@ -240,6 +240,7 @@ export function useBoardReadiness() {
 
   return {
     report,
+    reviewLogs,
     isLoadingLogs,
     isCategorizing,
     categorizeProgress,

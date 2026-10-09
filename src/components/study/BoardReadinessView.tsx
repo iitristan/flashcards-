@@ -7,6 +7,10 @@ import {
   RefreshCw,
   Play,
   X,
+  RotateCcw,
+  AlertCircle,
+  Search,
+  ArrowUpDown
 } from "lucide-react";
 import { useBoardReadiness } from "@/lib/hooks/useBoardReadiness";
 import { useNutriStore } from "@/lib/store/useNutriStore";
@@ -17,14 +21,18 @@ import {
 } from "@/types/ndle";
 
 import { CardFilterOption, CardSortOption } from "@/types";
-import { Search, ArrowUpDown } from "lucide-react";
 
 interface BoardReadinessViewProps {
   onStartSubjectPractice?: (
     subject: NDLESubject,
     searchQuery?: string,
     filter?: CardFilterOption,
-    sort?: CardSortOption
+    sort?: CardSortOption,
+    options?: {
+      resume?: boolean;
+      startFresh?: boolean;
+      missedOnly?: boolean;
+    }
   ) => void;
   initialSearchQuery?: string;
 }
@@ -35,15 +43,16 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
 }) => {
   const {
     report,
+    reviewLogs,
     isLoadingLogs,
     isCategorizing,
     categorizeProgress,
-    unclassifiedCardsCount,
     autoClassifyAllCards,
+    unclassifiedCardsCount,
     refresh,
   } = useBoardReadiness();
 
-  const { startPracticeAreaSession, preferences } = useNutriStore();
+  const { startPracticeAreaSession, preferences, deckCheckpoints, getDeckCheckpoint, clearDeckCheckpoint } = useNutriStore();
   const isDark = preferences.theme === "dark";
 
   const [activeMetricView, setActiveMetricView] = useState<"probability" | "gwa">(
@@ -51,23 +60,59 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
   );
   const [showCategorizeModal, setShowCategorizeModal] = useState(false);
   const [categorizeMessage, setCategorizeMessage] = useState<string | null>(null);
+  const [selectedSubjectModal, setSelectedSubjectModal] = useState<NDLESubject | null>(null);
 
   // Practice area search and filter controls
   const [practiceSearch, setPracticeSearch] = useState(initialSearchQuery);
   const [practiceFilter, setPracticeFilter] = useState<CardFilterOption>("all");
   const [practiceSort, setPracticeSort] = useState<CardSortOption>("default");
 
+  const getSubjectCheckpoint = (subjectName: NDLESubject) => {
+    const cfg = NDLE_SUBJECT_CONFIGS[subjectName];
+    const pDeckId = `practice-area-${cfg.code}`;
+    return deckCheckpoints[pDeckId] || getDeckCheckpoint(pDeckId);
+  };
+
+  const getSubjectWrongCount = (subjectName: NDLESubject) => {
+    const cfg = NDLE_SUBJECT_CONFIGS[subjectName];
+    const pDeckId = `practice-area-${cfg.code}`;
+    const cp = deckCheckpoints[pDeckId] || getDeckCheckpoint(pDeckId);
+    const cpMissed = (cp?.results || []).filter(r => !r.isCorrect || r.rating === 'again' || r.rating === 'hard').length;
+
+    let historicalMissed = 0;
+    if (reviewLogs && reviewLogs.length > 0) {
+      const missedCardIds = new Set<string>();
+      for (const log of reviewLogs) {
+        if (!log.isCorrect || log.rating === 'again' || log.rating === 'hard') {
+          missedCardIds.add(log.cardId);
+        }
+      }
+      historicalMissed = missedCardIds.size;
+    }
+    return Math.max(cpMissed, historicalMissed);
+  };
+
   // Handle starting targeted practice for an NDLE subject
-  const handlePracticeSubject = (subject: NDLESubject) => {
+  const handlePracticeSubject = (
+    subject: NDLESubject,
+    options?: {
+      resume?: boolean;
+      startFresh?: boolean;
+      missedOnly?: boolean;
+    }
+  ) => {
     if (onStartSubjectPractice) {
-      onStartSubjectPractice(subject, practiceSearch, practiceFilter, practiceSort);
+      onStartSubjectPractice(subject, practiceSearch, practiceFilter, practiceSort, options);
       return;
     }
 
     startPracticeAreaSession(subject, {
       searchQuery: practiceSearch,
-      filter: practiceFilter,
+      filter: options?.missedOnly ? 'wrong' : practiceFilter,
       sort: practiceSort,
+      resume: options?.resume,
+      startFresh: options?.startFresh,
+      missedOnly: options?.missedOnly,
     });
   };
 
@@ -364,6 +409,7 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
                 { id: "developing", label: "📈 Developing" },
                 { id: "mastered", label: "🏆 Mastered" },
                 { id: "due", label: "⏰ Due Today" },
+                { id: "wrong", label: "❌ Wrong Answers" },
               ] as const
             ).map((flt) => {
               const isSelected = practiceFilter === flt.id;
@@ -390,6 +436,13 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
           {NDLE_SUBJECT_LIST.map((subjectName) => {
             const perf = report.subjectBreakdown[subjectName];
             const config = NDLE_SUBJECT_CONFIGS[subjectName];
+            const checkpoint = getSubjectCheckpoint(subjectName);
+            const hasCheckpoint = Boolean(
+              checkpoint &&
+              !checkpoint.isCompleted &&
+              (checkpoint.currentIndex > 0 || (checkpoint.results || []).length > 0)
+            );
+            const wrongCount = getSubjectWrongCount(subjectName);
 
             // Color coding according to score (High-contrast & theme resilient)
             // >= 75%: Emerald Green
@@ -450,6 +503,36 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
                     <span className="font-medium text-foreground">
                       {perf.totalAttempts} / 30 volume target
                     </span>
+
+                    {/* In-progress checkpoint badge */}
+                    {hasCheckpoint && checkpoint && (
+                      <>
+                        <span>•</span>
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full font-bold bg-[var(--primary-light)] text-[var(--primary)] border border-[var(--primary)]/30 text-[10px]">
+                          <span className="relative flex h-1.5 w-1.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--primary)] opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[var(--primary)]"></span>
+                          </span>
+                          <span>Paused at Q{checkpoint.currentIndex + 1}/{checkpoint.cardsQueue?.length || 30}</span>
+                        </span>
+                      </>
+                    )}
+
+                    {/* Missed questions badge */}
+                    {wrongCount > 0 && (
+                      <>
+                        <span>•</span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedSubjectModal(subjectName)}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-bold bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900 hover:scale-105 transition-transform cursor-pointer text-[10px]"
+                        >
+                          <AlertTriangle className="w-2.5 h-2.5" />
+                          <span>{wrongCount} Missed Questions</span>
+                        </button>
+                      </>
+                    )}
+
                     {perf.isConditionedRisk && (
                       <>
                         <span>•</span>
@@ -467,10 +550,20 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
                   </div>
 
                   <button
-                    onClick={() => handlePracticeSubject(subjectName)}
-                    className="inline-flex items-center gap-1 font-bold text-primary hover:opacity-80 transition-colors cursor-pointer ml-auto"
+                    onClick={() => {
+                      if (hasCheckpoint || wrongCount > 0) {
+                        setSelectedSubjectModal(subjectName);
+                      } else {
+                        handlePracticeSubject(subjectName, { startFresh: true });
+                      }
+                    }}
+                    className={`inline-flex items-center gap-1.5 font-bold transition-all cursor-pointer ml-auto px-3 py-1 rounded-xl text-xs ${
+                      hasCheckpoint
+                        ? 'bg-[var(--primary)] text-white hover:bg-[var(--primary-hover)] shadow-xs'
+                        : 'text-primary hover:opacity-80 bg-[var(--primary-light)]/40 hover:bg-[var(--primary-light)]'
+                    }`}
                   >
-                    <span>Practice</span>
+                    <span>{hasCheckpoint ? `Continue (Q${checkpoint ? checkpoint.currentIndex + 1 : 1})` : 'Practice'}</span>
                     <Play className="w-2.5 h-2.5 fill-current" />
                   </button>
                 </div>
@@ -479,6 +572,160 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
           })}
         </div>
       </div>
+
+      {/* Practice Area Resume & Wrong Answers Modal */}
+      {selectedSubjectModal && (() => {
+        const modalConfig = NDLE_SUBJECT_CONFIGS[selectedSubjectModal];
+        const modalCheckpoint = getSubjectCheckpoint(selectedSubjectModal);
+        const modalHasCheckpoint = Boolean(
+          modalCheckpoint &&
+          !modalCheckpoint.isCompleted &&
+          (modalCheckpoint.currentIndex > 0 || (modalCheckpoint.results || []).length > 0)
+        );
+        const modalWrongCount = getSubjectWrongCount(selectedSubjectModal);
+        const modalAnsweredCount = modalCheckpoint?.results?.length || modalCheckpoint?.currentIndex || 0;
+        const totalQ = modalCheckpoint?.cardsQueue?.length || 30;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+            <div className="bg-[var(--bg-surface)] rounded-3xl border border-[var(--border-color)] shadow-2xl max-w-md w-full p-5 sm:p-6 space-y-4 animate-in zoom-in-95">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--primary)]">
+                      NDLE Official Practice
+                    </span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[var(--bg-surface-subtle)] text-[var(--text-main)] border border-[var(--border-color)]">
+                      {modalConfig?.weightPercentage}% Weight
+                    </span>
+                  </div>
+                  <h3 className="text-base sm:text-lg font-black text-[var(--text-main)]">
+                    {modalConfig?.shortTitle || selectedSubjectModal}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedSubjectModal(null)}
+                  className="p-1 rounded-lg text-[var(--text-subtle)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)] transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {modalHasCheckpoint && modalCheckpoint && (
+                <div className="p-3 rounded-2xl bg-[var(--primary-light)]/40 border border-[var(--primary)]/30 text-xs space-y-1">
+                  <div className="flex items-center justify-between font-bold text-[var(--primary)]">
+                    <span>Saved In-Progress Practice</span>
+                    <span>Q{modalCheckpoint.currentIndex + 1} of {totalQ}</span>
+                  </div>
+                  <p className="text-[11px] text-[var(--text-muted)]">
+                    You have answered {modalAnsweredCount} questions so far. Pick up where you left off or target wrong answers.
+                  </p>
+                </div>
+              )}
+
+              <div className="space-y-2.5 pt-1">
+                {/* Option 1: Resume where stopped */}
+                {modalHasCheckpoint && modalCheckpoint && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const subj = selectedSubjectModal;
+                      setSelectedSubjectModal(null);
+                      handlePracticeSubject(subj, { resume: true });
+                    }}
+                    className="w-full p-3.5 rounded-2xl border-2 border-[var(--primary)] bg-[var(--primary-light)]/30 hover:bg-[var(--primary-light)]/60 text-left flex items-center gap-3 transition-all cursor-pointer group"
+                  >
+                    <div className="w-9 h-9 rounded-xl bg-[var(--primary)] text-white flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform shadow-xs">
+                      <Play className="w-4 h-4 fill-current ml-0.5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-sm text-[var(--text-main)]">
+                          Resume at Question {modalCheckpoint.currentIndex + 1}
+                        </span>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-[var(--primary)] text-white">
+                          Resume
+                        </span>
+                      </div>
+                      <span className="text-xs text-[var(--text-muted)] block mt-0.5">
+                        Pick up right where you paused with your score & timer intact
+                      </span>
+                    </div>
+                  </button>
+                )}
+
+                {/* Option 2: Get Back to Wrong Answers */}
+                {modalWrongCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const subj = selectedSubjectModal;
+                      setSelectedSubjectModal(null);
+                      handlePracticeSubject(subj, { missedOnly: true, startFresh: true });
+                    }}
+                    className="w-full p-3.5 rounded-2xl border-2 border-rose-300 dark:border-rose-900 bg-rose-50/50 dark:bg-rose-950/30 hover:bg-rose-100/60 dark:hover:bg-rose-950/60 text-left flex items-center gap-3 transition-all cursor-pointer group"
+                  >
+                    <div className="w-9 h-9 rounded-xl bg-rose-500 text-white flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform shadow-xs">
+                      <AlertCircle className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-sm text-[var(--text-main)] flex items-center gap-1.5">
+                          <span>Practice Wrong Answers Only</span>
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-rose-500 text-white">
+                            {modalWrongCount} Missed
+                          </span>
+                        </span>
+                      </div>
+                      <span className="text-xs text-[var(--text-muted)] block mt-0.5">
+                        Target & re-attempt questions you answered incorrectly to turn weak points into strengths
+                      </span>
+                    </div>
+                  </button>
+                )}
+
+                {/* Option 3: Start Fresh / Comprehensive Session */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const subj = selectedSubjectModal;
+                    const pDeckId = `practice-area-${modalConfig.code}`;
+                    clearDeckCheckpoint(pDeckId);
+                    setSelectedSubjectModal(null);
+                    handlePracticeSubject(subj, { startFresh: true });
+                  }}
+                  className="w-full p-3.5 rounded-2xl border border-[var(--border-color)] hover:border-amber-500 hover:bg-amber-50/40 dark:hover:bg-amber-950/20 text-left flex items-center gap-3 transition-all cursor-pointer group"
+                >
+                  <div className="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+                    <RotateCcw className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <span className="font-bold text-sm text-[var(--text-main)] block">
+                      {modalHasCheckpoint ? 'Start Fresh (Question 1)' : 'Start Full Practice Set'}
+                    </span>
+                    <span className="text-xs text-[var(--text-muted)] block mt-0.5">
+                      {modalHasCheckpoint
+                        ? 'Reset current practice progress and begin a new 30-question set'
+                        : '30 randomized board questions aligned with NDLE standards'}
+                    </span>
+                  </div>
+                </button>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end border-t border-[var(--border-subtle)]">
+                <button
+                  type="button"
+                  onClick={() => setSelectedSubjectModal(null)}
+                  className="text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-main)] cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ------------------------------------------------------------- */}
       {/* BOTTOM SUMMARY STATS (Theme-aligned executive summary)        */}

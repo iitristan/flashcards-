@@ -160,7 +160,7 @@ export type CardDesign = 'modern' | 'compact' | 'classic';
 
 export type CardSortOption = 'default' | 'progress-asc' | 'progress-desc' | 'difficulty' | 'alphabetical' | 'most-reviewed';
 
-export type CardFilterOption = 'all' | 'unseen' | 'learning' | 'developing' | 'mastered' | 'due';
+export type CardFilterOption = 'all' | 'unseen' | 'learning' | 'developing' | 'mastered' | 'due' | 'wrong';
 
 export interface CardProgressInfo {
   stage: CardStage;
