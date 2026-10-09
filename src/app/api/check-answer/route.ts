@@ -12,8 +12,20 @@ interface GradeRequestBody {
 }
 
 function evaluateHeuristics(userAnswer: string, targetAnswer: string, rationale: string = ''): AIGradeResponse {
-  const normUser = userAnswer.trim().toLowerCase().replace(/[^a-z0-9\s]/g, '');
-  const normTarget = targetAnswer.trim().toLowerCase().replace(/[^a-z0-9\s]/g, '');
+  // Normalize strings while preserving decimal numbers (e.g. 3.4g) and equating "3.4 g" with "3.4g"
+  const cleanNumberUnits = (str: string) => {
+    return str
+      .trim()
+      .toLowerCase()
+      .replace(/(\d+(?:\.\d+)?)\s*([a-z%]+)/g, '$1$2')
+      .replace(/[^a-z0-9\s\.]/g, '')
+      .replace(/(?<!\d)\.|\.(?!\d)/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  const normUser = cleanNumberUnits(userAnswer);
+  const normTarget = cleanNumberUnits(targetAnswer);
 
   if (!normUser) {
     return {
@@ -25,8 +37,11 @@ function evaluateHeuristics(userAnswer: string, targetAnswer: string, rationale:
     };
   }
 
-  // Exact match
-  if (normUser === normTarget) {
+  // Exact match or compact match (ignoring whitespace around units)
+  const compactUser = normUser.replace(/\s+/g, '');
+  const compactTarget = normTarget.replace(/\s+/g, '');
+
+  if (normUser === normTarget || (compactUser && compactUser === compactTarget)) {
     return {
       verdict: 'correct',
       score: 100,
@@ -36,9 +51,9 @@ function evaluateHeuristics(userAnswer: string, targetAnswer: string, rationale:
     };
   }
 
-  // Check substring inclusion
-  const userWords = normUser.split(/\s+/).filter(w => w.length > 2);
-  const targetWords = normTarget.split(/\s+/).filter(w => w.length > 2);
+  // Check substring / token inclusion (include numbers, decimals, and words)
+  const userWords = normUser.split(/\s+/).filter(w => w.length > 1 || /\d/.test(w));
+  const targetWords = normTarget.split(/\s+/).filter(w => w.length > 1 || /\d/.test(w));
 
   let matchCount = 0;
   for (const word of targetWords) {
@@ -49,7 +64,10 @@ function evaluateHeuristics(userAnswer: string, targetAnswer: string, rationale:
 
   const matchRatio = targetWords.length > 0 ? matchCount / targetWords.length : 0;
 
-  if (matchRatio >= 0.75 || normTarget.includes(normUser) || normUser.includes(normTarget)) {
+  if (
+    matchRatio >= 0.75 ||
+    (compactTarget && compactUser && (compactTarget.includes(compactUser) || compactUser.includes(compactTarget)))
+  ) {
     return {
       verdict: 'correct',
       score: 90,

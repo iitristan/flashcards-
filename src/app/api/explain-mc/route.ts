@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { MCExplanationRequest, MCExplanationResponse, ExplanationSource } from '@/types';
-import { getCachedMCExplanation, setCachedMCExplanation, normalizeQuestionText } from '@/lib/services/aiExplanationCache';
+import { getCachedMCExplanation, setCachedMCExplanation } from '@/lib/services/aiExplanationCache';
 
 const MODEL_CANDIDATES = [
   'gemini-3.8-flash',

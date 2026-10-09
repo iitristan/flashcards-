@@ -12,6 +12,75 @@ export type DeckCategory =
   | 'Maternal & Child Nutrition'
   | 'General Dietetics';
 
+export const DECK_CATEGORIES: DeckCategory[] = [
+  'Clinical Nutrition',
+  'Nutritional Biochemistry',
+  'Food Service Systems',
+  'Public Health & Community',
+  'Maternal & Child Nutrition',
+  'General Dietetics'
+];
+
+export interface CategoryInfo {
+  name: DeckCategory;
+  label: string;
+  icon: string;
+  emoji: string;
+  color: string;
+  description: string;
+}
+
+export const CATEGORY_CONFIG: Record<DeckCategory, CategoryInfo> = {
+  'Clinical Nutrition': {
+    name: 'Clinical Nutrition',
+    label: 'Clinical Nutrition',
+    icon: 'Stethoscope',
+    emoji: '🩺',
+    color: '#7FA98B',
+    description: 'Medical Nutrition Therapy, Clinical Assessments & Pathophysiology'
+  },
+  'Nutritional Biochemistry': {
+    name: 'Nutritional Biochemistry',
+    label: 'Nutritional Biochemistry',
+    icon: 'Sparkles',
+    emoji: '✨',
+    color: '#FF9A76',
+    description: 'Micronutrients, Metabolic Pathways & Biochemistry'
+  },
+  'Food Service Systems': {
+    name: 'Food Service Systems',
+    label: 'Food Service Systems',
+    icon: 'Calculator',
+    emoji: '🍱',
+    color: '#D4A373',
+    description: 'Food Sanitation, Production, Calculations & Management'
+  },
+  'Public Health & Community': {
+    name: 'Public Health & Community',
+    label: 'Public Health & Community',
+    icon: 'BookOpen',
+    emoji: '🌐',
+    color: '#76B39D',
+    description: 'Community Programs, Epidemiology & Public Nutrition'
+  },
+  'Maternal & Child Nutrition': {
+    name: 'Maternal & Child Nutrition',
+    label: 'Maternal & Child Nutrition',
+    icon: 'Heart',
+    emoji: '👶',
+    color: '#F38BA0',
+    description: 'Pediatrics, Maternal Care & Life Stages'
+  },
+  'General Dietetics': {
+    name: 'General Dietetics',
+    label: 'General Dietetics',
+    icon: 'Apple',
+    emoji: '🍎',
+    color: '#8B5CF6',
+    description: 'Fundamentals, Ethics & Comprehensive Dietetics'
+  }
+};
+
 export interface Sm2Data {
   interval: number; // in days
   easeFactor: number; // default 2.5
@@ -83,10 +152,123 @@ export interface CardReviewResult {
   feedback?: string;
 }
 
+export type CardStage = 'new' | 'learning' | 'developing' | 'mastered';
+
+export type SparkleStyle = 'clinical' | 'vibrant' | 'cosmic' | 'minimal';
+
+export type CardDesign = 'modern' | 'compact' | 'classic';
+
+export type CardSortOption = 'default' | 'progress-asc' | 'progress-desc' | 'difficulty' | 'alphabetical' | 'most-reviewed';
+
+export type CardFilterOption = 'all' | 'unseen' | 'learning' | 'developing' | 'mastered' | 'due';
+
+export interface CardProgressInfo {
+  stage: CardStage;
+  label: string;
+  stageLabel: string;
+  badge: string;
+  color: string;
+  dotColor: string;
+  intervalDays: number;
+  repetitions: number;
+  totalReviews: number;
+  isPracticed: boolean;
+  box: number;
+  leitnerBox: number;
+  isDue: boolean;
+}
+
+export function getCardProgressInfo(card: Flashcard): CardProgressInfo {
+  const reps = card.sm2?.repetitions || 0;
+  const interval = card.sm2?.interval || 0;
+  const isPracticed = Boolean(card.lastReviewedAt || reps > 0);
+  const box = card.leitnerBox || (reps === 0 ? 1 : Math.min(5, reps + 1));
+  const isDue = Boolean(card.sm2?.dueDate && new Date(card.sm2.dueDate) <= new Date());
+  const totalReviews = reps;
+
+  if (!isPracticed || reps === 0) {
+    return {
+      stage: 'new',
+      label: 'Unseen / New',
+      stageLabel: 'Unseen',
+      badge: '🆕 Unseen',
+      color: 'text-slate-500 bg-slate-100 dark:bg-slate-800 dark:text-slate-300 border-slate-200 dark:border-slate-700',
+      dotColor: 'bg-slate-400',
+      intervalDays: interval,
+      repetitions: reps,
+      totalReviews,
+      isPracticed: false,
+      box: 1,
+      leitnerBox: 1,
+      isDue
+    };
+  }
+
+  if (interval >= 21 || reps >= 4) {
+    const finalBox = Math.max(4, box);
+    return {
+      stage: 'mastered',
+      label: 'Mastered',
+      stageLabel: 'Mastered',
+      badge: '🏆 Mastered',
+      color: 'text-emerald-700 bg-emerald-50 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800',
+      dotColor: 'bg-emerald-500',
+      intervalDays: interval,
+      repetitions: reps,
+      totalReviews,
+      isPracticed: true,
+      box: finalBox,
+      leitnerBox: finalBox,
+      isDue
+    };
+  }
+
+  if (interval >= 4 || reps >= 2) {
+    const finalBox = Math.max(3, box);
+    return {
+      stage: 'developing',
+      label: 'Developing / Proficient',
+      stageLabel: 'Developing',
+      badge: '📈 Developing',
+      color: 'text-teal-700 bg-teal-50 dark:bg-teal-950/60 dark:text-teal-300 border-teal-200 dark:border-teal-800',
+      dotColor: 'bg-teal-500',
+      intervalDays: interval,
+      repetitions: reps,
+      totalReviews,
+      isPracticed: true,
+      box: finalBox,
+      leitnerBox: finalBox,
+      isDue
+    };
+  }
+
+  const finalBox = Math.max(2, box);
+  return {
+    stage: 'learning',
+    label: 'In Learning',
+    stageLabel: 'In Learning',
+    badge: '🔄 Learning',
+    color: 'text-amber-700 bg-amber-50 dark:bg-amber-950/60 dark:text-amber-300 border-amber-200 dark:border-amber-800',
+    dotColor: 'bg-amber-500',
+    intervalDays: interval,
+    repetitions: reps,
+    totalReviews,
+    isPracticed: true,
+    box: finalBox,
+    leitnerBox: finalBox,
+    isDue
+  };
+}
+
 export interface StudySessionState {
   id?: string;
   deckId: string;
   deckTitle: string;
+  practiceArea?: import('./ndle').NDLESubject; // Canonical PRC NDLE Practice Area
+  activeSort?: CardSortOption;
+  activeFilter?: CardFilterOption;
+  searchFilter?: string;
+  sparkleStyle?: SparkleStyle;
   mode: StudyMode;
   cardsQueue: Flashcard[];
   currentIndex: number;
@@ -114,6 +296,8 @@ export interface StudyLogEntry {
 
 export interface UserPreferences {
   theme: ThemeType;
+  sparkleStyle?: SparkleStyle;
+  cardDesign?: CardDesign;
   timerDuration: number; // 0 = off, 10, 15, 20, 25, 30
   soundEnabled: boolean;
   autoFlip: boolean;

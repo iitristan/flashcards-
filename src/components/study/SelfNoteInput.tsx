@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { StickyNote, Check, Edit3, Sparkles, Save, ChevronDown, ChevronUp, ListChecks, CheckCircle2 } from 'lucide-react';
 import { useNutriStore } from '@/lib/store/useNutriStore';
@@ -29,7 +29,6 @@ export const SelfNoteInput: React.FC<SelfNoteInputProps> = ({
   const currentCard = card || activeSession?.cardsQueue.find(c => c.id === cardId) || decks.flatMap(d => d.cards || []).find(c => c.id === cardId);
 
   const [activeTab, setActiveTab] = useState<'notes' | 'edit'>('notes');
-  const [prevCardId, setPrevCardId] = useState(cardId);
   const [note, setNote] = useState(initialNote);
   const [isSaved, setIsSaved] = useState(false);
   const [isExpanded, setIsExpanded] = useState(Boolean(initialNote));
@@ -41,6 +40,10 @@ export const SelfNoteInput: React.FC<SelfNoteInputProps> = ({
   const [choices, setChoices] = useState<string[]>(['', '', '', '']);
   const [correctIndex, setCorrectIndex] = useState<number>(0);
   const [isSavingCard, setIsSavingCard] = useState(false);
+
+  // Tracking refs to ensure typing and pasting are never clobbered by external re-renders
+  const activeCardIdRef = useRef<string>(cardId);
+  const hasInitializedRef = useRef<boolean>(false);
 
   // Helper to initialize choices from card
   const initializeChoices = (targetCard?: Flashcard) => {
@@ -74,24 +77,27 @@ export const SelfNoteInput: React.FC<SelfNoteInputProps> = ({
     setCorrectIndex(foundIdx >= 0 ? foundIdx : 0);
   };
 
+  // Only initialize on first mount or when switching to a DIFFERENT card ID
   useEffect(() => {
-    if (currentCard) {
+    if (!hasInitializedRef.current && currentCard) {
+      hasInitializedRef.current = true;
+      activeCardIdRef.current = cardId;
       setEditFront(currentCard.front || '');
       setEditRationale(currentCard.rationale || '');
+      setNote(initialNote || currentCard.userNotes || '');
       initializeChoices(currentCard);
+      return;
     }
-  }, [currentCard, cardId]);
 
-  if (prevCardId !== cardId) {
-    setPrevCardId(cardId);
-    setNote(initialNote || '');
-    setIsExpanded(Boolean(initialNote));
-    if (currentCard) {
-      setEditFront(currentCard.front || '');
-      setEditRationale(currentCard.rationale || '');
+    if (activeCardIdRef.current !== cardId) {
+      activeCardIdRef.current = cardId;
+      setNote(initialNote || currentCard?.userNotes || '');
+      setIsExpanded(Boolean(initialNote || currentCard?.userNotes));
+      setEditFront(currentCard?.front || '');
+      setEditRationale(currentCard?.rationale || '');
       initializeChoices(currentCard);
     }
-  }
+  }, [cardId, currentCard, initialNote]);
 
   const handleChangeNote = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
@@ -362,12 +368,16 @@ export const SelfNoteInput: React.FC<SelfNoteInputProps> = ({
 
                 {/* Clinical Rationale */}
                 <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-[var(--text-muted)] block">
+                  <label htmlFor="card-rationale-input" className="text-[11px] font-bold text-[var(--text-muted)] block">
                     Clinical / Exam Rationale
                   </label>
                   <textarea
+                    id="card-rationale-input"
+                    name="cardRationale"
                     value={editRationale}
                     onChange={(e) => setEditRationale(e.target.value)}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    onPaste={(e) => e.stopPropagation()}
                     rows={2}
                     placeholder="Explanation why this is correct..."
                     className="w-full p-2.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-subtle)] focus:border-blue-500 text-xs sm:text-sm text-[var(--text-main)] outline-none resize-y font-normal transition-colors"

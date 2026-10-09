@@ -17,11 +17,12 @@ import {
   Award,
   Brain,
   Clock,
-  X
+  X,
+  RotateCcw
 } from 'lucide-react';
 
 import { useNutriStore } from '@/lib/store/useNutriStore';
-import { Deck, StudyMode } from '@/types';
+import { Deck, StudyMode, DeckCategory, DECK_CATEGORIES, CATEGORY_CONFIG } from '@/types';
 import { DeckCard } from '@/components/deck/DeckCard';
 import { DeckManager } from '@/components/deck/DeckManager';
 import { ImportExportModal } from '@/components/deck/ImportExportModal';
@@ -58,6 +59,8 @@ export default function NutriboardApp() {
     resetLocalAndPullFromCloud,
     loadDecks,
     startStudySession,
+    startPracticeAreaSession,
+    updateSessionFilterAndSort,
     recordAnswer,
     restartCurrentSession,
     endStudySession,
@@ -152,6 +155,7 @@ export default function NutriboardApp() {
   // Filtered decks calculation: empty decks (no cards) are automatically excluded by default
   const filteredDecks = useMemo(() => {
     const q = (deferredSearchQuery || '').trim().toLowerCase();
+
     return decks.filter((deck) => {
       // Exclude decks with no cards by default
       if ((deck.cards?.length || 0) === 0) {
@@ -174,10 +178,10 @@ export default function NutriboardApp() {
     });
   }, [decks, deferredSearchQuery, selectedCategory]);
 
-
-  // Categories list (only derived from decks that contain cards)
+  // Canonical categories list (includes All, all standard PRC NDLE categories, and any custom user categories)
   const categories = useMemo(() => {
     const set = new Set<string>(['All']);
+    DECK_CATEGORIES.forEach((cat) => set.add(cat));
     decks
       .filter((d) => (d.cards?.length || 0) > 0)
       .forEach((d) => {
@@ -185,6 +189,25 @@ export default function NutriboardApp() {
       });
     return Array.from(set);
   }, [decks]);
+
+  // Quick move deck into category handler (for DeckCard menu)
+  const handleUpdateDeckCategory = async (deckId: string, newCategory: DeckCategory) => {
+    const targetDeck = decks.find((d) => d.id === deckId);
+    if (!targetDeck || targetDeck.category === newCategory) return;
+
+    try {
+      const catConfig = CATEGORY_CONFIG[newCategory];
+      await updateDeck(deckId, {
+        category: newCategory,
+        color: catConfig?.color || targetDeck.color,
+        icon: catConfig?.icon || targetDeck.icon,
+      });
+      toast.success(`Moved "${targetDeck.title}" to ${newCategory}`);
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : 'Could not update category';
+      toast.error(errorMsg);
+    }
+  };
 
   // Overview metrics
   const totalCardsCount = useMemo(() => {
@@ -200,10 +223,13 @@ export default function NutriboardApp() {
   }, [decks]);
 
   // Handlers
-  const handleStartStudy = (deckId: string, mode: StudyMode, dueOnly = false) => {
+  const handleStartStudy = (deckId: string, mode: StudyMode, resume = false) => {
     try {
       setIsTimerExpired(false);
-      startStudySession(deckId, mode, dueOnly);
+      startStudySession(deckId, mode, false, {
+        resume,
+        startFresh: !resume
+      });
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : 'Could not start study session';
       toast.error(errorMsg);
@@ -247,11 +273,22 @@ export default function NutriboardApp() {
             timerDuration={activeSession.timerDurationSeconds || 0}
             soundEnabled={preferences.soundEnabled}
             saveStatus={saveStatus}
+            practiceArea={activeSession.practiceArea}
+            currentCard={currentCard}
+            activeSort={activeSession.activeSort}
+            activeFilter={activeSession.activeFilter}
+            sparkleStyle={activeSession.sparkleStyle || preferences.sparkleStyle}
             onToggleSound={() =>
               updatePreferences({ soundEnabled: !preferences.soundEnabled })
             }
             onExit={endStudySession}
             onTimerExpire={handleTimerExpire}
+            onFilterChange={(filter) => updateSessionFilterAndSort({ filter })}
+            onSortChange={(sort) => updateSessionFilterAndSort({ sort })}
+            onSparkleChange={(sparkleStyle) => {
+              updatePreferences({ sparkleStyle });
+              updateSessionFilterAndSort({ sparkleStyle });
+            }}
             isPaused={isCompleted}
           />
 
@@ -262,7 +299,7 @@ export default function NutriboardApp() {
                 key="summary"
                 deckTitle={activeSession.deckTitle || 'Study Session'}
                 results={activeSession.results || []}
-                startTime={activeSession.startTime || Date.now()}
+                startTime={activeSession.startTime || 0}
                 streak={preferences.studyStreak || 1}
                 onRestart={(missedOnly) => restartCurrentSession(missedOnly)}
                 onReturnHome={endStudySession}
@@ -446,19 +483,35 @@ export default function NutriboardApp() {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
               <button
-                onClick={dismissResumeSession}
-                className="px-3 py-1.5 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-main)] rounded-lg hover:bg-[var(--bg-surface-subtle)] transition-all cursor-pointer"
+                type="button"
+                onClick={() => dismissResumeSession()}
+                className="px-2.5 py-1.5 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-main)] rounded-lg hover:bg-[var(--bg-surface-subtle)] transition-all cursor-pointer"
               >
                 Discard
               </button>
               <button
-                onClick={resumeSession}
+                type="button"
+                onClick={() => {
+                  const dId = resumeAvailableSession.deckId;
+                  const m = resumeAvailableSession.mode;
+                  dismissResumeSession(dId);
+                  handleStartStudy(dId, m, false);
+                }}
+                className="px-3 py-1.5 text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-main)] border border-[var(--border-color)] rounded-lg hover:bg-[var(--bg-surface-subtle)] transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Start from Start</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => resumeSession()}
                 className="px-4 py-1.5 text-xs font-semibold bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--primary-foreground)] rounded-lg shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
               >
-                <span>Resume Session</span>
-                <ArrowRight className="w-3.5 h-3.5" />
+                <Play className="w-3.5 h-3.5 fill-current" />
+                <span>Resume at Card {resumeAvailableSession.currentIndex + 1}</span>
+                <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
               </button>
             </div>
           </div>
@@ -668,6 +721,7 @@ export default function NutriboardApp() {
                     }}
                     onDelete={handleDeleteDeck}
                     onExport={handleExportDeck}
+                    onUpdateCategory={handleUpdateDeckCategory}
                   />
                 ))}
               </div>
@@ -683,11 +737,13 @@ export default function NutriboardApp() {
                   <p className="text-xs text-[var(--text-muted)] max-w-sm mx-auto">
                     {searchQuery
                       ? `No decks matched "${searchQuery}". Try a different keyword or reset filters.`
+                      : selectedCategory !== 'All'
+                      ? `No decks found in ${selectedCategory}.`
                       : 'Get started by creating your first deck or restoring preloaded sample decks.'}
                   </p>
                 </div>
                 <div className="flex justify-center gap-2.5 pt-2">
-                  {searchQuery && (
+                  {searchQuery || selectedCategory !== 'All' ? (
                     <button
                       onClick={() => {
                         setSearchQuery('');
@@ -697,7 +753,7 @@ export default function NutriboardApp() {
                     >
                       Clear Filters
                     </button>
-                  )}
+                  ) : null}
                   <button
                     onClick={() => {
                       setEditingDeck(null);
@@ -711,8 +767,8 @@ export default function NutriboardApp() {
               </div>
             )}
           </div>
-          </div>
-        )}
+        </div>
+      )}
 
 
 
@@ -727,10 +783,17 @@ export default function NutriboardApp() {
         {activeTab === 'readiness' && (
           <div>
             <BoardReadinessView
-              onStartSubjectPractice={() => {
-                if (decks.length > 0) {
-                  startStudySession(decks[0].id, 'multiple-choice');
-                }
+              initialSearchQuery={searchQuery}
+              onStartSubjectPractice={(subject, searchTxt, filter, sort) => {
+                const effectiveQuery = (searchTxt || searchQuery || '').trim();
+                startPracticeAreaSession(subject, {
+                  searchQuery: effectiveQuery,
+                  filter,
+                  sort
+                }).catch((err: unknown) => {
+                  const errorMsg = err instanceof Error ? err.message : 'Could not launch practice area session';
+                  toast.error(errorMsg);
+                });
               }}
             />
           </div>
@@ -743,6 +806,7 @@ export default function NutriboardApp() {
       {isCreatingDeck && (
         <DeckManager
           initialDeck={editingDeck}
+          defaultCategory={selectedCategory !== 'All' ? (selectedCategory as DeckCategory) : undefined}
           onSaveDeck={createDeck}
           onUpdateDeck={updateDeck}
           onAddCard={addCard}

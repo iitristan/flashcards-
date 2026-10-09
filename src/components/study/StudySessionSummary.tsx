@@ -29,7 +29,7 @@ export const StudySessionSummary: React.FC<StudySessionSummaryProps> = ({
   ).length;
   const missedCount = totalCards - correctCount;
   const accuracy = totalCards > 0 ? Math.round((correctCount / totalCards) * 100) : 0;
-  const [totalTimeSeconds] = useState(() => Math.max(1, Math.round((Date.now() - startTime) / 1000)));
+  const [totalTimeSeconds] = useState(() => Math.max(1, Math.round((Date.now() - (startTime > 0 ? startTime : Date.now())) / 1000)));
   const minutes = Math.floor(totalTimeSeconds / 60);
   const seconds = totalTimeSeconds % 60;
 

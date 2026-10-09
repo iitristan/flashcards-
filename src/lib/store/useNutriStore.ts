@@ -1,10 +1,12 @@
 import { create } from 'zustand';
-import { Deck, Flashcard, StudyMode, ReviewRating, ThemeType, UserPreferences, StudySessionState, CardReviewResult, DeckPlaylist } from '@/types';
+import { Deck, Flashcard, StudyMode, ReviewRating, ThemeType, UserPreferences, StudySessionState, CardReviewResult, DeckPlaylist, CardSortOption, CardFilterOption, SparkleStyle } from '@/types';
 import { deckService } from '@/lib/services/deckService';
 import { soundEffects } from '@/lib/soundEffects';
 import { shuffleArray, computeDeckStats } from '@/lib/services/flashcardService';
 import { syncService } from '@/lib/services/syncService';
 import { getSupabaseClient } from '@/lib/supabase/client';
+import { resolveCardSubject } from '@/lib/services/boardReadinessService';
+import { NDLESubject, NDLE_SUBJECT_CONFIGS } from '@/types/ndle';
 
 const PREFS_STORAGE_KEY = 'nutrianki_prefs_v1';
 const ACTIVE_SESSION_STORAGE_KEY = 'nutrianki_active_session_v1';
@@ -71,10 +73,11 @@ interface NutriStore {
 
   // Session & Progress Actions
   setResumeAvailableSession: (session: StudySessionState | null) => void;
-  resumeSession: () => void;
-  dismissResumeSession: () => void;
-
-
+  resumeSession: (deckId?: string) => void;
+  dismissResumeSession: (deckId?: string) => void;
+  deckCheckpoints: Record<string, StudySessionState>;
+  getDeckCheckpoint: (deckId: string) => StudySessionState | null;
+  clearDeckCheckpoint: (deckId: string) => void;
 
   // Deck Actions
   loadDecks: () => Promise<void>;
@@ -100,7 +103,34 @@ interface NutriStore {
   saveCardNote: (deckId: string, cardId: string, note: string) => Promise<void>;
 
   // Session Actions
-  startStudySession: (deckId: string, mode: StudyMode, filterDueOnly?: boolean) => Promise<void>;
+  startStudySession: (
+    deckId: string,
+    mode: StudyMode,
+    filterDueOnly?: boolean,
+    options?: {
+      sort?: CardSortOption;
+      filter?: CardFilterOption;
+      searchQuery?: string;
+      resume?: boolean;
+      startFresh?: boolean;
+    }
+  ) => Promise<void>;
+  startPracticeAreaSession: (
+    subject: NDLESubject,
+    options?: {
+      mode?: StudyMode;
+      searchQuery?: string;
+      sort?: CardSortOption;
+      filter?: CardFilterOption;
+      sparkleStyle?: SparkleStyle;
+    }
+  ) => Promise<void>;
+  updateSessionFilterAndSort: (options: {
+    sort?: CardSortOption;
+    filter?: CardFilterOption;
+    searchQuery?: string;
+    sparkleStyle?: SparkleStyle;
+  }) => void;
   recordAnswer: (options: {
     rating?: ReviewRating;
     userAnswer?: string;
@@ -131,9 +161,8 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
   preferences: DEFAULT_PREFS,
   saveStatus: 'idle',
   resumeAvailableSession: null,
+  deckCheckpoints: {},
 
-
-  // Cloud Sync State
   user: null,
   syncStatus: 'idle',
   lastSyncedAt: null,
@@ -142,8 +171,61 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
 
   setResumeAvailableSession: (session) => set({ resumeAvailableSession: session }),
 
-  resumeSession: () => {
-    const session = get().resumeAvailableSession;
+  getDeckCheckpoint: (deckId: string) => {
+    const { deckCheckpoints, activeSession, resumeAvailableSession } = get();
+    if (deckCheckpoints[deckId] && !deckCheckpoints[deckId].isCompleted) {
+      return deckCheckpoints[deckId];
+    }
+    if (activeSession?.deckId === deckId && !activeSession.isCompleted && (activeSession.currentIndex > 0 || (activeSession.results || []).length > 0)) {
+      return activeSession;
+    }
+    if (resumeAvailableSession?.deckId === deckId && !resumeAvailableSession.isCompleted && (resumeAvailableSession.currentIndex > 0 || (resumeAvailableSession.results || []).length > 0)) {
+      return resumeAvailableSession;
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(`nutrianki_deck_session_${deckId}`);
+        if (stored) {
+          const parsed: StudySessionState = JSON.parse(stored);
+          if (parsed && !parsed.isCompleted && (parsed.currentIndex > 0 || (parsed.results || []).length > 0)) {
+            set((state) => ({
+              deckCheckpoints: { ...state.deckCheckpoints, [deckId]: parsed }
+            }));
+            return parsed;
+          }
+        }
+      } catch {}
+    }
+    return null;
+  },
+
+  clearDeckCheckpoint: (deckId: string) => {
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem(`nutrianki_deck_session_${deckId}`);
+        const active = localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY);
+        if (active) {
+          const parsed = JSON.parse(active);
+          if (parsed?.deckId === deckId) {
+            localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+          }
+        }
+      } catch {}
+    }
+    set((state) => {
+      const nextCheckpoints = { ...state.deckCheckpoints };
+      delete nextCheckpoints[deckId];
+      return {
+        deckCheckpoints: nextCheckpoints,
+        resumeAvailableSession: state.resumeAvailableSession?.deckId === deckId ? null : state.resumeAvailableSession,
+        activeSession: state.activeSession?.deckId === deckId ? null : state.activeSession
+      };
+    });
+  },
+
+  resumeSession: (deckId?: string) => {
+    const targetDeckId = deckId || get().resumeAvailableSession?.deckId;
+    const session = targetDeckId ? get().getDeckCheckpoint(targetDeckId) : get().resumeAvailableSession;
     if (session) {
       set({
         activeSession: session,
@@ -153,12 +235,17 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     }
   },
 
-  dismissResumeSession: () => {
-    const session = get().resumeAvailableSession;
-    set({ resumeAvailableSession: null });
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+  dismissResumeSession: (deckId?: string) => {
+    const targetDeckId = deckId || get().resumeAvailableSession?.deckId;
+    if (targetDeckId) {
+      get().clearDeckCheckpoint(targetDeckId);
+    } else {
+      set({ resumeAvailableSession: null });
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+      }
     }
+    const session = get().resumeAvailableSession;
     if (session?.id) {
       syncService.completeStudySession(session.id).catch(console.error);
     }
@@ -596,18 +683,42 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
         }
       }
 
-      // Check for in-progress session checkpoint and make it available for resumption
-      const storedSession = localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY);
-      if (storedSession) {
+      // Check for in-progress session checkpoints and make them available for resumption
+      const checkpoints: Record<string, StudySessionState> = {};
+      if (typeof window !== 'undefined') {
         try {
-          const parsedSession: StudySessionState = JSON.parse(storedSession);
-          if (parsedSession && !parsedSession.isCompleted && (parsedSession.currentIndex > 0 || parsedSession.results.length > 0)) {
-            set({
-              resumeAvailableSession: parsedSession
-            });
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith('nutrianki_deck_session_')) {
+              const val = localStorage.getItem(key);
+              if (val) {
+                const parsed: StudySessionState = JSON.parse(val);
+                if (parsed && !parsed.isCompleted && (parsed.currentIndex > 0 || (parsed.results || []).length > 0)) {
+                  checkpoints[parsed.deckId] = parsed;
+                }
+              }
+            }
           }
         } catch {}
       }
+
+      const storedSession = typeof window !== 'undefined' ? localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY) : null;
+      let parsedSession: StudySessionState | null = null;
+      if (storedSession) {
+        try {
+          parsedSession = JSON.parse(storedSession);
+          if (parsedSession && !parsedSession.isCompleted && (parsedSession.currentIndex > 0 || (parsedSession.results || []).length > 0)) {
+            checkpoints[parsedSession.deckId] = parsedSession;
+          } else {
+            parsedSession = null;
+          }
+        } catch {}
+      }
+
+      set({
+        resumeAvailableSession: parsedSession,
+        deckCheckpoints: checkpoints
+      });
 
 
     } catch {
@@ -889,16 +1000,26 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     }
   },
 
-  startStudySession: async (deckId, mode, filterDueOnly = false) => {
-    // Check if user already has an in-progress session for this deck & mode to preserve progression
-    const { activeSession, resumeAvailableSession } = get();
-    const existing = (activeSession?.deckId === deckId && !activeSession.isCompleted && activeSession.mode === mode)
-      ? activeSession
-      : (resumeAvailableSession?.deckId === deckId && !resumeAvailableSession.isCompleted && resumeAvailableSession.mode === mode)
-      ? resumeAvailableSession
-      : null;
+  startStudySession: async (deckId, mode, filterDueOnly = false, options) => {
+    // If startFresh is explicitly requested, clear any saved checkpoint first
+    if (options?.startFresh) {
+      get().clearDeckCheckpoint(deckId);
+    }
 
-    if (existing && (existing.currentIndex > 0 || existing.results.length > 0)) {
+    const { activeSession, resumeAvailableSession, deckCheckpoints } = get();
+    const existing = options?.startFresh
+      ? null
+      : (activeSession?.deckId === deckId && !activeSession.isCompleted)
+      ? activeSession
+      : (deckCheckpoints[deckId] && !deckCheckpoints[deckId].isCompleted)
+      ? deckCheckpoints[deckId]
+      : (resumeAvailableSession?.deckId === deckId && !resumeAvailableSession.isCompleted)
+      ? resumeAvailableSession
+      : get().getDeckCheckpoint(deckId);
+
+    const shouldResume = options?.resume || (Boolean(existing) && existing?.mode === mode && !options?.startFresh);
+
+    if (shouldResume && existing && !options?.searchQuery && (!options?.filter || options.filter === existing.activeFilter) && (existing.currentIndex > 0 || (existing.results || []).length > 0)) {
       set({
         activeDeckId: deckId,
         activeSession: existing,
@@ -912,21 +1033,55 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     if (!deck) {
       deck = await deckService.getDeckById(deckId) || undefined;
     }
-    if (!deck || deck.cards.length === 0) {
+    if (!deck || (deck.cards || []).length === 0) {
       throw new Error('This deck has no cards to study!');
     }
 
-    let cards = [...deck.cards];
-    if (filterDueOnly) {
+    let cards = [...(deck.cards || [])];
+    const searchQuery = (options?.searchQuery || '').trim().toLowerCase();
+    if (searchQuery) {
+      cards = cards.filter(c =>
+        (c.front || '').toLowerCase().includes(searchQuery) ||
+        (c.back || '').toLowerCase().includes(searchQuery) ||
+        (c.rationale || '').toLowerCase().includes(searchQuery) ||
+        (c.tags || []).some(t => t.toLowerCase().includes(searchQuery))
+      );
+    }
+
+    if (filterDueOnly || options?.filter === 'due') {
       const now = new Date();
       const dueCards = cards.filter(c => !c.lastReviewedAt || new Date(c.sm2.dueDate) <= now);
       if (dueCards.length > 0) {
         cards = dueCards;
       }
+    } else if (options?.filter === 'unseen') {
+      const unseen = cards.filter(c => !c.lastReviewedAt || (c.sm2?.repetitions || 0) === 0);
+      if (unseen.length > 0) cards = unseen;
+    } else if (options?.filter === 'learning') {
+      const learning = cards.filter(c => (c.sm2?.repetitions || 0) > 0 && (c.sm2?.interval || 0) < 4);
+      if (learning.length > 0) cards = learning;
+    } else if (options?.filter === 'developing') {
+      const dev = cards.filter(c => (c.sm2?.interval || 0) >= 4 && (c.sm2?.interval || 0) < 21);
+      if (dev.length > 0) cards = dev;
+    } else if (options?.filter === 'mastered') {
+      const mastered = cards.filter(c => (c.sm2?.interval || 0) >= 21 || (c.sm2?.repetitions || 0) >= 4);
+      if (mastered.length > 0) cards = mastered;
     }
 
-    // Shuffle cards for multiple choice, identification, or blitz-marathon
-    if (mode === 'multiple-choice' || mode === 'identification' || mode === 'blitz-marathon') {
+    // Sort cards
+    if (options?.sort === 'progress-asc') {
+      cards.sort((a, b) => (a.sm2?.repetitions || 0) - (b.sm2?.repetitions || 0));
+    } else if (options?.sort === 'progress-desc') {
+      cards.sort((a, b) => (b.sm2?.repetitions || 0) - (a.sm2?.repetitions || 0));
+    } else if (options?.sort === 'difficulty') {
+      const diffOrder: Record<string, number> = { hard: 1, medium: 2, easy: 3 };
+      cards.sort((a, b) => (diffOrder[a.difficulty || 'medium'] || 2) - (diffOrder[b.difficulty || 'medium'] || 2));
+    } else if (options?.sort === 'alphabetical') {
+      cards.sort((a, b) => (a.front || '').localeCompare(b.front || ''));
+    } else if (options?.sort === 'most-reviewed') {
+      cards.sort((a, b) => (b.sm2?.repetitions || 0) - (a.sm2?.repetitions || 0));
+    } else if (mode === 'multiple-choice' || mode === 'identification' || mode === 'blitz-marathon') {
+      // Shuffle cards for quiz modes by default
       cards = shuffleArray(cards);
     }
 
@@ -939,6 +1094,10 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       deckId,
       deckTitle: deck.title,
       mode,
+      activeSort: options?.sort || 'default',
+      activeFilter: options?.filter || (filterDueOnly ? 'due' : 'all'),
+      searchFilter: searchQuery || undefined,
+      sparkleStyle: preferences.sparkleStyle || 'clinical',
       cardsQueue: cards,
       currentIndex: 0,
       results: [],
@@ -948,16 +1107,21 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       updatedAt: new Date().toISOString()
     };
 
-    set({
+    set((state) => ({
       activeDeckId: deckId,
       activeSession: newSession,
       resumeAvailableSession: null,
+      deckCheckpoints: {
+        ...state.deckCheckpoints,
+        [deckId]: newSession
+      },
       saveStatus: 'idle'
-    });
+    }));
 
     if (typeof window !== 'undefined') {
       try {
         localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify(newSession));
+        localStorage.setItem(`nutrianki_deck_session_${deckId}`, JSON.stringify(newSession));
       } catch {}
     }
 
@@ -965,6 +1129,257 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       syncService.saveSessionCheckpoint(newSession).catch((err) =>
         console.warn('Failed to save initial study session checkpoint:', err)
       );
+    }
+  },
+
+  startPracticeAreaSession: async (subject, options) => {
+    const { decks, activeSession, resumeAvailableSession, preferences } = get();
+    const mode = options?.mode || 'multiple-choice';
+    const sort = options?.sort || 'default';
+    const filter = options?.filter || 'all';
+    const searchQuery = (options?.searchQuery || '').trim().toLowerCase();
+
+    const config = NDLE_SUBJECT_CONFIGS[subject];
+    const code = config?.code || 'NBCD';
+    const practiceDeckId = `practice-area-${code}`;
+    const practiceStorageKey = `nutriboard_practice_session_${code}`;
+
+    // Check if user already has an in-progress session for THIS practice area
+    let existingSession: StudySessionState | null = null;
+    if (activeSession?.practiceArea === subject && !activeSession.isCompleted) {
+      existingSession = activeSession;
+    } else if (resumeAvailableSession?.practiceArea === subject && !resumeAvailableSession.isCompleted) {
+      existingSession = resumeAvailableSession;
+    } else if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(practiceStorageKey);
+        if (stored) {
+          const parsed = JSON.parse(stored) as StudySessionState;
+          if (parsed.practiceArea === subject && !parsed.isCompleted && (parsed.cardsQueue || []).length > 0) {
+            existingSession = parsed;
+          }
+        }
+      } catch {}
+    }
+
+    // If existing session exists and user didn't request a search or filter change that invalidates it
+    if (existingSession && !searchQuery && (!options?.filter || options.filter === existingSession.activeFilter) && (!options?.sort || options.sort === existingSession.activeSort) && (existingSession.currentIndex > 0 || existingSession.results.length > 0)) {
+      set({
+        activeDeckId: practiceDeckId,
+        activeSession: existingSession,
+        resumeAvailableSession: null,
+        saveStatus: 'idle'
+      });
+      return;
+    }
+
+    // Gather cards strictly belonging to this practice area
+    let subjectCards: Flashcard[] = [];
+    for (const deck of decks) {
+      for (const card of deck.cards || []) {
+        if (resolveCardSubject(card, deck.category) === subject) {
+          subjectCards.push({ ...card, deckId: card.deckId || deck.id });
+        }
+      }
+    }
+
+    // Fallback if no cards resolved through classifier
+    if (subjectCards.length === 0) {
+      for (const deck of decks) {
+        if (deck.category && deck.category.toLowerCase().includes(code.toLowerCase())) {
+          subjectCards.push(...(deck.cards || []));
+        }
+      }
+    }
+    if (subjectCards.length === 0 && decks.length > 0) {
+      subjectCards = [...(decks[0].cards || [])];
+    }
+
+    if (subjectCards.length === 0) {
+      throw new Error(`No practice questions found for ${subject}.`);
+    }
+
+    // Apply text search filtering if user entered text
+    if (searchQuery) {
+      const filteredBySearch = subjectCards.filter(c =>
+        (c.front || '').toLowerCase().includes(searchQuery) ||
+        (c.back || '').toLowerCase().includes(searchQuery) ||
+        (c.rationale || '').toLowerCase().includes(searchQuery) ||
+        (c.tags || []).some(t => t.toLowerCase().includes(searchQuery))
+      );
+      if (filteredBySearch.length > 0) {
+        subjectCards = filteredBySearch;
+      }
+    }
+
+    // Apply progress filter segment
+    if (filter === 'unseen') {
+      const unseen = subjectCards.filter(c => !c.lastReviewedAt || (c.sm2?.repetitions || 0) === 0);
+      if (unseen.length > 0) subjectCards = unseen;
+    } else if (filter === 'learning') {
+      const learning = subjectCards.filter(c => (c.sm2?.repetitions || 0) > 0 && (c.sm2?.interval || 0) < 4);
+      if (learning.length > 0) subjectCards = learning;
+    } else if (filter === 'developing') {
+      const dev = subjectCards.filter(c => (c.sm2?.interval || 0) >= 4 && (c.sm2?.interval || 0) < 21);
+      if (dev.length > 0) subjectCards = dev;
+    } else if (filter === 'mastered') {
+      const mastered = subjectCards.filter(c => (c.sm2?.interval || 0) >= 21 || (c.sm2?.repetitions || 0) >= 4);
+      if (mastered.length > 0) subjectCards = mastered;
+    } else if (filter === 'due') {
+      const now = new Date();
+      const due = subjectCards.filter(c => !c.lastReviewedAt || new Date(c.sm2?.dueDate || 0) <= now);
+      if (due.length > 0) subjectCards = due;
+    }
+
+    // Apply sorting
+    if (sort === 'progress-asc') {
+      subjectCards.sort((a, b) => (a.sm2?.repetitions || 0) - (b.sm2?.repetitions || 0));
+    } else if (sort === 'progress-desc') {
+      subjectCards.sort((a, b) => (b.sm2?.repetitions || 0) - (a.sm2?.repetitions || 0));
+    } else if (sort === 'difficulty') {
+      const diffOrder: Record<string, number> = { hard: 1, medium: 2, easy: 3 };
+      subjectCards.sort((a, b) => (diffOrder[a.difficulty || 'medium'] || 2) - (diffOrder[b.difficulty || 'medium'] || 2));
+    } else if (sort === 'alphabetical') {
+      subjectCards.sort((a, b) => (a.front || '').localeCompare(b.front || ''));
+    } else if (sort === 'most-reviewed') {
+      subjectCards.sort((a, b) => (b.sm2?.repetitions || 0) - (a.sm2?.repetitions || 0));
+    } else {
+      subjectCards = shuffleArray(subjectCards);
+    }
+
+    const timerDuration = mode === 'blitz-marathon' ? 15 : preferences.timerDuration;
+    const sessionId = `practice-${code}-${Date.now()}`;
+
+    const newSession: StudySessionState = {
+      id: sessionId,
+      deckId: practiceDeckId,
+      deckTitle: config ? `${config.shortTitle} Practice` : `${subject} Practice`,
+      practiceArea: subject,
+      activeSort: sort,
+      activeFilter: filter,
+      searchFilter: searchQuery || undefined,
+      sparkleStyle: options?.sparkleStyle || preferences.sparkleStyle || 'clinical',
+      mode,
+      cardsQueue: subjectCards,
+      currentIndex: 0,
+      results: [],
+      startTime: Date.now(),
+      isCompleted: false,
+      timerDurationSeconds: timerDuration,
+      updatedAt: new Date().toISOString()
+    };
+
+    set({
+      activeDeckId: practiceDeckId,
+      activeSession: newSession,
+      resumeAvailableSession: null,
+      saveStatus: 'idle'
+    });
+
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(practiceStorageKey, JSON.stringify(newSession));
+        localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify(newSession));
+      } catch {}
+    }
+
+    if (get().user) {
+      syncService.saveSessionCheckpoint(newSession).catch(console.warn);
+    }
+  },
+
+  updateSessionFilterAndSort: ({ sort, filter, searchQuery, sparkleStyle }) => {
+    const { activeSession, decks } = get();
+    if (!activeSession) return;
+
+    let sourcePool: Flashcard[] = [];
+    if (activeSession.practiceArea) {
+      for (const d of decks) {
+        for (const c of d.cards || []) {
+          if (resolveCardSubject(c, d.category) === activeSession.practiceArea) {
+            sourcePool.push({ ...c, deckId: c.deckId || d.id });
+          }
+        }
+      }
+    } else if (activeSession.deckId.startsWith('playlist-')) {
+      const playlist = get().playlists.find(p => p.id === activeSession.deckId);
+      const includedDecks = decks.filter(d => playlist?.deckIds.includes(d.id));
+      includedDecks.forEach(d => sourcePool.push(...(d.cards || [])));
+    } else {
+      const d = decks.find(dk => dk.id === activeSession.deckId);
+      sourcePool = d ? [...(d.cards || [])] : [...(activeSession.cardsQueue || [])];
+    }
+
+    if (sourcePool.length === 0) sourcePool = [...(activeSession.cardsQueue || [])];
+
+    const effectiveSearch = (searchQuery !== undefined ? searchQuery : activeSession.searchFilter || '').trim().toLowerCase();
+    const effectiveFilter = filter !== undefined ? filter : activeSession.activeFilter || 'all';
+    const effectiveSort = sort !== undefined ? sort : activeSession.activeSort || 'default';
+    const effectiveSparkle = sparkleStyle !== undefined ? sparkleStyle : activeSession.sparkleStyle || 'clinical';
+
+    let filteredCards = [...sourcePool];
+    if (effectiveSearch) {
+      filteredCards = filteredCards.filter(c =>
+        (c.front || '').toLowerCase().includes(effectiveSearch) ||
+        (c.back || '').toLowerCase().includes(effectiveSearch) ||
+        (c.rationale || '').toLowerCase().includes(effectiveSearch) ||
+        (c.tags || []).some(t => t.toLowerCase().includes(effectiveSearch))
+      );
+    }
+
+    if (effectiveFilter === 'unseen') {
+      const unseen = filteredCards.filter(c => !c.lastReviewedAt || (c.sm2?.repetitions || 0) === 0);
+      if (unseen.length > 0) filteredCards = unseen;
+    } else if (effectiveFilter === 'learning') {
+      const learning = filteredCards.filter(c => (c.sm2?.repetitions || 0) > 0 && (c.sm2?.interval || 0) < 4);
+      if (learning.length > 0) filteredCards = learning;
+    } else if (effectiveFilter === 'developing') {
+      const dev = filteredCards.filter(c => (c.sm2?.interval || 0) >= 4 && (c.sm2?.interval || 0) < 21);
+      if (dev.length > 0) filteredCards = dev;
+    } else if (effectiveFilter === 'mastered') {
+      const mastered = filteredCards.filter(c => (c.sm2?.interval || 0) >= 21 || (c.sm2?.repetitions || 0) >= 4);
+      if (mastered.length > 0) filteredCards = mastered;
+    } else if (effectiveFilter === 'due') {
+      const now = new Date();
+      const due = filteredCards.filter(c => !c.lastReviewedAt || new Date(c.sm2?.dueDate || 0) <= now);
+      if (due.length > 0) filteredCards = due;
+    }
+
+    if (effectiveSort === 'progress-asc') {
+      filteredCards.sort((a, b) => (a.sm2?.repetitions || 0) - (b.sm2?.repetitions || 0));
+    } else if (effectiveSort === 'progress-desc') {
+      filteredCards.sort((a, b) => (b.sm2?.repetitions || 0) - (a.sm2?.repetitions || 0));
+    } else if (effectiveSort === 'difficulty') {
+      const diffOrder: Record<string, number> = { hard: 1, medium: 2, easy: 3 };
+      filteredCards.sort((a, b) => (diffOrder[a.difficulty || 'medium'] || 2) - (diffOrder[b.difficulty || 'medium'] || 2));
+    } else if (effectiveSort === 'alphabetical') {
+      filteredCards.sort((a, b) => (a.front || '').localeCompare(b.front || ''));
+    } else if (effectiveSort === 'most-reviewed') {
+      filteredCards.sort((a, b) => (b.sm2?.repetitions || 0) - (a.sm2?.repetitions || 0));
+    }
+
+    const updatedSession: StudySessionState = {
+      ...activeSession,
+      cardsQueue: filteredCards.length > 0 ? filteredCards : activeSession.cardsQueue,
+      currentIndex: 0,
+      activeSort: effectiveSort,
+      activeFilter: effectiveFilter,
+      searchFilter: effectiveSearch || undefined,
+      sparkleStyle: effectiveSparkle,
+      updatedAt: new Date().toISOString()
+    };
+
+    set({ activeSession: updatedSession });
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify(updatedSession));
+        if (updatedSession.practiceArea) {
+          const cfg = NDLE_SUBJECT_CONFIGS[updatedSession.practiceArea];
+          if (cfg) {
+            localStorage.setItem(`nutriboard_practice_session_${cfg.code}`, JSON.stringify(updatedSession));
+          }
+        }
+      } catch {}
     }
   },
 
@@ -1020,18 +1435,42 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     };
 
     // Update local session state & set saving status
-    set({
-      activeSession: updatedSession,
-      saveStatus: 'saving'
-    });
+    if (isCompleted) {
+      set((state) => {
+        const nextCheckpoints = { ...state.deckCheckpoints };
+        if (targetDeckId) delete nextCheckpoints[targetDeckId];
+        return {
+          activeSession: updatedSession,
+          deckCheckpoints: nextCheckpoints,
+          resumeAvailableSession: state.resumeAvailableSession?.deckId === targetDeckId ? null : state.resumeAvailableSession,
+          saveStatus: 'saving'
+        };
+      });
+    } else {
+      set((state) => ({
+        activeSession: updatedSession,
+        deckCheckpoints: {
+          ...state.deckCheckpoints,
+          [targetDeckId]: updatedSession
+        },
+        resumeAvailableSession: updatedSession,
+        saveStatus: 'saving'
+      }));
+    }
 
     // Checkpoint to localStorage immediately
     if (typeof window !== 'undefined') {
       try {
         if (isCompleted) {
           localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+          if (targetDeckId) {
+            localStorage.removeItem(`nutrianki_deck_session_${targetDeckId}`);
+          }
         } else {
           localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify(updatedSession));
+          if (targetDeckId) {
+            localStorage.setItem(`nutrianki_deck_session_${targetDeckId}`, JSON.stringify(updatedSession));
+          }
         }
       } catch {}
     }
@@ -1108,7 +1547,15 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     if (!activeSession) return;
 
     let sourceCards: Flashcard[] = [];
-    if (activeSession.deckId.startsWith('playlist-')) {
+    if (activeSession.practiceArea) {
+      for (const d of decks) {
+        for (const c of d.cards || []) {
+          if (resolveCardSubject(c, d.category) === activeSession.practiceArea) {
+            sourceCards.push({ ...c, deckId: c.deckId || d.id });
+          }
+        }
+      }
+    } else if (activeSession.deckId.startsWith('playlist-')) {
       const playlist = playlists.find(p => p.id === activeSession.deckId);
       const includedDecks = decks.filter(d => playlist?.deckIds.includes(d.id));
       includedDecks.forEach(d => sourceCards.push(...(d.cards || [])));
@@ -1121,7 +1568,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
 
     let newQueue = [...sourceCards];
     if (missedOnly) {
-      const missedCardIds = activeSession.results
+      const missedCardIds = (activeSession.results || [])
         .filter(r => !r.isCorrect || r.rating === 'again' || r.rating === 'hard')
         .map(r => r.cardId);
       newQueue = sourceCards.filter(c => missedCardIds.includes(c.id));
@@ -1148,6 +1595,12 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     if (typeof window !== 'undefined') {
       try {
         localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify(restartedSession));
+        if (restartedSession.practiceArea) {
+          const cfg = NDLE_SUBJECT_CONFIGS[restartedSession.practiceArea];
+          if (cfg) {
+            localStorage.setItem(`nutriboard_practice_session_${cfg.code}`, JSON.stringify(restartedSession));
+          }
+        }
       } catch {}
     }
 
@@ -1160,17 +1613,42 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       clearTimeout(checkpointDebounceTimer);
       checkpointDebounceTimer = null;
     }
-    if (activeSession && !activeSession.isCompleted && (activeSession.currentIndex > 0 || activeSession.results.length > 0)) {
+    if (activeSession && !activeSession.isCompleted && (activeSession.currentIndex > 0 || (activeSession.results || []).length > 0)) {
       // Save in-progress session checkpoint before closing
       if (typeof window !== 'undefined') {
         try {
           localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify(activeSession));
+          localStorage.setItem(`nutrianki_deck_session_${activeSession.deckId}`, JSON.stringify(activeSession));
+          if (activeSession.practiceArea) {
+            const cfg = NDLE_SUBJECT_CONFIGS[activeSession.practiceArea];
+            if (cfg) {
+              localStorage.setItem(`nutriboard_practice_session_${cfg.code}`, JSON.stringify(activeSession));
+            }
+          }
         } catch {}
       }
       syncService.saveSessionCheckpoint(activeSession).catch(console.error);
-      // Preserve resumeAvailableSession so the user sees the resume banner on the dashboard
-      set({ activeSession: null, resumeAvailableSession: activeSession });
+      // Preserve resumeAvailableSession and deckCheckpoints so the user sees resume options
+      set((state) => ({
+        activeSession: null,
+        resumeAvailableSession: activeSession,
+        deckCheckpoints: {
+          ...state.deckCheckpoints,
+          [activeSession.deckId]: activeSession
+        }
+      }));
     } else {
+      if (activeSession?.deckId) {
+        get().clearDeckCheckpoint(activeSession.deckId);
+      }
+      if (activeSession?.practiceArea && typeof window !== 'undefined') {
+        try {
+          const cfg = NDLE_SUBJECT_CONFIGS[activeSession.practiceArea];
+          if (cfg) {
+            localStorage.removeItem(`nutriboard_practice_session_${cfg.code}`);
+          }
+        } catch {}
+      }
       set({ activeSession: null });
     }
     syncService.flushStudyLogs().catch(console.warn);

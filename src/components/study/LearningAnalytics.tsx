@@ -23,12 +23,13 @@ export const LearningAnalytics: React.FC = () => {
     loadAnalytics();
   }, [loadAnalytics]);
 
+  const weeklyLogs = Array.isArray(analytics?.weeklyLogs) ? analytics.weeklyLogs : [];
   const maxCount = Math.max(
-    preferences.dailyGoal,
-    ...(analytics?.weeklyLogs.map(l => l.count) || [15])
+    preferences.dailyGoal || 15,
+    ...(weeklyLogs.length > 0 ? weeklyLogs.map(l => l.count) : [15])
   );
 
-  const totalCardsInDecks = decks.reduce((sum, d) => sum + (d.cards?.length || 0), 0);
+  const totalCardsInDecks = (decks || []).reduce((sum, d) => sum + (d?.cards?.length || 0), 0);
 
   return (
     <div className="w-full space-y-6">

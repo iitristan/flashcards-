@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RotateCw, BookOpen, Lightbulb, Tag, Check, ArrowRight, Sparkles } from 'lucide-react';
 
-import { Flashcard, ReviewRating, MCExplanationResponse } from '@/types';
+import { Flashcard, ReviewRating, MCExplanationResponse, getCardProgressInfo } from '@/types';
 import { getIntervalLabel } from '@/lib/services/flashcardService';
 import { useNutriStore } from '@/lib/store/useNutriStore';
 import { FormattedCardText } from './FormattedCardText';
@@ -24,7 +24,20 @@ export const SpacedRepetitionCard: React.FC<SpacedRepetitionCardProps> = ({
   onRate,
   isExpired = false
 }) => {
-  const { preferences } = useNutriStore();
+  const { preferences, activeSession } = useNutriStore();
+  const activeSparkle = activeSession?.sparkleStyle || preferences.sparkleStyle || 'clinical';
+  const activeDesign = preferences.cardDesign || 'modern';
+  const cardProgress = getCardProgressInfo(card);
+
+  const sparkleClass = {
+    clinical: 'ring-1 ring-teal-500/25 shadow-teal-500/5 border-teal-500/30',
+    vibrant: 'ring-1 ring-amber-500/30 shadow-amber-500/10 border-amber-500/40',
+    cosmic: 'ring-1 ring-purple-500/30 shadow-purple-500/10 border-purple-500/40',
+    minimal: 'ring-1 ring-slate-400/20 border-slate-300 dark:border-slate-700',
+  }[activeSparkle];
+
+  const designRadius = activeDesign === 'compact' ? 'rounded-xl' : activeDesign === 'classic' ? 'rounded-lg' : 'rounded-2xl';
+
   const [isFlipped, setIsFlipped] = useState(false);
   const [showHint, setShowHint] = useState(false);
   const [aiExplanation, setAiExplanation] = useState<MCExplanationResponse | null>(card.aiExplanation || null);
@@ -122,13 +135,13 @@ export const SpacedRepetitionCard: React.FC<SpacedRepetitionCardProps> = ({
           authorRationale: card.rationale || undefined
         });
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.warn('Failed to fetch AI explanation in flashcard:', err);
       setAiExplanation({
         whyRight: '',
         isAiPowered: false,
         unavailable: true,
-        error: err?.message || 'Network error',
+        error: err instanceof Error ? err.message : 'Network error',
         authorRationale: card.rationale || undefined
       });
     } finally {
@@ -249,14 +262,31 @@ export const SpacedRepetitionCard: React.FC<SpacedRepetitionCardProps> = ({
           className="w-full h-full relative transform-style-preserve-3d"
         >
           {/* FRONT OF CARD */}
-          <div className="absolute inset-0 w-full h-full backface-hidden rounded-xl p-6 sm:p-8 bg-[var(--bg-surface)] border border-[var(--border-color)] shadow-xs hover:border-[var(--border-color-strong)] transition-all flex flex-col justify-between overflow-hidden">
+          <div className={`absolute inset-0 w-full h-full backface-hidden ${designRadius} p-6 sm:p-8 bg-[var(--bg-surface)] border ${sparkleClass} hover:border-[var(--border-color-strong)] transition-all flex flex-col justify-between overflow-hidden`}>
             {/* Top Card Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5 flex-wrap">
+                {/* Progression Stage Badge */}
+                <span
+                  className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                    cardProgress.stage === 'mastered'
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                      : cardProgress.stage === 'developing'
+                      ? 'bg-indigo-50 text-indigo-800 border-indigo-300 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800'
+                      : cardProgress.stage === 'learning'
+                      ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
+                      : 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+                  }`}
+                >
+                  {cardProgress.stageLabel}
+                  {cardProgress.stage !== 'new' && ` · Box ${cardProgress.leitnerBox}`}
+                  {cardProgress.totalReviews > 0 && ` (${cardProgress.totalReviews} rev)`}
+                </span>
+
                 {(card.tags || []).map((tag) => (
                   <span
                     key={tag}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-[var(--bg-surface-subtle)] text-[var(--text-muted)] border border-[var(--border-subtle)]"
+                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-[var(--bg-surface-subtle)] text-[var(--text-muted)] border border-[var(--border-subtle)]"
                   >
                     <Tag className="w-3 h-3 text-[var(--primary)]" />
                     {tag}
@@ -264,7 +294,7 @@ export const SpacedRepetitionCard: React.FC<SpacedRepetitionCardProps> = ({
                 ))}
               </div>
 
-              <div className="flex items-center gap-1 text-xs font-semibold text-[var(--text-subtle)]">
+              <div className="flex items-center gap-1 text-xs font-semibold text-[var(--text-subtle)] flex-shrink-0">
                 <RotateCw className="w-3.5 h-3.5" />
                 <span>Space to flip</span>
               </div>
@@ -320,7 +350,7 @@ export const SpacedRepetitionCard: React.FC<SpacedRepetitionCardProps> = ({
           </div>
 
           {/* BACK OF CARD (Rotated 180deg) */}
-          <div className="absolute inset-0 w-full h-full backface-hidden rotate-y-180 rounded-xl p-6 sm:p-8 bg-[var(--bg-surface)] border border-[var(--primary)] shadow-xs flex flex-col justify-between overflow-y-auto">
+          <div className={`absolute inset-0 w-full h-full backface-hidden rotate-y-180 ${designRadius} p-6 sm:p-8 bg-[var(--bg-surface)] border-2 border-[var(--primary)] ${sparkleClass} shadow-xs flex flex-col justify-between overflow-y-auto`}>
             {/* Back Card Header */}
             <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-2">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">

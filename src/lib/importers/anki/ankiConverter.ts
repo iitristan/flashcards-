@@ -84,10 +84,36 @@ export function cleanHtmlText(html: string): string {
 }
 
 /**
- * Strip letter prefix from option (e.g. "a. Nervous system" -> "Nervous system")
+ * Strip letter/number prefix from option (e.g. "a. Nervous system" -> "Nervous system")
+ * Preserves decimal numbers (e.g. "3.4g", "0.8 mg", "2.5%"), ranges ("3-4g"), and whole numbers.
  */
 export function cleanOptionLabel(text: string): string {
-  return text.replace(/^[a-dA-D1-4][\.\)\:\-]\s*/, '').trim();
+  if (!text) return '';
+  const trimmed = text.trim();
+
+  // Guard: If it's a decimal number (e.g. "3.4g", "3.4", "1.5 mg", "0.8") or numeric range (e.g. "3-4g", "1.2-1.5g"), DO NOT strip anything!
+  if (/^\d+\.\d+/.test(trimmed) || /^\d+(\.\d+)?\s*[-–—]\s*\d+/.test(trimmed)) {
+    return trimmed;
+  }
+
+  // Strip letter prefixes: "A. ", "A) ", "(A) ", "a: ", "A - "
+  // Requires whitespace after period/colon/dash so terms like "A-line" aren't corrupted
+  const withoutLetter = trimmed
+    .replace(/^\(?([a-dA-D])\)\s*/, '')
+    .replace(/^([a-dA-D])\.\s+/, '')
+    .replace(/^([a-dA-D])[\:\-]\s+/, '');
+
+  if (withoutLetter !== trimmed) {
+    return withoutLetter.trim();
+  }
+
+  // Strip number list prefixes: "1. ", "1) ", "(1) ", "1: ", "1 - "
+  const withoutNumber = trimmed
+    .replace(/^\(?([1-4])\)\s*/, '')
+    .replace(/^([1-4])\.\s+/, '')
+    .replace(/^([1-4])[\:\-]\s+/, '');
+
+  return withoutNumber.trim();
 }
 
 /**
@@ -168,7 +194,7 @@ function parseCardMcOptions(rawFront: string, rawBack: string, rawRationale: str
 
   // Look for options in cleanFront: a. ... b. ... c. ... d. ...
   const lines = cleanFront.split('\n').map(l => l.trim()).filter(Boolean);
-  const optionRegex = /^([a-dA-D1-4])[\.\)\:\-]\s*(.+)$/;
+  const optionRegex = /^(?:([a-dA-D])[\.\)\:\-]\s+|([1-4])\.(?!\d)\s+|([1-4])[\)\:\-]\s+)(.+)$/;
 
   const extractedOpts: string[] = [];
   const questionLines: string[] = [];
@@ -177,21 +203,21 @@ function parseCardMcOptions(rawFront: string, rawBack: string, rawRationale: str
   for (const line of lines) {
     const match = line.match(optionRegex);
     if (match) {
-      const letter = match[1].toUpperCase();
-      const text = cleanOptionLabel(match[2]);
+      const letter = (match[1] || match[2] || match[3]).toUpperCase();
+      const text = cleanOptionLabel(match[4]);
       extractedOpts.push(text);
       optionMap[letter] = text;
     } else if (extractedOpts.length === 0) {
       // Check for inline options on a single line
-      const inlineMatches = Array.from(line.matchAll(/(?:^|\s+)([a-dA-D1-4])[\.\)\:\-]\s*([^a-dA-D1-4\n]+?)(?=(?:\s+[a-dA-D1-4][\.\)\:\-])|$)/g));
+      const inlineMatches = Array.from(line.matchAll(/(?:^|\s+)(?:([a-dA-D])[\.\)\:\-]\s+|([1-4])\.(?!\d)\s+|([1-4])[\)\:\-]\s+)(.+?)(?=(?:\s+(?:[a-dA-D][\.\)\:\-]|[1-4]\.(?!\d)|[1-4][\)\:\-])\s+)|$)/g));
       if (inlineMatches.length >= 2) {
         const firstMatchIdx = line.indexOf(inlineMatches[0][0]);
         if (firstMatchIdx > 0) {
           questionLines.push(line.substring(0, firstMatchIdx).trim());
         }
         for (const im of inlineMatches) {
-          const letter = im[1].toUpperCase();
-          const text = cleanOptionLabel(im[2]);
+          const letter = (im[1] || im[2] || im[3]).toUpperCase();
+          const text = cleanOptionLabel(im[4]);
           extractedOpts.push(text);
           optionMap[letter] = text;
         }
@@ -214,8 +240,8 @@ function parseCardMcOptions(rawFront: string, rawBack: string, rawRationale: str
     // Match answer to option
     const backMatch = cleanBack.match(optionRegex);
     if (backMatch) {
-      const ansLetter = backMatch[1].toUpperCase();
-      const ansText = cleanOptionLabel(backMatch[2]);
+      const ansLetter = (backMatch[1] || backMatch[2] || backMatch[3]).toUpperCase();
+      const ansText = cleanOptionLabel(backMatch[4]);
       finalAnswer = optionMap[ansLetter] || ansText;
     } else if (optionMap[cleanBack.toUpperCase()]) {
       finalAnswer = optionMap[cleanBack.toUpperCase()];

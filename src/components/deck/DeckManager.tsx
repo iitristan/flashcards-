@@ -3,12 +3,14 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { X, Plus, Trash2, Edit3, Tag, Layers, Check, Search } from 'lucide-react';
-import { Deck, Flashcard, DeckCategory } from '@/types';
+import { Deck, Flashcard, DeckCategory, getCardProgressInfo } from '@/types';
 import { toast } from 'sonner';
 import { cleanRawHtml } from '@/components/study/FormattedCardText';
+import { Filter, ArrowUpDown } from 'lucide-react';
 
 interface DeckManagerProps {
   initialDeck?: Deck | null;
+  defaultCategory?: DeckCategory;
   onSaveDeck: (deckData: {
     title: string;
     description: string;
@@ -52,6 +54,7 @@ const COLORS = [
 
 export const DeckManager: React.FC<DeckManagerProps> = ({
   initialDeck,
+  defaultCategory,
   onSaveDeck,
   onUpdateDeck,
   onAddCard,
@@ -62,7 +65,7 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
   // Deck form state
   const [title, setTitle] = useState(initialDeck?.title || '');
   const [description, setDescription] = useState(initialDeck?.description || '');
-  const [category, setCategory] = useState<DeckCategory>(initialDeck?.category || 'Clinical Nutrition');
+  const [category, setCategory] = useState<DeckCategory>(initialDeck?.category || defaultCategory || 'Clinical Nutrition');
   const [icon, setIcon] = useState(initialDeck?.icon || 'Stethoscope');
   const [color, setColor] = useState(initialDeck?.color || '#7FA98B');
   const [tagInput, setTagInput] = useState('');
@@ -79,6 +82,10 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
   const [option3, setOption3] = useState('');
   const [isAddingNewCard, setIsAddingNewCard] = useState(false);
   const [cardSearchQuery, setCardSearchQuery] = useState('');
+  type CardFilterType = 'all' | 'new' | 'learning' | 'developing' | 'mastered' | 'due';
+  type CardSortType = 'default' | 'stage' | 'mastered-first' | 'alpha';
+  const [cardFilter, setCardFilter] = useState<CardFilterType>('all');
+  const [cardSort, setCardSort] = useState<CardSortType>('default');
 
   const [activeTab, setActiveTab] = useState<'info' | 'cards'>('info');
 
@@ -446,11 +453,61 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
                     </button>
                   </div>
 
+                  {/* Filter and Sort Toolbar */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-[var(--border-subtle)]">
+                    {/* Stage Filter Chips */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none text-[11px]">
+                      <span className="font-bold text-[var(--text-subtle)] flex items-center gap-1 mr-0.5">
+                        <Filter className="w-3 h-3" /> Filter:
+                      </span>
+                      {[
+                        { id: 'all', label: 'All' },
+                        { id: 'new', label: '🆕 Unseen' },
+                        { id: 'learning', label: '🔄 Learning' },
+                        { id: 'developing', label: '📈 Developing' },
+                        { id: 'mastered', label: '🏆 Mastered' },
+                        { id: 'due', label: '⏰ Due' },
+                      ].map((flt) => (
+                        <button
+                          key={flt.id}
+                          type="button"
+                          onClick={() => setCardFilter(flt.id as CardFilterType)}
+                          className={`px-2 py-0.5 rounded-lg font-bold transition-all whitespace-nowrap cursor-pointer ${
+                            cardFilter === flt.id
+                              ? 'bg-[var(--primary)] text-white shadow-xs'
+                              : 'bg-[var(--bg-surface-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] border border-[var(--border-subtle)]'
+                          }`}
+                        >
+                          {flt.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Sort Selector */}
+                    <div className="flex items-center gap-1.5 self-end sm:self-auto text-[11px]">
+                      <span className="font-bold text-[var(--text-subtle)] flex items-center gap-1">
+                        <ArrowUpDown className="w-3 h-3" /> Sort:
+                      </span>
+                      <select
+                        value={cardSort}
+                        onChange={(e) => setCardSort(e.target.value as CardSortType)}
+                        className="px-2 py-1 rounded-lg bg-[var(--bg-surface-subtle)] border border-[var(--border-subtle)] text-[11px] font-bold text-[var(--text-main)] outline-none cursor-pointer focus:border-[var(--primary)]"
+                      >
+                        <option value="default">Default Order</option>
+                        <option value="stage">Unseen & Learning First</option>
+                        <option value="mastered-first">Mastered First</option>
+                        <option value="alpha">Alphabetical (A-Z)</option>
+                      </select>
+                    </div>
+                  </div>
+
                   {/* Cards List / Empty State */}
                   {(() => {
                     const allCards = initialDeck?.cards || [];
                     const q = cardSearchQuery.trim().toLowerCase();
-                    const filtered = q
+
+                    // Step 1: Text search
+                    let processed = q
                       ? allCards.filter(
                           (c) =>
                             (c.front || '').toLowerCase().includes(q) ||
@@ -458,23 +515,54 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
                             (c.rationale || '').toLowerCase().includes(q) ||
                             (c.tags || []).some((t) => t.toLowerCase().includes(q))
                         )
-                      : allCards;
+                      : [...allCards];
 
-                    if (filtered.length === 0) {
+                    // Step 2: Stage Filter
+                    if (cardFilter !== 'all') {
+                      processed = processed.filter((c) => {
+                        const info = getCardProgressInfo(c);
+                        if (cardFilter === 'due') return info.isDue;
+                        return info.stage === cardFilter;
+                      });
+                    }
+
+                    // Step 3: Sort
+                    if (cardSort === 'stage') {
+                      const stageRank = { new: 0, learning: 1, developing: 2, mastered: 3 };
+                      processed.sort((a, b) => {
+                        const sA = stageRank[getCardProgressInfo(a).stage];
+                        const sB = stageRank[getCardProgressInfo(b).stage];
+                        return sA - sB;
+                      });
+                    } else if (cardSort === 'mastered-first') {
+                      const stageRank = { mastered: 0, developing: 1, learning: 2, new: 3 };
+                      processed.sort((a, b) => {
+                        const sA = stageRank[getCardProgressInfo(a).stage];
+                        const sB = stageRank[getCardProgressInfo(b).stage];
+                        return sA - sB;
+                      });
+                    } else if (cardSort === 'alpha') {
+                      processed.sort((a, b) => (a.front || '').localeCompare(b.front || ''));
+                    }
+
+                    if (processed.length === 0) {
                       return (
                         <div className="p-8 rounded-2xl bg-[var(--bg-surface-subtle)] border border-dashed border-[var(--border-color)] text-center space-y-2">
                           <p className="text-xs font-medium text-[var(--text-muted)]">
-                            {q
-                              ? `No flashcards found matching "${cardSearchQuery}".`
+                            {q || cardFilter !== 'all'
+                              ? 'No flashcards match the selected search and filter criteria.'
                               : 'No flashcards in this deck yet.'}
                           </p>
-                          {q && (
+                          {(q || cardFilter !== 'all') && (
                             <button
                               type="button"
-                              onClick={() => setCardSearchQuery('')}
+                              onClick={() => {
+                                setCardSearchQuery('');
+                                setCardFilter('all');
+                              }}
                               className="text-xs font-bold text-[var(--primary)] hover:underline cursor-pointer"
                             >
-                              Clear search query
+                              Reset filters & search
                             </button>
                           )}
                         </div>
@@ -483,51 +571,77 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
 
                     return (
                       <div className="space-y-2">
-                        {q && (
-                          <div className="text-[11px] font-semibold text-[var(--text-muted)] px-1">
-                            Showing {filtered.length} of {allCards.length} cards
-                          </div>
-                        )}
-                        <div className="space-y-2.5">
-                          {filtered.map((card, idx) => (
-                            <div
-                              key={card.id}
-                              className="p-4 rounded-2xl bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] flex items-start justify-between gap-3 group"
-                            >
-                              <div className="flex-1 min-w-0 space-y-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="w-5 h-5 rounded-lg bg-[var(--border-color)] text-[10px] font-bold flex items-center justify-center text-[var(--text-muted)] flex-shrink-0">
-                                    {idx + 1}
-                                  </span>
-                                  <h4 className="text-xs font-bold text-[var(--text-main)] truncate">
-                                    {cleanRawHtml(card.front)}
-                                  </h4>
-                                </div>
-                                <p className="text-xs font-semibold text-[var(--primary)] line-clamp-1 pl-7">
-                                  Key: {cleanRawHtml(card.back)}
-                                </p>
-                              </div>
+                        <div className="flex items-center justify-between text-[11px] font-semibold text-[var(--text-muted)] px-1">
+                          <span>
+                            Showing {processed.length} of {allCards.length} cards
+                          </span>
+                          {cardFilter !== 'all' && (
+                            <span className="text-[10px] font-bold text-[var(--primary)]">
+                              Filter active: {cardFilter}
+                            </span>
+                          )}
+                        </div>
 
-                              <div className="flex items-center gap-1 flex-shrink-0">
-                                <button
-                                  onClick={() => startEditCard(card)}
-                                  className="p-1.5 rounded-xl text-[var(--text-subtle)] hover:text-[var(--primary)] hover:bg-[var(--bg-surface)] transition-colors cursor-pointer"
-                                  title="Edit card"
-                                >
-                                  <Edit3 className="w-3.5 h-3.5" />
-                                </button>
-                                {onDeleteCard && initialDeck && (
+                        <div className="space-y-2.5 max-h-[460px] overflow-y-auto pr-1">
+                          {processed.map((card, idx) => {
+                            const prog = getCardProgressInfo(card);
+                            return (
+                              <div
+                                key={card.id}
+                                className="p-4 rounded-2xl bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] flex items-start justify-between gap-3 group hover:border-[var(--border-color-strong)] transition-all"
+                              >
+                                <div className="flex-1 min-w-0 space-y-1.5">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="w-5 h-5 rounded-lg bg-[var(--border-color)] text-[10px] font-bold flex items-center justify-center text-[var(--text-muted)] flex-shrink-0">
+                                      {idx + 1}
+                                    </span>
+                                    {/* Progression Stage Badge */}
+                                    <span
+                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold border ${
+                                        prog.stage === 'mastered'
+                                          ? 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                                          : prog.stage === 'developing'
+                                          ? 'bg-indigo-50 text-indigo-800 border-indigo-300 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800'
+                                          : prog.stage === 'learning'
+                                          ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
+                                          : 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+                                      }`}
+                                    >
+                                      {prog.stageLabel}
+                                      {prog.stage !== 'new' && ` · Box ${prog.leitnerBox}`}
+                                      {prog.totalReviews > 0 && ` (${prog.totalReviews} rev)`}
+                                    </span>
+
+                                    <h4 className="text-xs font-bold text-[var(--text-main)] truncate max-w-[260px] sm:max-w-[340px]">
+                                      {cleanRawHtml(card.front)}
+                                    </h4>
+                                  </div>
+                                  <p className="text-xs font-semibold text-[var(--primary)] line-clamp-1 pl-7">
+                                    Key: {cleanRawHtml(card.back)}
+                                  </p>
+                                </div>
+
+                                <div className="flex items-center gap-1 flex-shrink-0">
                                   <button
-                                    onClick={() => onDeleteCard(initialDeck.id, card.id)}
-                                    className="p-1.5 rounded-xl text-[var(--text-subtle)] hover:text-rose-500 hover:bg-[var(--bg-surface)] transition-colors cursor-pointer"
-                                    title="Delete card"
+                                    onClick={() => startEditCard(card)}
+                                    className="p-1.5 rounded-xl text-[var(--text-subtle)] hover:text-[var(--primary)] hover:bg-[var(--bg-surface)] transition-colors cursor-pointer"
+                                    title="Edit card"
                                   >
-                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <Edit3 className="w-3.5 h-3.5" />
                                   </button>
-                                )}
+                                  {onDeleteCard && initialDeck && (
+                                    <button
+                                      onClick={() => onDeleteCard(initialDeck.id, card.id)}
+                                      className="p-1.5 rounded-xl text-[var(--text-subtle)] hover:text-rose-500 hover:bg-[var(--bg-surface)] transition-colors cursor-pointer"
+                                      title="Delete card"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     );

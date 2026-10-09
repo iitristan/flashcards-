@@ -4,7 +4,14 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { BoardReadinessView } from "@/components/study/BoardReadinessView";
 
+import { useRouter } from "next/navigation";
+import { useNutriStore } from "@/lib/store/useNutriStore";
+import { toast } from "sonner";
+
 export default function BoardReadinessPage() {
+  const router = useRouter();
+  const { startPracticeAreaSession } = useNutriStore();
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="max-w-4xl mx-auto px-4 py-6">
@@ -18,7 +25,21 @@ export default function BoardReadinessPage() {
           </Link>
         </div>
 
-        <BoardReadinessView />
+        <BoardReadinessView
+          onStartSubjectPractice={async (subject, searchTxt, filter, sort) => {
+            try {
+              await startPracticeAreaSession(subject, {
+                searchQuery: searchTxt,
+                filter,
+                sort,
+              });
+              router.push("/");
+            } catch (err: unknown) {
+              const msg = err instanceof Error ? err.message : "Failed to launch practice";
+              toast.error(msg);
+            }
+          }}
+        />
       </div>
     </div>
   );

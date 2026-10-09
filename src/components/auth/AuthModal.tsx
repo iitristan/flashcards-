@@ -14,7 +14,6 @@ import {
   Heart,
   ShieldCheck,
   Zap,
-  Trash2,
   AlertCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -214,7 +213,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </div>
               <div className="flex-1">
                 <h3 className="text-xs font-bold text-[var(--text-main)]">
-                  Apply This Device's Data to All Devices
+                  Apply This Device&apos;s Data to All Devices
                 </h3>
                 <p className="text-[11px] text-[var(--text-muted)] leading-relaxed mt-0.5">
                   Overwrites the cloud database with all decks, flashcards, playlists, and study history from <strong>this device</strong>. Other devices will immediately sync to this exact dataset.

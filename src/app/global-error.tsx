@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect } from 'react';
+import Link from 'next/link';
 
 export default function GlobalError({
   error,
@@ -20,7 +21,7 @@ export default function GlobalError({
           <div style={{ width: '48px', height: '48px', borderRadius: '16px', backgroundColor: '#fef3c7', color: '#d97706', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px auto', fontSize: '24px' }}>
             ⚠️
           </div>
-          <h2 style={{ fontSize: '18px', fontWeight: 800, margin: '0 0 8px 0' }}>This page couldn't load</h2>
+          <h2 style={{ fontSize: '18px', fontWeight: 800, margin: '0 0 8px 0' }}>This page couldn&apos;t load</h2>
           <p style={{ fontSize: '13px', color: '#64748b', lineHeight: 1.5, margin: '0 0 24px 0' }}>
             A temporary network or rendering error occurred. Please reload to try again or return to the main dashboard.
           </p>
@@ -37,12 +38,12 @@ export default function GlobalError({
             >
               Reload to Try Again
             </button>
-            <a
+            <Link
               href="/"
               style={{ padding: '10px 18px', borderRadius: '12px', backgroundColor: '#f1f5f9', color: '#0f172a', border: '1px solid #cbd5e1', textDecoration: 'none', fontSize: '13px', fontWeight: 600, display: 'inline-flex', alignItems: 'center' }}
             >
               Go Back Home
-            </a>
+            </Link>
           </div>
         </div>
       </body>

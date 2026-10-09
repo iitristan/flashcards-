@@ -15,7 +15,12 @@ export interface ParsedQuizletItem {
  * Normalizes options and removes letter prefixes like "A. ", "B) "
  */
 function cleanOptionText(text: string): string {
-  return text.replace(/^[A-Da-d][\.\)\:\-]\s*/, '').trim();
+  if (!text) return '';
+  const trimmed = text.trim();
+  if (/^\d+\.\d+/.test(trimmed) || /^\d+(\.\d+)?\s*[-–—]\s*\d+/.test(trimmed)) {
+    return trimmed;
+  }
+  return trimmed.replace(/^[A-Da-d][\.\)\:\-]\s*/, '').trim();
 }
 
 /**

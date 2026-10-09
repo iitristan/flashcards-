@@ -16,12 +16,22 @@ import {
   NDLE_SUBJECT_CONFIGS,
 } from "@/types/ndle";
 
+import { CardFilterOption, CardSortOption } from "@/types";
+import { Search, ArrowUpDown } from "lucide-react";
+
 interface BoardReadinessViewProps {
-  onStartSubjectPractice?: (subject: NDLESubject) => void;
+  onStartSubjectPractice?: (
+    subject: NDLESubject,
+    searchQuery?: string,
+    filter?: CardFilterOption,
+    sort?: CardSortOption
+  ) => void;
+  initialSearchQuery?: string;
 }
 
 export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
   onStartSubjectPractice,
+  initialSearchQuery = "",
 }) => {
   const {
     report,
@@ -33,7 +43,7 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
     refresh,
   } = useBoardReadiness();
 
-  const { startStudySession, decks, preferences } = useNutriStore();
+  const { startPracticeAreaSession, preferences } = useNutriStore();
   const isDark = preferences.theme === "dark";
 
   const [activeMetricView, setActiveMetricView] = useState<"probability" | "gwa">(
@@ -41,6 +51,45 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
   );
   const [showCategorizeModal, setShowCategorizeModal] = useState(false);
   const [categorizeMessage, setCategorizeMessage] = useState<string | null>(null);
+
+  // Practice area search and filter controls
+  const [practiceSearch, setPracticeSearch] = useState(initialSearchQuery);
+  const [practiceFilter, setPracticeFilter] = useState<CardFilterOption>("all");
+  const [practiceSort, setPracticeSort] = useState<CardSortOption>("default");
+
+  // Handle starting targeted practice for an NDLE subject
+  const handlePracticeSubject = (subject: NDLESubject) => {
+    if (onStartSubjectPractice) {
+      onStartSubjectPractice(subject, practiceSearch, practiceFilter, practiceSort);
+      return;
+    }
+
+    startPracticeAreaSession(subject, {
+      searchQuery: practiceSearch,
+      filter: practiceFilter,
+      sort: practiceSort,
+    });
+  };
+
+  const handleRunAutoClassify = async () => {
+    setCategorizeMessage("Inspecting cards with NDLE AI pipeline...");
+    const res = await autoClassifyAllCards();
+    if (res && res.updatedCount > 0) {
+      setCategorizeMessage(
+        `Successfully auto-categorized ${res.updatedCount} cards into official NDLE subjects!`
+      );
+      setTimeout(() => {
+        setShowCategorizeModal(false);
+        setCategorizeMessage(null);
+      }, 1500);
+    } else {
+      setCategorizeMessage("All cards are already tagged with NDLE subjects!");
+      setTimeout(() => {
+        setShowCategorizeModal(false);
+        setCategorizeMessage(null);
+      }, 1500);
+    }
+  };
 
   // Responsive circular gauge metrics
   const displayScore =
@@ -92,65 +141,6 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
     emoji = "📊";
     statusText = "Gathering exam data";
   }
-
-  // Handle starting targeted practice for an NDLE subject
-  const handlePracticeSubject = (subject: NDLESubject) => {
-    if (onStartSubjectPractice) {
-      onStartSubjectPractice(subject);
-      return;
-    }
-
-    // Find cards in any deck that belong to this subject
-    const matchingCards: typeof decks[0]["cards"] = [];
-    for (const deck of decks) {
-      for (const card of deck.cards || []) {
-        const sub =
-          card.ndleSubject ||
-          ((card.tags || []).some((t) => t.toLowerCase() === "nbcd")
-            ? "Nutritional Biochemistry and Clinical Dietetics"
-            : (card.tags || []).some((t) => t.toLowerCase() === "cphn")
-            ? "Community and Public Health Nutrition"
-            : (card.tags || []).some((t) => t.toLowerCase() === "ffss")
-            ? "Foods and Food Service Systems"
-            : null);
-        if (sub === subject) {
-          matchingCards.push(card);
-        }
-      }
-    }
-
-    if (matchingCards.length > 0) {
-      const targetDeck =
-        decks.find((d) =>
-          d.cards?.some((c) => matchingCards.some((mc) => mc.id === c.id))
-        ) || decks[0];
-      if (targetDeck) {
-        startStudySession(targetDeck.id, "multiple-choice");
-      }
-    } else if (decks.length > 0) {
-      startStudySession(decks[0].id, "multiple-choice");
-    }
-  };
-
-  const handleRunAutoClassify = async () => {
-    setCategorizeMessage("Inspecting cards with NDLE AI pipeline...");
-    const res = await autoClassifyAllCards();
-    if (res && res.updatedCount > 0) {
-      setCategorizeMessage(
-        `Successfully auto-categorized ${res.updatedCount} cards into official NDLE subjects!`
-      );
-      setTimeout(() => {
-        setShowCategorizeModal(false);
-        setCategorizeMessage(null);
-      }, 1500);
-    } else {
-      setCategorizeMessage("All cards are already tagged with NDLE subjects!");
-      setTimeout(() => {
-        setShowCategorizeModal(false);
-        setCategorizeMessage(null);
-      }, 1500);
-    }
-  };
 
   return (
     <div className="w-full max-w-xl mx-auto py-4 sm:py-6 px-3 sm:px-4 space-y-6 sm:space-y-7 animate-in fade-in duration-300">
@@ -317,6 +307,82 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
               <span>Auto-Tag ({unclassifiedCardsCount})</span>
             </button>
           )}
+        </div>
+
+        {/* Practice Area Search & Filter Segment Bar */}
+        <div className="p-3 sm:p-4 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-color)] space-y-2.5 shadow-2xs">
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={practiceSearch}
+                onChange={(e) => setPracticeSearch(e.target.value)}
+                placeholder="Filter practice questions (e.g. renal, parenteral, HACCP)..."
+                className="w-full pl-8 pr-8 py-2 rounded-xl bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-xs text-[var(--text-main)] placeholder:text-[var(--text-subtle)] outline-none focus:border-[var(--primary)] transition-colors"
+              />
+              {practiceSearch && (
+                <button
+                  type="button"
+                  onClick={() => setPracticeSearch("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground hover:text-foreground"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
+            {/* Sort Dropdown */}
+            <div className="flex items-center gap-1.5 self-end sm:self-auto">
+              <ArrowUpDown className="w-3 h-3 text-muted-foreground shrink-0" />
+              <select
+                value={practiceSort}
+                onChange={(e) => setPracticeSort(e.target.value as CardSortOption)}
+                aria-label="Sort practice questions"
+                className="px-2.5 py-1.5 rounded-xl bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-xs font-semibold text-[var(--text-main)] outline-none focus:border-[var(--primary)] cursor-pointer"
+              >
+                <option value="default">Shuffled (Exam Mode)</option>
+                <option value="progress-asc">Unseen / Learning First</option>
+                <option value="progress-desc">Mastered First</option>
+                <option value="difficulty">By Difficulty (Hard First)</option>
+                <option value="most-reviewed">Most Reviewed First</option>
+                <option value="alphabetical">Alphabetical (A-Z)</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Filter Pills */}
+          <div className="flex items-center gap-1 overflow-x-auto pb-0.5 scrollbar-none text-[11px]">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mr-1 shrink-0">
+              Filter:
+            </span>
+            {(
+              [
+                { id: "all", label: "All Items" },
+                { id: "unseen", label: "🆕 Unseen" },
+                { id: "learning", label: "🔄 Learning" },
+                { id: "developing", label: "📈 Developing" },
+                { id: "mastered", label: "🏆 Mastered" },
+                { id: "due", label: "⏰ Due Today" },
+              ] as const
+            ).map((flt) => {
+              const isSelected = practiceFilter === flt.id;
+              return (
+                <button
+                  key={flt.id}
+                  type="button"
+                  onClick={() => setPracticeFilter(flt.id)}
+                  className={`px-2.5 py-1 rounded-lg font-semibold shrink-0 transition-all cursor-pointer ${
+                    isSelected
+                      ? "bg-[var(--primary)] text-white shadow-xs"
+                      : "bg-[var(--bg-surface-subtle)] text-muted-foreground hover:text-foreground hover:bg-muted"
+                  }`}
+                >
+                  {flt.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Practice Area Card Container */}

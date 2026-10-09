@@ -2,8 +2,9 @@
 
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Volume2, VolumeX, Sparkles, BookOpen, CheckCircle2, Flame, Keyboard, X } from 'lucide-react';
-import { StudyMode } from '@/types';
+import { ArrowLeft, Volume2, VolumeX, Sparkles, BookOpen, CheckCircle2, Flame, Keyboard, X, SlidersHorizontal, ShieldCheck } from 'lucide-react';
+import { StudyMode, Flashcard, CardSortOption, CardFilterOption, SparkleStyle, getCardProgressInfo } from '@/types';
+import { NDLESubject, NDLE_SUBJECT_CONFIGS } from '@/types/ndle';
 import { StudyTimer } from './StudyTimer';
 import { soundEffects } from '@/lib/soundEffects';
 
@@ -15,9 +16,17 @@ interface StudyHeaderProps {
   timerDuration: number;
   soundEnabled: boolean;
   saveStatus?: 'idle' | 'saving' | 'saved' | 'error' | 'syncing';
+  practiceArea?: NDLESubject;
+  currentCard?: Flashcard;
+  activeSort?: CardSortOption;
+  activeFilter?: CardFilterOption;
+  sparkleStyle?: SparkleStyle;
   onToggleSound: () => void;
   onExit: () => void;
   onTimerExpire?: () => void;
+  onFilterChange?: (filter: CardFilterOption) => void;
+  onSortChange?: (sort: CardSortOption) => void;
+  onSparkleChange?: (sparkle: SparkleStyle) => void;
   isPaused?: boolean;
 }
 
@@ -29,13 +38,25 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
   timerDuration,
   soundEnabled,
   saveStatus = 'idle',
+  practiceArea,
+  currentCard,
+  activeSort = 'default',
+  activeFilter = 'all',
+  sparkleStyle = 'clinical',
   onToggleSound,
   onExit,
   onTimerExpire,
+  onFilterChange,
+  onSortChange,
+  onSparkleChange,
   isPaused
 }) => {
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
+  const [showCustomizeMenu, setShowCustomizeMenu] = useState(false);
+
+  const practiceConfig = practiceArea ? NDLE_SUBJECT_CONFIGS[practiceArea] : null;
+  const cardProgress = currentCard ? getCardProgressInfo(currentCard) : null;
 
   const modeDetails: Record<StudyMode, { label: string; icon: typeof Sparkles; color: string }> = {
     'spaced-repetition': {
@@ -116,6 +137,19 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
           )}
 
           <button
+            onClick={() => setShowCustomizeMenu(!showCustomizeMenu)}
+            className={`p-2 rounded-2xl border transition-all active:scale-90 shadow-xs cursor-pointer ${
+              showCustomizeMenu
+                ? 'border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary)]'
+                : 'border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--primary)]'
+            }`}
+            title="Sort, filter & customize card experience"
+            aria-label="Sort, filter and customize"
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+          </button>
+
+          <button
             onClick={() => setShowShortcutsModal(true)}
             className="p-2 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--primary)] transition-all active:scale-90 shadow-xs cursor-pointer"
             title="View keyboard shortcuts"
@@ -140,7 +174,7 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
 
       {/* Title & Mode Row */}
       <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-        <div className="flex items-center gap-2 min-w-0 max-w-full">
+        <div className="flex items-center gap-2 min-w-0 max-w-full flex-wrap">
           <h2 className="text-sm sm:text-base font-black text-[var(--text-main)] truncate" title={deckTitle}>
             {deckTitle}
           </h2>
@@ -148,6 +182,20 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
             <ModeIcon className="w-3 h-3" />
             <span>{currentMode.label}</span>
           </span>
+
+          {practiceArea && practiceConfig && (
+            <span
+              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold border shadow-2xs shrink-0"
+              style={{
+                backgroundColor: practiceConfig.bgLight,
+                borderColor: practiceConfig.borderColor,
+                color: practiceConfig.color,
+              }}
+            >
+              <ShieldCheck className="w-3 h-3" />
+              <span>{practiceConfig.code} ({practiceConfig.weightPercentage}%)</span>
+            </span>
+          )}
         </div>
 
         <div className="text-xs font-extrabold text-[var(--text-muted)] flex-shrink-0 flex items-center gap-1.5">
@@ -155,6 +203,39 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
           <span className="text-[11px] text-[var(--primary)] font-bold">({progressPercentage}%)</span>
         </div>
       </div>
+
+      {/* Card Progression Beyond Simple Mastery */}
+      {cardProgress && (
+        <div className="flex items-center justify-between gap-2 flex-wrap text-xs pt-0.5 px-0.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border shadow-2xs ${cardProgress.color}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${cardProgress.dotColor}`} />
+              <span>{cardProgress.badge}</span>
+            </span>
+
+            <span className="text-[11px] font-semibold text-[var(--text-muted)]">
+              Leitner Box {cardProgress.box} • Reviewed {cardProgress.repetitions}×
+              {cardProgress.intervalDays > 0 && ` • ${cardProgress.intervalDays}d interval`}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1 text-[10px] font-bold text-[var(--text-subtle)]">
+            {activeFilter !== 'all' && (
+              <span className="px-2 py-0.5 rounded-md bg-[var(--bg-surface-subtle)] border border-[var(--border-subtle)] text-[var(--primary)] uppercase">
+                Filter: {activeFilter}
+              </span>
+            )}
+            {activeSort !== 'default' && (
+              <span className="px-2 py-0.5 rounded-md bg-[var(--bg-surface-subtle)] border border-[var(--border-subtle)] text-[var(--primary)] uppercase">
+                Sort: {activeSort}
+              </span>
+            )}
+            <span className="px-2 py-0.5 rounded-md bg-[var(--bg-surface-subtle)] border border-[var(--border-subtle)] capitalize">
+              ✨ {sparkleStyle}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Progress bar */}
       <div className="space-y-1">
@@ -174,6 +255,111 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
           />
         </div>
       </div>
+
+      {/* Quick Customize, Sort & Filter Bar (Expandable) */}
+      {showCustomizeMenu && (
+        <motion.div
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: 'auto' }}
+          exit={{ opacity: 0, height: 0 }}
+          className="p-3.5 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-color)] shadow-sm space-y-3 text-xs"
+        >
+          <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-2">
+            <span className="font-bold text-[var(--text-main)] flex items-center gap-1.5">
+              <SlidersHorizontal className="w-3.5 h-3.5 text-[var(--primary)]" />
+              <span>Card Sorting, Filtering & Design</span>
+            </span>
+            <button
+              onClick={() => setShowCustomizeMenu(false)}
+              className="text-xs text-[var(--text-subtle)] hover:text-[var(--text-main)]"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Filter Pills */}
+          <div className="space-y-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-subtle)] block">
+              Filter By Progress:
+            </span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {(
+                [
+                  { id: 'all', label: 'All Cards' },
+                  { id: 'unseen', label: '🆕 Unseen Only' },
+                  { id: 'learning', label: '🔄 In Learning' },
+                  { id: 'developing', label: '📈 Developing' },
+                  { id: 'mastered', label: '🏆 Mastered' },
+                  { id: 'due', label: '⏰ Due Cards' }
+                ] as const
+              ).map(flt => (
+                <button
+                  key={flt.id}
+                  onClick={() => onFilterChange?.(flt.id)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    activeFilter === flt.id
+                      ? 'bg-[var(--primary)] text-white shadow-xs'
+                      : 'bg-[var(--bg-surface-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] border border-[var(--border-subtle)]'
+                  }`}
+                >
+                  {flt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Sort Selector & Sparkle Selector */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-[var(--border-subtle)]">
+            <div className="space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-subtle)] block">
+                Sort Queue Order:
+              </span>
+              <select
+                value={activeSort}
+                onChange={(e) => onSortChange?.(e.target.value as CardSortOption)}
+                aria-label="Sort queue order"
+                className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-xs font-semibold text-[var(--text-main)] outline-none cursor-pointer"
+              >
+                <option value="default">Default / Shuffled</option>
+                <option value="progress-asc">Unseen / Learning First</option>
+                <option value="progress-desc">Mastered First</option>
+                <option value="difficulty">By Difficulty (Hard First)</option>
+                <option value="most-reviewed">Most Reviewed First</option>
+                <option value="alphabetical">Alphabetical (A-Z)</option>
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-subtle)] block">
+                Sparkle / Design Style:
+              </span>
+              <div className="grid grid-cols-4 gap-1">
+                {(
+                  [
+                    { id: 'clinical', label: 'Clinical', icon: '🩺' },
+                    { id: 'vibrant', label: 'Vibrant', icon: '⚡' },
+                    { id: 'cosmic', label: 'Cosmic', icon: '✨' },
+                    { id: 'minimal', label: 'Minimal', icon: '⚪' }
+                  ] as const
+                ).map(st => (
+                  <button
+                    key={st.id}
+                    onClick={() => onSparkleChange?.(st.id)}
+                    className={`py-1 px-1.5 rounded-lg text-center font-bold text-[10px] border transition-all cursor-pointer ${
+                      sparkleStyle === st.id
+                        ? 'bg-[var(--primary)] text-white border-[var(--primary)] shadow-xs'
+                        : 'bg-[var(--bg-surface-subtle)] text-[var(--text-muted)] border-[var(--border-subtle)] hover:text-[var(--text-main)]'
+                    }`}
+                  >
+                    <span>{st.icon}</span>
+                    <span className="block truncate">{st.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
 
       {/* Keyboard Shortcuts Reference Modal */}
       {showShortcutsModal && (

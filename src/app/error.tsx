@@ -2,7 +2,7 @@
 
 import React, { useEffect } from 'react';
 import Link from 'next/link';
-import { RotateCcw, Home, AlertCircle, RefreshCw } from 'lucide-react';
+import { Home, AlertCircle, RefreshCw } from 'lucide-react';
 
 interface ErrorProps {
   error: Error & { digest?: string };
@@ -24,7 +24,7 @@ export default function ErrorBoundary({ error, reset }: ErrorProps) {
 
         <div className="space-y-2">
           <h1 className="text-xl font-extrabold tracking-tight text-[var(--text-main,#0f172a)]">
-            This page couldn't load
+            This page couldn&apos;t load
           </h1>
           <p className="text-xs text-[var(--text-muted,#64748b)] leading-relaxed">
             A temporary problem occurred while preparing this part of the app. Your flashcard progress is securely stored locally.

@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, Send, CheckCircle2, AlertCircle, XCircle, ArrowRight, Tag, BookOpen, Loader2 } from 'lucide-react';
-import { Flashcard, ReviewRating, AIGradeResponse, MCExplanationResponse } from '@/types';
+import { Flashcard, ReviewRating, AIGradeResponse, MCExplanationResponse, getCardProgressInfo } from '@/types';
 import { soundEffects } from '@/lib/soundEffects';
 import { useNutriStore } from '@/lib/store/useNutriStore';
 import { FormattedCardText } from './FormattedCardText';
@@ -28,7 +28,20 @@ export const IdentificationView: React.FC<IdentificationViewProps> = ({
   onAnswer,
   isExpired = false
 }) => {
-  const { preferences } = useNutriStore();
+  const { preferences, activeSession } = useNutriStore();
+  const activeSparkle = activeSession?.sparkleStyle || preferences.sparkleStyle || 'clinical';
+  const activeDesign = preferences.cardDesign || 'modern';
+  const cardProgress = getCardProgressInfo(card);
+
+  const sparkleClass = {
+    clinical: 'ring-1 ring-teal-500/25 shadow-teal-500/5 border-teal-500/30',
+    vibrant: 'ring-1 ring-amber-500/30 shadow-amber-500/10 border-amber-500/40',
+    cosmic: 'ring-1 ring-purple-500/30 shadow-purple-500/10 border-purple-500/40',
+    minimal: 'ring-1 ring-slate-400/20 border-slate-300 dark:border-slate-700',
+  }[activeSparkle];
+
+  const designRadius = activeDesign === 'compact' ? 'rounded-xl' : activeDesign === 'classic' ? 'rounded-lg' : 'rounded-2xl';
+
   const [inputAnswer, setInputAnswer] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [gradeResult, setGradeResult] = useState<AIGradeResponse | null>(null);
@@ -127,13 +140,13 @@ export const IdentificationView: React.FC<IdentificationViewProps> = ({
           authorRationale: card.rationale || undefined
         });
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.warn('Failed to fetch AI explanation in Identification:', err);
       setAiExplanation({
         whyRight: '',
         isAiPowered: false,
         unavailable: true,
-        error: err?.message || 'Network error',
+        error: err instanceof Error ? err.message : 'Network error',
         authorRationale: card.rationale || undefined
       });
     } finally {
@@ -274,14 +287,31 @@ export const IdentificationView: React.FC<IdentificationViewProps> = ({
   return (
     <div className="w-full max-w-2xl mx-auto flex flex-col items-center space-y-6">
       {/* Question Card */}
-      <div className="w-full rounded-xl p-6 sm:p-7 bg-[var(--bg-surface)] border border-[var(--border-color)] shadow-xs space-y-3">
+      <div className={`w-full ${designRadius} p-6 sm:p-7 bg-[var(--bg-surface)] border ${sparkleClass} shadow-xs space-y-3`}>
         {/* Tags */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 flex-wrap">
+            {/* Progression Stage Badge */}
+            <span
+              className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                cardProgress.stage === 'mastered'
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                  : cardProgress.stage === 'developing'
+                  ? 'bg-indigo-50 text-indigo-800 border-indigo-300 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800'
+                  : cardProgress.stage === 'learning'
+                  ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
+                  : 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+              }`}
+            >
+              {cardProgress.stageLabel}
+              {cardProgress.stage !== 'new' && ` · Box ${cardProgress.leitnerBox}`}
+              {cardProgress.totalReviews > 0 && ` (${cardProgress.totalReviews} rev)`}
+            </span>
+
             {(card.tags || []).map((tag) => (
               <span
                 key={tag}
-                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-medium bg-[var(--bg-surface-subtle)] text-[var(--text-muted)]"
+                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[10px] font-medium bg-[var(--bg-surface-subtle)] text-[var(--text-muted)] border border-[var(--border-subtle)]"
               >
                 <Tag className="w-3 h-3 text-[var(--primary)]" />
                 {tag}

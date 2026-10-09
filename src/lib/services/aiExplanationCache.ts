@@ -30,7 +30,7 @@ export function normalizeQuestionText(q: string): string {
 
   // Strip trailing multiple-choice lists if appended to the prompt:
   // e.g. "Question prompt...\n a. Choice 1\n b. Choice 2..."
-  clean = clean.split(/\n\s*[a-dA-D1-4][\.\)\:\-]/)[0];
+  clean = clean.split(/\n\s*(?:[a-dA-D][\.\)\:\-]\s*|[1-4]\.(?!\d)\s+|[1-4][\)\:\-]\s+)/)[0];
 
   // Strip markdown markers and stray asterisks/underscores
   clean = clean.replace(/[\*\_\~]+/g, "");

@@ -65,7 +65,7 @@ export const BlitzMarathonView: React.FC<BlitzMarathonViewProps> = ({
   // Clean prompt and extract on-the-fly
   const displayQuestion = useMemo(() => {
     const raw = cleanRawHtml(card.front);
-    const optionSplit = raw.split(/\n\s*[a-dA-D1-4][\.\)\:\-]/)[0];
+    const optionSplit = raw.split(/\n\s*(?:[a-dA-D][\.\)\:\-]\s*|[1-4]\.(?!\d)\s+|[1-4][\)\:\-]\s+)/)[0];
     return optionSplit.trim() || raw;
   }, [card.front]);
 
@@ -177,7 +177,8 @@ export const BlitzMarathonView: React.FC<BlitzMarathonViewProps> = ({
   }, [card.id, displayQuestion, card.back, card.rationale]);
 
   const normalizeForComparison = useCallback((str: string) => {
-    return cleanOptionLabel(cleanRawHtml(str || '')).trim().toLowerCase();
+    const cleaned = cleanOptionLabel(cleanRawHtml(str || '')).trim().toLowerCase();
+    return cleaned.replace(/(\d+(?:\.\d+)?)\s*([a-zA-Z%]+)/g, '$1$2').replace(/\s+/g, ' ');
   }, []);
 
   const fetchAiExplanation = useCallback(async (userChoice: string) => {
@@ -215,13 +216,13 @@ export const BlitzMarathonView: React.FC<BlitzMarathonViewProps> = ({
           authorRationale: card.rationale || undefined
         });
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.warn('Failed to fetch AI explanation in Blitz:', e);
       setAiExplanation({
         whyRight: '',
         isAiPowered: false,
         unavailable: true,
-        error: e?.message || 'Network error',
+        error: e instanceof Error ? e.message : 'Network error',
         authorRationale: card.rationale || undefined
       });
     } finally {
