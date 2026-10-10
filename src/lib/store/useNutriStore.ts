@@ -1,5 +1,21 @@
 import { create } from 'zustand';
-import { Deck, Flashcard, StudyMode, ReviewRating, ThemeType, UserPreferences, StudySessionState, CardReviewResult, DeckPlaylist, CardSortOption, CardFilterOption, SparkleStyle } from '@/types';
+import { 
+  Deck, 
+  Flashcard, 
+  StudyMode, 
+  ReviewRating, 
+  ThemeType, 
+  UserPreferences, 
+  StudySessionState, 
+  CardReviewResult, 
+  DeckPlaylist, 
+  CardSortOption, 
+  CardFilterOption, 
+  SparkleStyle,
+  CardGroupFilterConfig,
+  CardGroupFilterItem,
+  DEFAULT_CARD_GROUP_FILTERS
+} from '@/types';
 import { deckService } from '@/lib/services/deckService';
 import { soundEffects } from '@/lib/soundEffects';
 import { shuffleArray, computeDeckStats } from '@/lib/services/flashcardService';
@@ -10,6 +26,24 @@ import { NDLESubject, NDLE_SUBJECT_CONFIGS } from '@/types/ndle';
 
 const PREFS_STORAGE_KEY = 'nutrianki_prefs_v1';
 const ACTIVE_SESSION_STORAGE_KEY = 'nutrianki_active_session_v1';
+export const CARD_GROUP_FILTERS_STORAGE_KEY = 'nutriboard_card_group_filters_v1';
+
+function getInitialCardGroupFilters(): Record<string, CardGroupFilterConfig> {
+  if (typeof window === 'undefined') return DEFAULT_CARD_GROUP_FILTERS;
+  try {
+    const raw = localStorage.getItem(CARD_GROUP_FILTERS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        return {
+          ...DEFAULT_CARD_GROUP_FILTERS,
+          ...parsed
+        };
+      }
+    }
+  } catch {}
+  return DEFAULT_CARD_GROUP_FILTERS;
+}
 
 const DEFAULT_PREFS: UserPreferences = {
   theme: 'matcha',
@@ -153,6 +187,16 @@ interface NutriStore {
   setTheme: (theme: ThemeType) => void;
   updatePreferences: (updates: Partial<UserPreferences>) => void;
   initPreferences: () => void;
+
+  // Card Group Filter Management
+  cardGroupFilters: Record<string, CardGroupFilterConfig>;
+  updateGroupFilterConfig: (groupId: string, updates: Partial<CardGroupFilterConfig>) => void;
+  addGroupFilterItem: (groupId: string, item: { label: string; tag: string }) => void;
+  removeGroupFilterItem: (groupId: string, filterId: string) => void;
+  toggleGroupFilterItem: (groupId: string, filterId: string, enabled?: boolean) => void;
+  reorderGroupFilterItems: (groupId: string, filterIds: string[]) => void;
+  resetGroupFilterConfig: (groupId: string) => void;
+  resetAllGroupFilters: () => void;
 }
 
 export const useNutriStore = create<NutriStore>((set, get) => ({
@@ -165,6 +209,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
   saveStatus: 'idle',
   resumeAvailableSession: null,
   deckCheckpoints: {},
+  cardGroupFilters: getInitialCardGroupFilters(),
 
   user: null,
   syncStatus: 'idle',
@@ -703,6 +748,10 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
         }
       }
 
+      // Rehydrate independent card group filters
+      const groupFilters = getInitialCardGroupFilters();
+      set({ cardGroupFilters: groupFilters });
+
       // Check for in-progress session checkpoints and make them available for resumption
       const checkpoints: Record<string, StudySessionState> = {};
       if (typeof window !== 'undefined') {
@@ -773,6 +822,152 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     if (get().user) {
       syncService.pushPreferences(updated).catch((err) => console.error('Cloud sync preferences error:', err));
     }
+  },
+
+  updateGroupFilterConfig: (groupId, updates) => {
+    set((state) => {
+      const current = state.cardGroupFilters[groupId] || DEFAULT_CARD_GROUP_FILTERS[groupId];
+      if (!current) return state;
+      const updated = {
+        ...state.cardGroupFilters,
+        [groupId]: {
+          ...current,
+          ...updates
+        }
+      };
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(CARD_GROUP_FILTERS_STORAGE_KEY, JSON.stringify(updated));
+        } catch {}
+      }
+      return { cardGroupFilters: updated };
+    });
+  },
+
+  addGroupFilterItem: (groupId, { label, tag }) => {
+    set((state) => {
+      const current = state.cardGroupFilters[groupId] || DEFAULT_CARD_GROUP_FILTERS[groupId];
+      if (!current) return state;
+      const newFilter: CardGroupFilterItem = {
+        id: `custom-filter-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        label: label.trim(),
+        tag: tag.trim().toLowerCase(),
+        enabled: true
+      };
+      const updated = {
+        ...state.cardGroupFilters,
+        [groupId]: {
+          ...current,
+          filters: [...(current.filters || []), newFilter]
+        }
+      };
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(CARD_GROUP_FILTERS_STORAGE_KEY, JSON.stringify(updated));
+        } catch {}
+      }
+      return { cardGroupFilters: updated };
+    });
+  },
+
+  removeGroupFilterItem: (groupId, filterId) => {
+    set((state) => {
+      const current = state.cardGroupFilters[groupId] || DEFAULT_CARD_GROUP_FILTERS[groupId];
+      if (!current) return state;
+      const updated = {
+        ...state.cardGroupFilters,
+        [groupId]: {
+          ...current,
+          filters: (current.filters || []).filter(f => f.id !== filterId)
+        }
+      };
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(CARD_GROUP_FILTERS_STORAGE_KEY, JSON.stringify(updated));
+        } catch {}
+      }
+      return { cardGroupFilters: updated };
+    });
+  },
+
+  toggleGroupFilterItem: (groupId, filterId, enabled) => {
+    set((state) => {
+      const current = state.cardGroupFilters[groupId] || DEFAULT_CARD_GROUP_FILTERS[groupId];
+      if (!current) return state;
+      const updated = {
+        ...state.cardGroupFilters,
+        [groupId]: {
+          ...current,
+          filters: (current.filters || []).map(f =>
+            f.id === filterId ? { ...f, enabled: enabled !== undefined ? enabled : !f.enabled } : f
+          )
+        }
+      };
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(CARD_GROUP_FILTERS_STORAGE_KEY, JSON.stringify(updated));
+        } catch {}
+      }
+      return { cardGroupFilters: updated };
+    });
+  },
+
+  reorderGroupFilterItems: (groupId, filterIds) => {
+    set((state) => {
+      const current = state.cardGroupFilters[groupId] || DEFAULT_CARD_GROUP_FILTERS[groupId];
+      if (!current) return state;
+      const filterMap = new Map((current.filters || []).map(f => [f.id, f]));
+      const reordered: CardGroupFilterItem[] = [];
+      for (const id of filterIds) {
+        const item = filterMap.get(id);
+        if (item) {
+          reordered.push(item);
+          filterMap.delete(id);
+        }
+      }
+      for (const rem of filterMap.values()) {
+        reordered.push(rem);
+      }
+      const updated = {
+        ...state.cardGroupFilters,
+        [groupId]: {
+          ...current,
+          filters: reordered
+        }
+      };
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(CARD_GROUP_FILTERS_STORAGE_KEY, JSON.stringify(updated));
+        } catch {}
+      }
+      return { cardGroupFilters: updated };
+    });
+  },
+
+  resetGroupFilterConfig: (groupId) => {
+    set((state) => {
+      const def = DEFAULT_CARD_GROUP_FILTERS[groupId];
+      if (!def) return state;
+      const updated = {
+        ...state.cardGroupFilters,
+        [groupId]: { ...def }
+      };
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(CARD_GROUP_FILTERS_STORAGE_KEY, JSON.stringify(updated));
+        } catch {}
+      }
+      return { cardGroupFilters: updated };
+    });
+  },
+
+  resetAllGroupFilters: () => {
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(CARD_GROUP_FILTERS_STORAGE_KEY, JSON.stringify(DEFAULT_CARD_GROUP_FILTERS));
+      } catch {}
+    }
+    set({ cardGroupFilters: DEFAULT_CARD_GROUP_FILTERS });
   },
 
   loadDecks: async () => {
@@ -1164,16 +1359,18 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
   },
 
   startPracticeAreaSession: async (subject, options) => {
-    const { decks, activeSession, resumeAvailableSession, preferences } = get();
-    const mode = options?.mode || 'multiple-choice';
-    const sort = options?.sort || 'default';
-    const filter = options?.filter || (options?.missedOnly ? 'wrong' : 'all');
-    const searchQuery = (options?.searchQuery || '').trim().toLowerCase();
-
+    const { decks, activeSession, resumeAvailableSession, preferences, cardGroupFilters } = get();
     const config = NDLE_SUBJECT_CONFIGS[subject];
     const code = config?.code || 'NBCD';
     const practiceDeckId = `practice-area-${code}`;
     const practiceStorageKey = `nutriboard_practice_session_${code}`;
+    const groupKey = code === 'NBCD' ? 'nbcd' : code === 'CPHN' ? 'cphn' : 'ffss';
+    const groupConfig = cardGroupFilters[groupKey] || DEFAULT_CARD_GROUP_FILTERS[groupKey];
+
+    const mode = options?.mode || 'multiple-choice';
+    const sort = options?.sort || groupConfig?.activeSort || 'default';
+    const filter = options?.filter || (options?.missedOnly ? 'wrong' : (groupConfig?.stageFilter || 'all'));
+    const searchQuery = (options?.searchQuery || groupConfig?.searchQuery || '').trim().toLowerCase();
 
     // If startFresh is explicitly requested, clear existing checkpoint
     if (options?.startFresh) {
@@ -1288,6 +1485,30 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       );
       if (filteredBySearch.length > 0) {
         subjectCards = filteredBySearch;
+      }
+    }
+
+    // Apply group-specific sub-filters (tags)
+    if (groupConfig?.filters && groupConfig.filters.length > 0 && !options?.missedOnly && filter !== 'wrong') {
+      const enabledFilters = groupConfig.filters.filter(f => f.enabled);
+      if (enabledFilters.length < groupConfig.filters.length && enabledFilters.length > 0) {
+        const enabledTags = enabledFilters.map(f => f.tag.toLowerCase().trim()).filter(Boolean);
+        const filteredByTags = subjectCards.filter(c => {
+          const cTags = (c.tags || []).map(t => t.toLowerCase());
+          const cFront = (c.front || '').toLowerCase();
+          const cBack = (c.back || '').toLowerCase();
+          const cRationale = (c.rationale || '').toLowerCase();
+
+          return enabledTags.some(t =>
+            cTags.some(tag => tag.includes(t) || t.includes(tag)) ||
+            cFront.includes(t) ||
+            cBack.includes(t) ||
+            cRationale.includes(t)
+          );
+        });
+        if (filteredByTags.length > 0) {
+          subjectCards = filteredByTags;
+        }
       }
     }
 

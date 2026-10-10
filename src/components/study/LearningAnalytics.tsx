@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
   TrendingUp,
@@ -12,16 +12,123 @@ import {
   HelpCircle,
   Flame,
   Sparkles,
-  Layers
+  Layers,
+  Filter,
+  SlidersHorizontal,
+  Tag
 } from 'lucide-react';
 import { useNutriStore } from '@/lib/store/useNutriStore';
+import { resolveCardSubject } from '@/lib/services/boardReadinessService';
+import { Flashcard } from '@/types';
 
 export const LearningAnalytics: React.FC = () => {
-  const { analytics, loadAnalytics, preferences, decks } = useNutriStore();
+  const { analytics, loadAnalytics, preferences, decks, cardGroupFilters } = useNutriStore();
+  const [selectedFilterGroup, setSelectedFilterGroup] = useState<string>('all');
 
   useEffect(() => {
     loadAnalytics();
   }, [loadAnalytics]);
+
+  const groupKeys = useMemo(() => Object.keys(cardGroupFilters), [cardGroupFilters]);
+  const groupConfig = selectedFilterGroup !== 'all' ? cardGroupFilters[selectedFilterGroup] : null;
+
+  // Filter cards strictly according to the selected card group and its active filters
+  const currentCards = useMemo(() => {
+    if (!groupConfig) {
+      return decks.flatMap(d => d.cards || []);
+    }
+
+    let list: Flashcard[] = [];
+    for (const d of decks) {
+      for (const c of d.cards || []) {
+        let isMatch = false;
+        if (groupConfig.ndleSubject && resolveCardSubject(c, d.category) === groupConfig.ndleSubject) {
+          isMatch = true;
+        } else if (groupConfig.category && (d.category === groupConfig.category || (c.tags || []).some(t => t.toLowerCase() === groupConfig.category?.toLowerCase()))) {
+          isMatch = true;
+        }
+        if (isMatch) list.push(c);
+      }
+    }
+
+    // Apply active sub-filter tags
+    const enabledFilters = groupConfig.filters.filter(f => f.enabled);
+    if (groupConfig.filters.length > 0) {
+      if (enabledFilters.length === 0) {
+        list = [];
+      } else if (enabledFilters.length < groupConfig.filters.length) {
+        const enabledTags = enabledFilters.map(f => f.tag.toLowerCase().trim()).filter(Boolean);
+        list = list.filter(c => {
+          const cTags = (c.tags || []).map(t => t.toLowerCase());
+          const cFront = (c.front || '').toLowerCase();
+          const cBack = (c.back || '').toLowerCase();
+          const cRationale = (c.rationale || '').toLowerCase();
+          return enabledTags.some(t =>
+            cTags.some(tag => tag.includes(t) || t.includes(tag)) ||
+            cFront.includes(t) ||
+            cBack.includes(t) ||
+            cRationale.includes(t)
+          );
+        });
+      }
+    }
+
+    // Apply stage filter
+    if (groupConfig.stageFilter !== 'all') {
+      const now = new Date();
+      if (groupConfig.stageFilter === 'unseen') {
+        list = list.filter(c => !c.lastReviewedAt || (c.sm2?.repetitions || 0) === 0);
+      } else if (groupConfig.stageFilter === 'learning') {
+        list = list.filter(c => (c.sm2?.repetitions || 0) > 0 && (c.sm2?.interval || 0) < 4);
+      } else if (groupConfig.stageFilter === 'developing') {
+        list = list.filter(c => (c.sm2?.interval || 0) >= 4 && (c.sm2?.interval || 0) < 21);
+      } else if (groupConfig.stageFilter === 'mastered') {
+        list = list.filter(c => (c.sm2?.interval || 0) >= 21 || (c.sm2?.repetitions || 0) >= 4);
+      } else if (groupConfig.stageFilter === 'due') {
+        list = list.filter(c => !c.lastReviewedAt || new Date(c.sm2?.dueDate || 0) <= now);
+      } else if (groupConfig.stageFilter === 'wrong') {
+        list = list.filter(c => c.lastReviewedAt && (c.sm2?.repetitions || 0) === 0);
+      }
+    }
+
+    return list;
+  }, [decks, groupConfig]);
+
+  // Compute retention funnel for currentCards
+  const retentionFunnel = useMemo(() => {
+    if (!groupConfig && analytics?.retentionFunnel) {
+      return analytics.retentionFunnel;
+    }
+    const f = { box1New: 0, box2Learning: 0, box3Developing: 0, box4Proficient: 0, box5Mastered: 0 };
+    currentCards.forEach(c => {
+      const rep = c.sm2?.repetitions || 0;
+      const interval = c.sm2?.interval || 0;
+      if (rep === 0 || !c.lastReviewedAt) {
+        f.box1New++;
+      } else if (interval < 4) {
+        f.box2Learning++;
+      } else if (interval <= 10) {
+        f.box3Developing++;
+      } else if (interval < 21) {
+        f.box4Proficient++;
+      } else {
+        f.box5Mastered++;
+      }
+    });
+    return f;
+  }, [currentCards, groupConfig, analytics]);
+
+  const totalCardsInDecks = currentCards.length;
+
+  const displayAccuracy = useMemo(() => {
+    if (!groupConfig) {
+      return analytics?.overallAccuracyPercent || 95;
+    }
+    const reviewedCards = totalCardsInDecks - retentionFunnel.box1New;
+    if (reviewedCards <= 0) return 100;
+    const proficientCount = retentionFunnel.box4Proficient + retentionFunnel.box5Mastered;
+    return Math.min(100, Math.max(20, Math.round((proficientCount / reviewedCards) * 100)));
+  }, [groupConfig, analytics, totalCardsInDecks, retentionFunnel]);
 
   const weeklyLogs = Array.isArray(analytics?.weeklyLogs) ? analytics.weeklyLogs : [];
   const maxCount = Math.max(
@@ -29,10 +136,87 @@ export const LearningAnalytics: React.FC = () => {
     ...(weeklyLogs.length > 0 ? weeklyLogs.map(l => l.count) : [15])
   );
 
-  const totalCardsInDecks = (decks || []).reduce((sum, d) => sum + (d?.cards?.length || 0), 0);
-
   return (
     <div className="w-full space-y-6">
+      {/* CARD GROUP / PRACTICE AREA FILTER FOCUS SELECTOR */}
+      <div className="p-4 sm:p-5 rounded-3xl bg-[var(--bg-surface)] border-2 border-[var(--border-color)] shadow-xs space-y-3">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <SlidersHorizontal className="w-4 h-4 text-[var(--primary)]" />
+            <h3 className="text-xs sm:text-sm font-extrabold text-[var(--text-main)]">
+              Analytics Filter Focus
+            </h3>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[var(--primary-light)] text-[var(--primary)]">
+              {groupConfig ? groupConfig.name : 'All Practice Areas'}
+            </span>
+          </div>
+
+          <span className="text-[11px] text-[var(--text-muted)] font-medium">
+            Retention and statistics reflect the cards and filters of the selected practice area.
+          </span>
+        </div>
+
+        {/* Filter Pills */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none text-xs">
+          <button
+            type="button"
+            onClick={() => setSelectedFilterGroup('all')}
+            className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              selectedFilterGroup === 'all'
+                ? 'bg-[var(--primary)] text-white shadow-xs'
+                : 'bg-[var(--bg-surface-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--border-color)]'
+            }`}
+          >
+            All Practice Areas ({decks.reduce((sum, d) => sum + (d?.cards?.length || 0), 0)} cards)
+          </button>
+
+          {groupKeys.map((key) => {
+            const grp = cardGroupFilters[key];
+            if (!grp) return null;
+            const isSelected = selectedFilterGroup === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setSelectedFilterGroup(key)}
+                className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
+                  isSelected
+                    ? 'bg-[var(--primary)] text-white shadow-xs'
+                    : 'bg-[var(--bg-surface-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--border-color)]'
+                }`}
+              >
+                <span>{grp.name}</span>
+                <span className="text-[10px] opacity-80">
+                  ({grp.filters.filter(f => f.enabled).length} active)
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Active group sub-filters banner */}
+        {groupConfig && (
+          <div className="p-2.5 rounded-xl bg-[var(--bg-surface-subtle)] border border-[var(--border-subtle)] flex items-center justify-between gap-2 text-[11px] flex-wrap">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-bold text-[var(--text-main)]">Active Filters:</span>
+              {groupConfig.filters.filter(f => f.enabled).map(f => (
+                <span key={f.id} className="px-2 py-0.5 rounded-md bg-[var(--bg-surface)] border border-[var(--border-color)] text-[var(--primary)] font-semibold text-[10px]">
+                  #{f.label}
+                </span>
+              ))}
+              {groupConfig.stageFilter !== 'all' && (
+                <span className="px-2 py-0.5 rounded-md bg-[var(--primary-light)] text-[var(--primary)] font-bold text-[10px]">
+                  Stage: {groupConfig.stageFilter}
+                </span>
+              )}
+            </div>
+            <span className="text-[10px] text-[var(--text-muted)] font-bold">
+              {totalCardsInDecks} cards in this scope
+            </span>
+          </div>
+        )}
+      </div>
+
       {/* Overview Top Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
         {/* Streak */}
@@ -61,7 +245,7 @@ export const LearningAnalytics: React.FC = () => {
           </div>
           <div className="flex items-baseline gap-1.5">
             <span className="text-2xl sm:text-3xl font-black text-[var(--text-main)]">
-              {analytics?.overallAccuracyPercent || 95}%
+              {displayAccuracy}%
             </span>
             <span className="text-xs font-extrabold text-emerald-600">Retention</span>
           </div>
@@ -210,11 +394,11 @@ export const LearningAnalytics: React.FC = () => {
 
           <div className="space-y-2.5 pt-1">
             {[
-              { name: 'Box 1: New / Unseen', count: analytics?.retentionFunnel.box1New || 0, color: 'bg-rose-500', desc: '0 days interval' },
-              { name: 'Box 2: Learning Stage', count: analytics?.retentionFunnel.box2Learning || 0, color: 'bg-orange-500', desc: '1 to 3 days interval' },
-              { name: 'Box 3: Developing Recall', count: analytics?.retentionFunnel.box3Developing || 0, color: 'bg-amber-500', desc: '4 to 10 days interval' },
-              { name: 'Box 4: Proficient Memory', count: analytics?.retentionFunnel.box4Proficient || 0, color: 'bg-blue-500', desc: '11 to 20 days interval' },
-              { name: 'Box 5: Mastered / Long-term', count: analytics?.retentionFunnel.box5Mastered || 0, color: 'bg-emerald-500', desc: '21+ days interval' },
+              { name: 'Box 1: New / Unseen', count: retentionFunnel.box1New || 0, color: 'bg-rose-500', desc: '0 days interval' },
+              { name: 'Box 2: Learning Stage', count: retentionFunnel.box2Learning || 0, color: 'bg-orange-500', desc: '1 to 3 days interval' },
+              { name: 'Box 3: Developing Recall', count: retentionFunnel.box3Developing || 0, color: 'bg-amber-500', desc: '4 to 10 days interval' },
+              { name: 'Box 4: Proficient Memory', count: retentionFunnel.box4Proficient || 0, color: 'bg-blue-500', desc: '11 to 20 days interval' },
+              { name: 'Box 5: Mastered / Long-term', count: retentionFunnel.box5Mastered || 0, color: 'bg-emerald-500', desc: '21+ days interval' },
             ].map((box, idx) => {
               const percent = totalCardsInDecks > 0 ? Math.round((box.count / totalCardsInDecks) * 100) : 0;
 

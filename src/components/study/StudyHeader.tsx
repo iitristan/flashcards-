@@ -44,7 +44,6 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
   currentCard,
   activeSort = 'default',
   activeFilter = 'all',
-  sparkleStyle = 'clinical',
   missedCount = 0,
   onReviewMissed,
   onToggleSound,
@@ -52,7 +51,6 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
   onTimerExpire,
   onFilterChange,
   onSortChange,
-  onSparkleChange,
   isPaused
 }) => {
   const [showExitConfirm, setShowExitConfirm] = useState(false);
@@ -247,9 +245,6 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
                 Sort: {activeSort}
               </span>
             )}
-            <span className="px-2 py-0.5 rounded-md bg-[var(--bg-surface-subtle)] border border-[var(--border-subtle)] capitalize">
-              ✨ {sparkleStyle}
-            </span>
           </div>
         </div>
       )}
@@ -345,35 +340,6 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
                 <option value="most-reviewed">Most Reviewed First</option>
                 <option value="alphabetical">Alphabetical (A-Z)</option>
               </select>
-            </div>
-
-            <div className="space-y-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-subtle)] block">
-                Sparkle / Design Style:
-              </span>
-              <div className="grid grid-cols-4 gap-1">
-                {(
-                  [
-                    { id: 'clinical', label: 'Clinical', icon: '🩺' },
-                    { id: 'vibrant', label: 'Vibrant', icon: '⚡' },
-                    { id: 'cosmic', label: 'Cosmic', icon: '✨' },
-                    { id: 'minimal', label: 'Minimal', icon: '⚪' }
-                  ] as const
-                ).map(st => (
-                  <button
-                    key={st.id}
-                    onClick={() => onSparkleChange?.(st.id)}
-                    className={`py-1 px-1.5 rounded-lg text-center font-bold text-[10px] border transition-all cursor-pointer ${
-                      sparkleStyle === st.id
-                        ? 'bg-[var(--primary)] text-white border-[var(--primary)] shadow-xs'
-                        : 'bg-[var(--bg-surface-subtle)] text-[var(--text-muted)] border-[var(--border-subtle)] hover:text-[var(--text-main)]'
-                    }`}
-                  >
-                    <span>{st.icon}</span>
-                    <span className="block truncate">{st.label}</span>
-                  </button>
-                ))}
-              </div>
             </div>
           </div>
         </motion.div>

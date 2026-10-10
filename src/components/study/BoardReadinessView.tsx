@@ -10,7 +10,11 @@ import {
   RotateCcw,
   AlertCircle,
   Search,
-  ArrowUpDown
+  ArrowUpDown,
+  SlidersHorizontal,
+  Tag,
+  Check,
+  Info
 } from "lucide-react";
 import { useBoardReadiness } from "@/lib/hooks/useBoardReadiness";
 import { useNutriStore } from "@/lib/store/useNutriStore";
@@ -20,7 +24,7 @@ import {
   NDLE_SUBJECT_CONFIGS,
 } from "@/types/ndle";
 
-import { CardFilterOption, CardSortOption } from "@/types";
+import { CardFilterOption, CardSortOption, DEFAULT_CARD_GROUP_FILTERS } from "@/types";
 
 interface BoardReadinessViewProps {
   onStartSubjectPractice?: (
@@ -35,11 +39,13 @@ interface BoardReadinessViewProps {
     }
   ) => void;
   initialSearchQuery?: string;
+  onOpenFilterManager?: () => void;
 }
 
 export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
   onStartSubjectPractice,
   initialSearchQuery = "",
+  onOpenFilterManager,
 }) => {
   const {
     report,
@@ -52,7 +58,16 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
     refresh,
   } = useBoardReadiness();
 
-  const { startPracticeAreaSession, preferences, deckCheckpoints, getDeckCheckpoint, clearDeckCheckpoint } = useNutriStore();
+  const {
+    startPracticeAreaSession,
+    preferences,
+    deckCheckpoints,
+    getDeckCheckpoint,
+    clearDeckCheckpoint,
+    cardGroupFilters,
+    updateGroupFilterConfig,
+    toggleGroupFilterItem
+  } = useNutriStore();
   const isDark = preferences.theme === "dark";
 
   const [activeMetricView, setActiveMetricView] = useState<"probability" | "gwa">(
@@ -61,11 +76,7 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
   const [showCategorizeModal, setShowCategorizeModal] = useState(false);
   const [categorizeMessage, setCategorizeMessage] = useState<string | null>(null);
   const [selectedSubjectModal, setSelectedSubjectModal] = useState<NDLESubject | null>(null);
-
-  // Practice area search and filter controls
-  const [practiceSearch, setPracticeSearch] = useState(initialSearchQuery);
-  const [practiceFilter, setPracticeFilter] = useState<CardFilterOption>("all");
-  const [practiceSort, setPracticeSort] = useState<CardSortOption>("default");
+  const [expandedFilterSubject, setExpandedFilterSubject] = useState<NDLESubject | null>(null);
 
   const getSubjectCheckpoint = (subjectName: NDLESubject) => {
     const cfg = NDLE_SUBJECT_CONFIGS[subjectName];
@@ -92,7 +103,7 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
     return Math.max(cpMissed, historicalMissed);
   };
 
-  // Handle starting targeted practice for an NDLE subject
+  // Handle starting targeted practice for an NDLE subject with its own independent filters
   const handlePracticeSubject = (
     subject: NDLESubject,
     options?: {
@@ -101,15 +112,23 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
       missedOnly?: boolean;
     }
   ) => {
+    const cfg = NDLE_SUBJECT_CONFIGS[subject];
+    const groupKey = cfg?.code === 'NBCD' ? 'nbcd' : cfg?.code === 'CPHN' ? 'cphn' : 'ffss';
+    const group = cardGroupFilters[groupKey] || DEFAULT_CARD_GROUP_FILTERS[groupKey];
+
+    const sort = group?.activeSort || 'default';
+    const filter = options?.missedOnly ? 'wrong' : (group?.stageFilter || 'all');
+    const search = (group?.searchQuery || '').trim();
+
     if (onStartSubjectPractice) {
-      onStartSubjectPractice(subject, practiceSearch, practiceFilter, practiceSort, options);
+      onStartSubjectPractice(subject, search, filter, sort, options);
       return;
     }
 
     startPracticeAreaSession(subject, {
-      searchQuery: practiceSearch,
-      filter: options?.missedOnly ? 'wrong' : practiceFilter,
-      sort: practiceSort,
+      searchQuery: search,
+      filter,
+      sort,
       resume: options?.resume,
       startFresh: options?.startFresh,
       missedOnly: options?.missedOnly,
@@ -337,105 +356,55 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
       {/* ------------------------------------------------------------- */}
       {/* SECTION: BY PRACTICE AREA (Faithful to inspiration screenshot) */}
       {/* ------------------------------------------------------------- */}
-      <div className="space-y-2.5">
+      <div className="space-y-3">
         <div className="flex items-center justify-between px-1">
           <h3 className="text-[11px] sm:text-xs font-bold tracking-widest text-muted-foreground uppercase">
             BY PRACTICE AREA
           </h3>
 
-          {unclassifiedCardsCount > 0 && (
-            <button
-              onClick={() => setShowCategorizeModal(true)}
-              className="text-[11px] font-semibold text-primary hover:underline flex items-center gap-1 cursor-pointer"
-            >
-              <Sparkles className="w-3 h-3" />
-              <span>Auto-Tag ({unclassifiedCardsCount})</span>
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            {onOpenFilterManager && (
+              <button
+                type="button"
+                onClick={onOpenFilterManager}
+                className="text-[11px] font-bold text-primary hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <SlidersHorizontal className="w-3 h-3" />
+                <span>Manage Filters & Sorting</span>
+              </button>
+            )}
+
+            {unclassifiedCardsCount > 0 && (
+              <button
+                onClick={() => setShowCategorizeModal(true)}
+                className="text-[11px] font-semibold text-primary hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <Sparkles className="w-3 h-3" />
+                <span>Auto-Tag ({unclassifiedCardsCount})</span>
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Practice Area Search & Filter Segment Bar */}
-        <div className="p-3 sm:p-4 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-color)] space-y-2.5 shadow-2xs">
-          <div className="flex flex-col sm:flex-row gap-2">
-            <div className="relative flex-1">
-              <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={practiceSearch}
-                onChange={(e) => setPracticeSearch(e.target.value)}
-                placeholder="Filter practice questions (e.g. renal, parenteral, HACCP)..."
-                className="w-full pl-8 pr-8 py-2 rounded-xl bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-xs text-[var(--text-main)] placeholder:text-[var(--text-subtle)] outline-none focus:border-[var(--primary)] transition-colors"
-              />
-              {practiceSearch && (
-                <button
-                  type="button"
-                  onClick={() => setPracticeSearch("")}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground hover:text-foreground"
-                >
-                  ×
-                </button>
-              )}
-            </div>
-
-            {/* Sort Dropdown */}
-            <div className="flex items-center gap-1.5 self-end sm:self-auto">
-              <ArrowUpDown className="w-3 h-3 text-muted-foreground shrink-0" />
-              <select
-                value={practiceSort}
-                onChange={(e) => setPracticeSort(e.target.value as CardSortOption)}
-                aria-label="Sort practice questions"
-                className="px-2.5 py-1.5 rounded-xl bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-xs font-semibold text-[var(--text-main)] outline-none focus:border-[var(--primary)] cursor-pointer"
-              >
-                <option value="default">Shuffled (Exam Mode)</option>
-                <option value="progress-asc">Unseen / Learning First</option>
-                <option value="progress-desc">Mastered First</option>
-                <option value="difficulty">By Difficulty (Hard First)</option>
-                <option value="most-reviewed">Most Reviewed First</option>
-                <option value="alphabetical">Alphabetical (A-Z)</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Filter Pills */}
-          <div className="flex items-center gap-1 overflow-x-auto pb-0.5 scrollbar-none text-[11px]">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mr-1 shrink-0">
-              Filter:
+        {/* Practice Area Segregation Notice Bar */}
+        <div className="p-3 sm:p-3.5 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-color)] flex items-center justify-between gap-3 text-xs shadow-2xs">
+          <div className="flex items-center gap-2">
+            <SlidersHorizontal className="w-3.5 h-3.5 text-[var(--primary)] shrink-0" />
+            <span className="text-[11px] text-[var(--text-muted)]">
+              <strong>Independent Filters Active:</strong> Each practice area uses its own filter tags and sorting. Modifying <em>Clinical Nutrition</em> will not alter <em>Community</em> or <em>Food Service</em>.
             </span>
-            {(
-              [
-                { id: "all", label: "All Items" },
-                { id: "unseen", label: "🆕 Unseen" },
-                { id: "learning", label: "🔄 Learning" },
-                { id: "developing", label: "📈 Developing" },
-                { id: "mastered", label: "🏆 Mastered" },
-                { id: "due", label: "⏰ Due Today" },
-                { id: "wrong", label: "❌ Wrong Answers" },
-              ] as const
-            ).map((flt) => {
-              const isSelected = practiceFilter === flt.id;
-              return (
-                <button
-                  key={flt.id}
-                  type="button"
-                  onClick={() => setPracticeFilter(flt.id)}
-                  className={`px-2.5 py-1 rounded-lg font-semibold shrink-0 transition-all cursor-pointer ${
-                    isSelected
-                      ? "bg-[var(--primary)] text-white shadow-xs"
-                      : "bg-[var(--bg-surface-subtle)] text-muted-foreground hover:text-foreground hover:bg-muted"
-                  }`}
-                >
-                  {flt.label}
-                </button>
-              );
-            })}
           </div>
         </div>
 
         {/* Practice Area Card Container */}
-        <div className="bg-[var(--bg-surface)] rounded-3xl border border-[var(--border-color)] p-4 sm:p-6 shadow-[var(--card-shadow)] space-y-5 sm:space-y-6">
+        <div className="bg-[var(--bg-surface)] rounded-3xl border border-[var(--border-color)] p-4 sm:p-6 shadow-[var(--card-shadow)] space-y-6">
           {NDLE_SUBJECT_LIST.map((subjectName) => {
             const perf = report.subjectBreakdown[subjectName];
             const config = NDLE_SUBJECT_CONFIGS[subjectName];
+            const groupKey = config.code === 'NBCD' ? 'nbcd' : config.code === 'CPHN' ? 'cphn' : 'ffss';
+            const groupConfig = cardGroupFilters[groupKey] || DEFAULT_CARD_GROUP_FILTERS[groupKey];
+            const isDrawerOpen = expandedFilterSubject === subjectName;
+
             const checkpoint = getSubjectCheckpoint(subjectName);
             const hasCheckpoint = Boolean(
               checkpoint &&
@@ -445,9 +414,6 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
             const wrongCount = getSubjectWrongCount(subjectName);
 
             // Color coding according to score (High-contrast & theme resilient)
-            // >= 75%: Emerald Green
-            // 60% - 74%: Vivid Amber/Orange
-            // < 60%: Bold Crimson Red
             let barColor = "#10B981";
             let textColorClass = isDark ? "text-emerald-400" : "text-emerald-600";
 
@@ -462,8 +428,11 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
               textColorClass = isDark ? "text-red-400" : "text-red-600";
             }
 
+            const activeFilterCount = (groupConfig?.filters || []).filter(f => f.enabled).length;
+            const totalFilterCount = (groupConfig?.filters || []).length;
+
             return (
-              <div key={subjectName} className="space-y-2">
+              <div key={subjectName} className="space-y-2.5 pb-4 border-b border-[var(--border-subtle)] last:border-b-0 last:pb-0">
                 {/* Title & Score Row */}
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
@@ -494,7 +463,7 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
                 </div>
 
                 {/* Meta details & Targeted Practice button */}
-                <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-muted-foreground pt-0.5 flex-wrap gap-1.5">
+                <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-muted-foreground pt-0.5 flex-wrap gap-2">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="px-2 py-0.5 rounded-md bg-[var(--bg-surface-subtle)] text-[var(--text-main)] font-bold border border-[var(--border-color)]">
                       {config.weightPercentage}% Weight
@@ -549,24 +518,138 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
                     )}
                   </div>
 
-                  <button
-                    onClick={() => {
-                      if (hasCheckpoint || wrongCount > 0) {
-                        setSelectedSubjectModal(subjectName);
-                      } else {
-                        handlePracticeSubject(subjectName, { startFresh: true });
-                      }
-                    }}
-                    className={`inline-flex items-center gap-1.5 font-bold transition-all cursor-pointer ml-auto px-3 py-1 rounded-xl text-xs ${
-                      hasCheckpoint
-                        ? 'bg-[var(--primary)] text-white hover:bg-[var(--primary-hover)] shadow-xs'
-                        : 'text-primary hover:opacity-80 bg-[var(--primary-light)]/40 hover:bg-[var(--primary-light)]'
-                    }`}
-                  >
-                    <span>{hasCheckpoint ? `Continue (Q${checkpoint ? checkpoint.currentIndex + 1 : 1})` : 'Practice'}</span>
-                    <Play className="w-2.5 h-2.5 fill-current" />
-                  </button>
+                  <div className="flex items-center gap-2 ml-auto">
+                    {/* Toggle Independent Filter & Sort Settings for this Subject */}
+                    <button
+                      type="button"
+                      onClick={() => setExpandedFilterSubject(isDrawerOpen ? null : subjectName)}
+                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                        isDrawerOpen
+                          ? 'border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary)]'
+                          : 'border-[var(--border-color)] bg-[var(--bg-surface-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface)]'
+                      }`}
+                      title={`Configure independent filters and sorting for ${subjectName}`}
+                    >
+                      <SlidersHorizontal className="w-3 h-3" />
+                      <span>Filters ({activeFilterCount}/{totalFilterCount})</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        if (hasCheckpoint || wrongCount > 0) {
+                          setSelectedSubjectModal(subjectName);
+                        } else {
+                          handlePracticeSubject(subjectName, { startFresh: true });
+                        }
+                      }}
+                      className={`inline-flex items-center gap-1.5 font-bold transition-all cursor-pointer px-3 py-1 rounded-xl text-xs ${
+                        hasCheckpoint
+                          ? 'bg-[var(--primary)] text-white hover:bg-[var(--primary-hover)] shadow-xs'
+                          : 'text-primary hover:opacity-80 bg-[var(--primary-light)]/40 hover:bg-[var(--primary-light)]'
+                      }`}
+                    >
+                      <span>{hasCheckpoint ? `Continue (Q${checkpoint ? checkpoint.currentIndex + 1 : 1})` : 'Practice'}</span>
+                      <Play className="w-2.5 h-2.5 fill-current" />
+                    </button>
+                  </div>
                 </div>
+
+                {/* INLINE INDEPENDENT FILTER DRAWER FOR THIS SUBJECT */}
+                {isDrawerOpen && groupConfig && (
+                  <div className="mt-2.5 p-3.5 sm:p-4 rounded-2xl bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] space-y-3 animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-extrabold text-[var(--text-main)] flex items-center gap-1.5">
+                        <Tag className="w-3.5 h-3.5 text-[var(--primary)]" />
+                        <span>Independent Filter & Sort for {config.shortTitle}</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedFilterSubject(null)}
+                        className="text-[var(--text-subtle)] hover:text-[var(--text-main)] text-xs"
+                      >
+                        ✕ Close
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                      {/* Sort control */}
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-[var(--text-muted)] uppercase">
+                          Practice Sort Order
+                        </label>
+                        <select
+                          value={groupConfig.activeSort}
+                          onChange={(e) => updateGroupFilterConfig(groupKey, { activeSort: e.target.value as CardSortOption })}
+                          className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-color)] text-xs font-semibold text-[var(--text-main)] outline-none"
+                        >
+                          <option value="default">Shuffled (Exam Order)</option>
+                          <option value="progress-asc">Unseen / In Learning First</option>
+                          <option value="progress-desc">Mastered First</option>
+                          <option value="difficulty">By Difficulty (Hard First)</option>
+                          <option value="most-reviewed">Most Reviewed First</option>
+                          <option value="alphabetical">Alphabetical (A-Z)</option>
+                        </select>
+                      </div>
+
+                      {/* Stage filter control */}
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-[var(--text-muted)] uppercase">
+                          Card Learning Stage
+                        </label>
+                        <select
+                          value={groupConfig.stageFilter}
+                          onChange={(e) => updateGroupFilterConfig(groupKey, { stageFilter: e.target.value as CardFilterOption })}
+                          className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-color)] text-xs font-semibold text-[var(--text-main)] outline-none"
+                        >
+                          <option value="all">All Stages (Full Pool)</option>
+                          <option value="unseen">🆕 Unseen / New Cards</option>
+                          <option value="learning">🔄 Learning Stage</option>
+                          <option value="developing">📈 Developing Recall</option>
+                          <option value="mastered">🏆 Mastered Cards</option>
+                          <option value="due">⏰ Due Today</option>
+                          <option value="wrong">❌ Wrong Answers</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Filter Tags Pills */}
+                    <div className="space-y-1.5 pt-1">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] block">
+                        Included Topics & Tags (click to toggle):
+                      </span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {groupConfig.filters.map((f) => (
+                          <button
+                            key={f.id}
+                            type="button"
+                            onClick={() => toggleGroupFilterItem(groupKey, f.id)}
+                            className={`px-2 py-0.5 rounded-lg text-[11px] font-semibold border transition-all cursor-pointer flex items-center gap-1 ${
+                              f.enabled
+                                ? 'bg-[var(--primary)] text-white border-[var(--primary)] shadow-2xs'
+                                : 'bg-[var(--bg-surface)] text-[var(--text-muted)] border-[var(--border-subtle)] opacity-60 hover:opacity-100'
+                            }`}
+                          >
+                            {f.enabled && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                            <span>{f.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] text-[var(--text-muted)] pt-1 border-t border-[var(--border-subtle)]">
+                      <span>Only affects {config.shortTitle}. Does not change other practice areas.</span>
+                      {onOpenFilterManager && (
+                        <button
+                          type="button"
+                          onClick={onOpenFilterManager}
+                          className="font-bold text-[var(--primary)] hover:underline"
+                        >
+                          Advanced Filter Editor →
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}

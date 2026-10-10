@@ -3,7 +3,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { X, Palette, Volume2, VolumeX, Clock, RotateCcw, Sparkles } from 'lucide-react';
-import { ThemeType, UserPreferences, SparkleStyle, CardDesign } from '@/types';
+import { ThemeType, UserPreferences, CardDesign } from '@/types';
 import { soundEffects } from '@/lib/soundEffects';
 import { toast } from 'sonner';
 
@@ -19,13 +19,6 @@ const THEMES: { id: ThemeType; label: string; emoji: string; color: string; desc
   { id: 'strawberry', label: 'Sweet Berry', emoji: '🍓', color: '#E11D48', desc: 'Cozy strawberry pink & rose' },
   { id: 'navy', label: 'Academic Navy', emoji: '🏛️', color: '#1E40AF', desc: 'University navy & crisp slate' },
   { id: 'dark', label: 'Night Study', emoji: '🌙', color: '#1E293B', desc: 'Dark focus workspace' },
-];
-
-const SPARKLE_STYLES: { id: SparkleStyle; label: string; icon: string; desc: string }[] = [
-  { id: 'clinical', label: 'Clinical Teal', icon: '🩺', desc: 'Crisp medical accents' },
-  { id: 'vibrant', label: 'Vibrant Amber', icon: '✨', desc: 'Warm energetic highlights' },
-  { id: 'cosmic', label: 'Cosmic Violet', icon: '🌌', desc: 'Starry deep focus glow' },
-  { id: 'minimal', label: 'Minimal Slate', icon: '◽', desc: 'Understated distraction-free' },
 ];
 
 const CARD_DESIGNS: { id: CardDesign; label: string; desc: string }[] = [
@@ -145,44 +138,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
 
-          {/* Sparkle Style Customization */}
-          <div className="space-y-3 pt-4 border-t border-[var(--border-subtle)]">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-[var(--text-main)] uppercase tracking-wider">
-                <Sparkles className="w-4 h-4 text-amber-500" />
-                <span>Card Sparkle & Glow Style</span>
-              </div>
-              <span className="text-[10px] font-bold text-[var(--text-muted)]">
-                Active: {SPARKLE_STYLES.find(s => s.id === (preferences.sparkleStyle || 'clinical'))?.label}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {SPARKLE_STYLES.map((sp) => {
-                const isSelected = (preferences.sparkleStyle || 'clinical') === sp.id;
-                return (
-                  <button
-                    key={sp.id}
-                    onClick={() => onUpdatePreferences({ sparkleStyle: sp.id })}
-                    aria-pressed={isSelected}
-                    className={`p-2.5 rounded-2xl border-2 text-left transition-all cursor-pointer ${
-                      isSelected
-                        ? 'border-[var(--primary)] bg-[var(--primary-light)] ring-2 ring-[var(--primary)]/20 shadow-xs'
-                        : 'border-[var(--border-color)] bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-subtle)]'
-                    }`}
-                  >
-                    <div className="text-base mb-1">{sp.icon}</div>
-                    <div className="font-extrabold text-xs text-[var(--text-main)] leading-tight">
-                      {sp.label}
-                    </div>
-                    <div className="text-[10px] text-[var(--text-muted)] line-clamp-1 mt-0.5">
-                      {sp.desc}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
 
           {/* Card Design Customization */}
           <div className="space-y-3 pt-4 border-t border-[var(--border-subtle)]">

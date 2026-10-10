@@ -18,7 +18,8 @@ import {
   Brain,
   Clock,
   X,
-  RotateCcw
+  RotateCcw,
+  SlidersHorizontal
 } from 'lucide-react';
 
 import { useNutriStore } from '@/lib/store/useNutriStore';
@@ -34,6 +35,7 @@ import { IdentificationView } from '@/components/study/IdentificationView';
 import { BlitzMarathonView } from '@/components/study/BlitzMarathonView';
 import { LearningAnalytics } from '@/components/study/LearningAnalytics';
 import { BoardReadinessView } from '@/components/study/BoardReadinessView';
+import { CardFilterManager } from '@/components/filter/CardFilterManager';
 import { StudySessionSummary } from '@/components/study/StudySessionSummary';
 import { AuthModal } from '@/components/auth/AuthModal';
 import { toast } from 'sonner';
@@ -75,7 +77,7 @@ export default function NutriboardApp() {
   } = useNutriStore();
 
   // Local UI states
-  const [activeTab, setActiveTab] = useState<'decks' | 'readiness' | 'analytics'>('decks');
+  const [activeTab, setActiveTab] = useState<'decks' | 'readiness' | 'filters' | 'analytics'>('decks');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [editingDeck, setEditingDeck] = useState<Deck | null>(null);
@@ -466,30 +468,48 @@ export default function NutriboardApp() {
       <div className="max-w-6xl mx-auto px-3.5 sm:px-6 pt-4 sm:pt-6 space-y-4 sm:space-y-5">
         {/* RESUME IN-PROGRESS STUDY CHECKPOINT BANNER */}
         {resumeAvailableSession && !activeSession && (
-          <div className="p-3.5 sm:p-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-[var(--card-shadow)]">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-[var(--primary-light)] text-[var(--primary)] flex items-center justify-center font-bold flex-shrink-0">
-                <Play className="w-4 h-4 ml-0.5 fill-current" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--primary)]">
-                    Active Session Saved
-                  </span>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--primary-light)] text-[var(--primary)] font-semibold">
-                    Card {resumeAvailableSession.currentIndex + 1} of {resumeAvailableSession.cardsQueue.length}
-                  </span>
+          <div className="p-2.5 sm:p-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3 shadow-[var(--card-shadow)]">
+            <div className="flex items-center justify-between sm:justify-start gap-2.5 min-w-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-[var(--primary-light)] text-[var(--primary)] flex items-center justify-center font-bold flex-shrink-0">
+                  <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4 ml-0.5 fill-current" />
                 </div>
-                <p className="text-xs font-semibold text-[var(--text-main)] mt-0.5">
-                  {resumeAvailableSession.deckTitle} <span className="text-[var(--text-subtle)] font-normal">· {resumeAvailableSession.mode.replace('-', ' ')}</span>
-                </p>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 flex-nowrap">
+                    <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-[var(--primary)] whitespace-nowrap">
+                      Active Session Saved
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--primary-light)] text-[var(--primary)] font-semibold whitespace-nowrap">
+                      Card {resumeAvailableSession.currentIndex + 1} of {resumeAvailableSession.cardsQueue.length}
+                    </span>
+                  </div>
+                  <p className="text-[11px] sm:text-xs font-semibold text-[var(--text-main)] truncate mt-0.5">
+                    {resumeAvailableSession.deckTitle}{' '}
+                    <span className="text-[var(--text-subtle)] font-normal">
+                      · {resumeAvailableSession.mode.replace('-', ' ')}
+                    </span>
+                  </p>
+                </div>
               </div>
-            </div>
-            <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
+
+              {/* Mobile-only compact discard button */}
               <button
                 type="button"
                 onClick={() => dismissResumeSession()}
-                className="px-2.5 py-1.5 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-main)] rounded-lg hover:bg-[var(--bg-surface-subtle)] transition-all cursor-pointer"
+                className="sm:hidden p-1.5 text-[var(--text-muted)] hover:text-rose-500 rounded-lg hover:bg-[var(--bg-surface-subtle)] transition-colors flex-shrink-0 cursor-pointer"
+                title="Discard saved session"
+                aria-label="Discard saved session"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-1.5 sm:gap-2 w-full sm:w-auto justify-end flex-nowrap">
+              {/* Desktop discard button */}
+              <button
+                type="button"
+                onClick={() => dismissResumeSession()}
+                className="hidden sm:inline-flex px-2.5 py-1.5 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-main)] rounded-lg hover:bg-[var(--bg-surface-subtle)] transition-all cursor-pointer"
               >
                 Discard
               </button>
@@ -501,19 +521,21 @@ export default function NutriboardApp() {
                   dismissResumeSession(dId);
                   handleStartStudy(dId, m, false);
                 }}
-                className="px-3 py-1.5 text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-main)] border border-[var(--border-color)] rounded-lg hover:bg-[var(--bg-surface-subtle)] transition-all cursor-pointer flex items-center gap-1.5"
+                className="flex-1 sm:flex-initial justify-center px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-main)] border border-[var(--border-color)] rounded-lg hover:bg-[var(--bg-surface-subtle)] transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap"
               >
                 <RotateCcw className="w-3 h-3" />
-                <span>Start from Start</span>
+                <span className="sm:hidden">Restart</span>
+                <span className="hidden sm:inline">Start from Start</span>
               </button>
               <button
                 type="button"
                 onClick={() => resumeSession()}
-                className="px-4 py-1.5 text-xs font-semibold bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--primary-foreground)] rounded-lg shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                className="flex-1 sm:flex-initial justify-center px-3 sm:px-4 py-1.5 text-[11px] sm:text-xs font-semibold bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--primary-foreground)] rounded-lg shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 whitespace-nowrap"
               >
-                <Play className="w-3.5 h-3.5 fill-current" />
-                <span>Resume at Card {resumeAvailableSession.currentIndex + 1}</span>
-                <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
+                <Play className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-current" />
+                <span className="sm:hidden">Resume ({resumeAvailableSession.currentIndex + 1})</span>
+                <span className="hidden sm:inline">Resume at Card {resumeAvailableSession.currentIndex + 1}</span>
+                <ArrowRight className="w-3 h-3 sm:w-3.5 sm:h-3.5 ml-0.5" />
               </button>
             </div>
           </div>
@@ -546,6 +568,18 @@ export default function NutriboardApp() {
               >
                 <Award className="w-3.5 h-3.5" />
                 <span>Board Readiness</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('filters')}
+                className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                  activeTab === 'filters'
+                    ? 'bg-[var(--primary)] text-white shadow-xs'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)]'
+                }`}
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                <span>Filter & Sort</span>
               </button>
 
               <button
@@ -774,6 +808,13 @@ export default function NutriboardApp() {
 
 
 
+        {/* TAB CONTENT: FILTER & SORT MANAGEMENT TAB */}
+        {activeTab === 'filters' && (
+          <div>
+            <CardFilterManager />
+          </div>
+        )}
+
         {/* TAB CONTENT: ANALYTICS TAB */}
         {activeTab === 'analytics' && (
           <div>
@@ -786,6 +827,7 @@ export default function NutriboardApp() {
           <div>
             <BoardReadinessView
               initialSearchQuery={searchQuery}
+              onOpenFilterManager={() => setActiveTab('filters')}
               onStartSubjectPractice={(subject, searchTxt, filter, sort, options) => {
                 const effectiveQuery = (searchTxt || searchQuery || '').trim();
                 startPracticeAreaSession(subject, {

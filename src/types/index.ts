@@ -162,6 +162,118 @@ export type CardSortOption = 'default' | 'progress-asc' | 'progress-desc' | 'dif
 
 export type CardFilterOption = 'all' | 'unseen' | 'learning' | 'developing' | 'mastered' | 'due' | 'wrong';
 
+export interface CardGroupFilterItem {
+  id: string;
+  label: string;
+  tag: string;
+  enabled: boolean;
+}
+
+export interface CardGroupFilterConfig {
+  id: string; // e.g. 'nbcd', 'cphn', 'ffss', 'maternal', 'general'
+  name: string;
+  ndleSubject?: import('./ndle').NDLESubject;
+  category?: DeckCategory;
+  color: string;
+  icon: string;
+  description: string;
+  activeSort: CardSortOption;
+  stageFilter: CardFilterOption;
+  filters: CardGroupFilterItem[];
+  searchQuery?: string;
+}
+
+export const DEFAULT_CARD_GROUP_FILTERS: Record<string, CardGroupFilterConfig> = {
+  nbcd: {
+    id: 'nbcd',
+    name: 'Clinical Nutrition & Biochemistry',
+    ndleSubject: 'Nutritional Biochemistry and Clinical Dietetics',
+    category: 'Clinical Nutrition',
+    color: '#059669',
+    icon: 'Stethoscope',
+    description: 'Medical Nutrition Therapy, Clinical Assessments & Pathophysiology',
+    activeSort: 'default',
+    stageFilter: 'all',
+    filters: [
+      { id: 'nbcd-mnt', label: 'Medical Nutrition Therapy (MNT)', tag: 'mnt', enabled: true },
+      { id: 'nbcd-renal', label: 'Renal & Kidney Disease', tag: 'renal', enabled: true },
+      { id: 'nbcd-enteral', label: 'Enteral & Parenteral Nutrition', tag: 'parenteral', enabled: true },
+      { id: 'nbcd-biochem', label: 'Biochemistry & Metabolic Pathways', tag: 'biochem', enabled: true },
+      { id: 'nbcd-diabetes', label: 'Diabetes & Endocrine Care', tag: 'diabetes', enabled: true },
+      { id: 'nbcd-assessment', label: 'Clinical Assessment & Diagnostics', tag: 'assessment', enabled: true },
+    ]
+  },
+  cphn: {
+    id: 'cphn',
+    name: 'Community & Public Health Nutrition',
+    ndleSubject: 'Community and Public Health Nutrition',
+    category: 'Public Health & Community',
+    color: '#2563eb',
+    icon: 'Globe',
+    description: 'Community Programs, Epidemiology, Maternal/Child & Public Health',
+    activeSort: 'default',
+    stageFilter: 'all',
+    filters: [
+      { id: 'cphn-public', label: 'Public Health Programs', tag: 'public health', enabled: true },
+      { id: 'cphn-maternal', label: 'Maternal Nutrition', tag: 'maternal', enabled: true },
+      { id: 'cphn-child', label: 'Pediatrics & Child Nutrition', tag: 'child', enabled: true },
+      { id: 'cphn-ppan', label: 'PPAN & NNC Framework', tag: 'ppan', enabled: true },
+      { id: 'cphn-epi', label: 'Nutritional Epidemiology', tag: 'epidemiology', enabled: true },
+      { id: 'cphn-anthro', label: 'Anthropometric Assessments', tag: 'anthropometry', enabled: true },
+    ]
+  },
+  ffss: {
+    id: 'ffss',
+    name: 'Foods & Food Service Systems',
+    ndleSubject: 'Foods and Food Service Systems',
+    category: 'Food Service Systems',
+    color: '#d97706',
+    icon: 'UtensilsCrossed',
+    description: 'Food Sanitation, Production, Recipe Costing, Menu Planning & HACCP',
+    activeSort: 'default',
+    stageFilter: 'all',
+    filters: [
+      { id: 'ffss-haccp', label: 'HACCP & Food Safety', tag: 'haccp', enabled: true },
+      { id: 'ffss-costing', label: 'Recipe Costing & Yields', tag: 'costing', enabled: true },
+      { id: 'ffss-production', label: 'Food Production & Preparation', tag: 'production', enabled: true },
+      { id: 'ffss-menu', label: 'Menu Planning & Procurement', tag: 'menu', enabled: true },
+      { id: 'ffss-chemistry', label: 'Food Science & Food Chemistry', tag: 'food science', enabled: true },
+      { id: 'ffss-admin', label: 'Food Service Administration', tag: 'food service', enabled: true },
+    ]
+  },
+  maternal: {
+    id: 'maternal',
+    name: 'Maternal & Child Nutrition',
+    category: 'Maternal & Child Nutrition',
+    color: '#F38BA0',
+    icon: 'Heart',
+    description: 'Lactation, Pregnancy, Infant Feeding & Pediatric Milestones',
+    activeSort: 'default',
+    stageFilter: 'all',
+    filters: [
+      { id: 'mat-prenatal', label: 'Prenatal & Gestational Diet', tag: 'pregnancy', enabled: true },
+      { id: 'mat-lactation', label: 'Lactation & Human Milk', tag: 'lactation', enabled: true },
+      { id: 'mat-infant', label: 'Infant Feeding Guidelines', tag: 'infant', enabled: true },
+      { id: 'mat-toddler', label: 'Toddler & Child Milestones', tag: 'child', enabled: true },
+    ]
+  },
+  general: {
+    id: 'general',
+    name: 'General Dietetics & Board Essentials',
+    category: 'General Dietetics',
+    color: '#8B5CF6',
+    icon: 'Apple',
+    description: 'Core Dietetics Fundamentals, Ethics & Comprehensive Review',
+    activeSort: 'default',
+    stageFilter: 'all',
+    filters: [
+      { id: 'gen-ethics', label: 'Code of Ethics & Regulatory Laws', tag: 'ethics', enabled: true },
+      { id: 'gen-dri', label: 'DRIs, RDAs & Nutrient Requirements', tag: 'dri', enabled: true },
+      { id: 'gen-counseling', label: 'Counseling & Behavior Change', tag: 'counseling', enabled: true },
+    ]
+  }
+};
+
 export interface CardProgressInfo {
   stage: CardStage;
   label: string;
