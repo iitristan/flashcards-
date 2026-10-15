@@ -1,12 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { X, Plus, Trash2, Edit3, Tag, Layers, Check, Search } from 'lucide-react';
+import { X, Plus, Trash2, Edit3, Tag, Layers, Check, Search, AlertCircle, CheckCircle2, BookOpen, Filter, ArrowUpDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Deck, Flashcard, DeckCategory, getCardProgressInfo } from '@/types';
 import { toast } from 'sonner';
 import { cleanRawHtml } from '@/components/study/FormattedCardText';
-import { Filter, ArrowUpDown } from 'lucide-react';
 
 interface DeckManagerProps {
   initialDeck?: Deck | null;
@@ -82,10 +81,66 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
   const [option3, setOption3] = useState('');
   const [isAddingNewCard, setIsAddingNewCard] = useState(false);
   const [cardSearchQuery, setCardSearchQuery] = useState('');
-  type CardFilterType = 'all' | 'new' | 'learning' | 'developing' | 'mastered' | 'due';
+  type CardFilterType = 'all' | 'missing-rationale' | 'has-rationale' | 'new' | 'learning' | 'developing' | 'mastered' | 'due';
   type CardSortType = 'default' | 'stage' | 'mastered-first' | 'alpha';
   const [cardFilter, setCardFilter] = useState<CardFilterType>('all');
   const [cardSort, setCardSort] = useState<CardSortType>('default');
+
+  // Pagination state for Manage Cards
+  const [cardPage, setCardPage] = useState(1);
+  const [cardPageSize, setCardPageSize] = useState(10);
+
+  // Reset to page 1 whenever filters, search, sort, or page size change
+  useEffect(() => {
+    setCardPage(1);
+  }, [cardSearchQuery, cardFilter, cardSort, cardPageSize]);
+
+  // Inline rationale editing state
+  const [inlineEditingCardId, setInlineEditingCardId] = useState<string | null>(null);
+  const [inlineRationaleText, setInlineRationaleText] = useState('');
+  const [isSavingRationale, setIsSavingRationale] = useState(false);
+
+  // Local card state for instant UI updates
+  const [localCards, setLocalCards] = useState<Flashcard[]>(initialDeck?.cards || []);
+
+  useEffect(() => {
+    if (initialDeck?.cards) {
+      setLocalCards(initialDeck.cards);
+    }
+  }, [initialDeck?.cards]);
+
+  const startInlineEditRationale = (card: Flashcard) => {
+    setInlineEditingCardId(card.id);
+    setInlineRationaleText(card.rationale || '');
+  };
+
+  const cancelInlineRationale = () => {
+    setInlineEditingCardId(null);
+    setInlineRationaleText('');
+  };
+
+  const handleSaveInlineRationale = async (cardId: string) => {
+    if (!initialDeck || !onUpdateCard) return;
+    setIsSavingRationale(true);
+    try {
+      const trimmed = inlineRationaleText.trim();
+      await onUpdateCard(initialDeck.id, cardId, { rationale: trimmed });
+      setLocalCards((prev) =>
+        prev.map((c) => (c.id === cardId ? { ...c, rationale: trimmed } : c))
+      );
+      if (initialDeck.cards) {
+        const c = initialDeck.cards.find((c) => c.id === cardId);
+        if (c) c.rationale = trimmed;
+      }
+      setInlineEditingCardId(null);
+      setInlineRationaleText('');
+      toast.success(trimmed ? 'Rationale updated successfully!' : 'Rationale cleared');
+    } catch {
+      toast.error('Failed to save rationale');
+    } finally {
+      setIsSavingRationale(false);
+    }
+  };
 
   const [activeTab, setActiveTab] = useState<'info' | 'cards'>('info');
 
@@ -150,6 +205,20 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
           tags: cardTags.length > 0 ? cardTags : tags,
           options
         });
+        setLocalCards((prev) =>
+          prev.map((c) =>
+            c.id === editingCardId
+              ? {
+                  ...c,
+                  front: cardFront.trim(),
+                  back: cardBack.trim(),
+                  rationale: cardRationale.trim(),
+                  tags: cardTags.length > 0 ? cardTags : tags,
+                  options
+                }
+              : c
+          )
+        );
         toast.success('Card updated!');
       } else {
         await onAddCard(initialDeck.id, {
@@ -198,39 +267,63 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
     }
   };
 
+  // Close modal on Escape key when not actively typing in an inline sub-form
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (inlineEditingCardId) {
+          setInlineEditingCardId(null);
+        } else if (isAddingNewCard) {
+          setIsAddingNewCard(false);
+        } else {
+          onClose();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, inlineEditingCardId, isAddingNewCard]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 overflow-y-auto">
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-2.5 sm:p-4 overflow-y-auto"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <motion.div
         role="dialog"
         aria-modal="true"
         aria-labelledby="deck-manager-title"
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        className="w-full max-w-2xl rounded-3xl bg-[var(--bg-surface)] border-2 border-[var(--border-color)] shadow-[var(--modal-shadow)] overflow-hidden my-8"
+        className="w-full max-w-2xl rounded-2xl sm:rounded-3xl bg-[var(--bg-surface)] border-2 border-[var(--border-color)] shadow-[var(--modal-shadow)] overflow-hidden my-3 sm:my-8"
       >
         {/* Modal Header */}
-        <div className="flex items-center justify-between p-6 border-b border-[var(--border-subtle)]">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between gap-3 p-3.5 sm:p-5 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
             <div 
-              className="w-10 h-10 rounded-2xl flex items-center justify-center text-lg shadow-xs"
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl flex items-center justify-center text-lg shadow-xs shrink-0"
               style={{ backgroundColor: `${color}20`, color }}
             >
-              <Layers className="w-5 h-5" />
+              <Layers className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
-            <div>
-              <h2 id="deck-manager-title" className="text-lg font-black text-[var(--text-main)]">
+            <div className="min-w-0 flex-1">
+              <h2 id="deck-manager-title" className="text-sm sm:text-base font-black text-[var(--text-main)] truncate">
                 {initialDeck ? `Edit: ${initialDeck.title}` : 'Create New Reviewer Deck'}
               </h2>
-              <p className="text-xs text-[var(--text-muted)]">
+              <p className="text-[11px] sm:text-xs text-[var(--text-muted)] truncate">
                 {initialDeck ? `${initialDeck.cards.length} cards in this deck` : 'Set up your subject and flashcards'}
               </p>
             </div>
           </div>
 
           <button
+            type="button"
             onClick={onClose}
             aria-label="Close deck manager modal"
-            className="p-2 rounded-2xl text-[var(--text-subtle)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)] transition-colors"
+            className="p-1.5 sm:p-2 rounded-xl sm:rounded-2xl text-[var(--text-subtle)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)] transition-colors cursor-pointer shrink-0"
+            title="Close (Esc)"
           >
             <X className="w-5 h-5" />
           </button>
@@ -241,13 +334,13 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
           <div
             role="tablist"
             aria-label="Deck management tabs"
-            className="flex border-b border-[var(--border-subtle)] px-6 pt-2 bg-[var(--bg-surface-subtle)]/50"
+            className="flex border-b border-[var(--border-subtle)] px-4 sm:px-6 pt-2 bg-[var(--bg-surface-subtle)]/50 overflow-x-auto scrollbar-none"
           >
             <button
               role="tab"
               aria-selected={activeTab === 'info'}
               onClick={() => setActiveTab('info')}
-              className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all ${
+              className={`px-3 sm:px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
                 activeTab === 'info'
                   ? 'border-[var(--primary)] text-[var(--primary)]'
                   : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-main)]'
@@ -259,7 +352,7 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
               role="tab"
               aria-selected={activeTab === 'cards'}
               onClick={() => setActiveTab('cards')}
-              className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+              className={`px-3 sm:px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
                 activeTab === 'cards'
                   ? 'border-[var(--primary)] text-[var(--primary)]'
                   : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-main)]'
@@ -274,7 +367,7 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
         )}
 
         {/* Content Area */}
-        <div className="p-6 max-h-[70vh] overflow-y-auto space-y-6">
+        <div className="p-3.5 sm:p-6 max-h-[75vh] overflow-y-auto space-y-4 sm:space-y-6">
           {activeTab === 'info' ? (
             <div className="space-y-4">
               {/* Title */}
@@ -416,95 +509,102 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
             <div className="space-y-6">
               {!isAddingNewCard ? (
                 <div className="space-y-4">
-                  {/* Search and Add Card Header Bar */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                    {/* Search Input */}
-                    <div className="relative flex-1 min-w-0">
-                      <Search className="w-3.5 h-3.5 text-[var(--text-subtle)] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                      <input
-                        type="text"
-                        value={cardSearchQuery}
-                        onChange={(e) => setCardSearchQuery(e.target.value)}
-                        placeholder="Search cards by question, answer, tag..."
-                        className="w-full pl-8.5 pr-8 py-2 rounded-xl bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] focus:border-[var(--primary)] text-xs text-[var(--text-main)] placeholder:text-[var(--text-subtle)] outline-none transition-colors font-medium"
-                      />
-                      {cardSearchQuery && (
-                        <button
-                          type="button"
-                          onClick={() => setCardSearchQuery('')}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-subtle)] hover:text-[var(--text-main)] p-0.5"
-                          title="Clear search"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
+                  {/* Search, Sort, and Add Card Controls Bar */}
+                  <div className="space-y-3 p-3 sm:p-4 rounded-2xl bg-[var(--bg-surface-subtle)] border border-[var(--border-color)]">
+                    {/* Row 1: Search, Sort Dropdown, and Add Flashcard */}
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                      {/* Search Input */}
+                      <div className="relative flex-1 min-w-0">
+                        <Search className="w-3.5 h-3.5 text-[var(--text-subtle)] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={cardSearchQuery}
+                          onChange={(e) => setCardSearchQuery(e.target.value)}
+                          placeholder="Search cards by question, answer, tag..."
+                          className="w-full pl-8.5 pr-8 py-2 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] focus:border-[var(--primary)] text-xs text-[var(--text-main)] placeholder:text-[var(--text-subtle)] outline-none transition-colors font-medium shadow-2xs"
+                        />
+                        {cardSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setCardSearchQuery('')}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-subtle)] hover:text-[var(--text-main)] p-0.5 cursor-pointer"
+                            title="Clear search"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
 
-                    {/* Add Flashcard Button */}
-                    <button
-                      onClick={() => {
-                        resetCardForm();
-                        setIsAddingNewCard(true);
-                      }}
-                      className="px-3.5 py-2 rounded-xl bg-[var(--primary)] text-white text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-[var(--primary-hover)] transition-colors shadow-xs flex-shrink-0 cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Add Flashcard</span>
-                    </button>
-                  </div>
+                      {/* Sort Selector Dropdown */}
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <div className="relative w-full sm:w-auto">
+                          <select
+                            value={cardSort}
+                            onChange={(e) => setCardSort(e.target.value as CardSortType)}
+                            aria-label="Sort flashcards"
+                            className="w-full sm:w-auto pl-7 pr-7 py-2 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] text-xs font-bold text-[var(--text-main)] outline-none cursor-pointer focus:border-[var(--primary)] shadow-2xs appearance-none"
+                          >
+                            <option value="default">Default Order</option>
+                            <option value="stage">Unseen First</option>
+                            <option value="mastered-first">Mastered First</option>
+                            <option value="alpha">Alphabetical (A–Z)</option>
+                          </select>
+                          <ArrowUpDown className="w-3 h-3 text-[var(--primary)] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          <span className="text-[10px] text-[var(--text-subtle)] absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none">▼</span>
+                        </div>
+                      </div>
 
-                  {/* Filter and Sort Toolbar */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-[var(--border-subtle)]">
-                    {/* Stage Filter Chips */}
-                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none text-[11px]">
-                      <span className="font-bold text-[var(--text-subtle)] flex items-center gap-1 mr-0.5">
-                        <Filter className="w-3 h-3" /> Filter:
-                      </span>
-                      {[
-                        { id: 'all', label: 'All' },
-                        { id: 'new', label: '🆕 Unseen' },
-                        { id: 'learning', label: '🔄 Learning' },
-                        { id: 'developing', label: '📈 Developing' },
-                        { id: 'mastered', label: '🏆 Mastered' },
-                        { id: 'due', label: '⏰ Due' },
-                      ].map((flt) => (
-                        <button
-                          key={flt.id}
-                          type="button"
-                          onClick={() => setCardFilter(flt.id as CardFilterType)}
-                          className={`px-2 py-0.5 rounded-lg font-bold transition-all whitespace-nowrap cursor-pointer ${
-                            cardFilter === flt.id
-                              ? 'bg-[var(--primary)] text-white shadow-xs'
-                              : 'bg-[var(--bg-surface-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] border border-[var(--border-subtle)]'
-                          }`}
-                        >
-                          {flt.label}
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Sort Selector */}
-                    <div className="flex items-center gap-1.5 self-end sm:self-auto text-[11px]">
-                      <span className="font-bold text-[var(--text-subtle)] flex items-center gap-1">
-                        <ArrowUpDown className="w-3 h-3" /> Sort:
-                      </span>
-                      <select
-                        value={cardSort}
-                        onChange={(e) => setCardSort(e.target.value as CardSortType)}
-                        className="px-2 py-1 rounded-lg bg-[var(--bg-surface-subtle)] border border-[var(--border-subtle)] text-[11px] font-bold text-[var(--text-main)] outline-none cursor-pointer focus:border-[var(--primary)]"
+                      {/* Add Flashcard Button */}
+                      <button
+                        onClick={() => {
+                          resetCardForm();
+                          setIsAddingNewCard(true);
+                        }}
+                        className="px-3.5 py-2 rounded-xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-xs flex-shrink-0 cursor-pointer active:scale-95 min-h-[34px]"
                       >
-                        <option value="default">Default Order</option>
-                        <option value="stage">Unseen & Learning First</option>
-                        <option value="mastered-first">Mastered First</option>
-                        <option value="alpha">Alphabetical (A-Z)</option>
-                      </select>
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add Flashcard</span>
+                      </button>
+                    </div>
+
+                    {/* Row 2: Filter Chips with responsive wrapping */}
+                    <div className="pt-2 border-t border-[var(--border-subtle)]">
+                      <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
+                        <span className="font-bold text-[var(--text-subtle)] flex items-center gap-1 mr-1 shrink-0">
+                          <Filter className="w-3 h-3 text-[var(--primary)]" /> Filter:
+                        </span>
+                        {[
+                          { id: 'all', label: 'All' },
+                          { id: 'missing-rationale', label: '⚠️ Missing Rationale' },
+                          { id: 'has-rationale', label: '💡 Has Rationale' },
+                          { id: 'new', label: '🆕 Unseen' },
+                          { id: 'learning', label: '🔄 Learning' },
+                          { id: 'developing', label: '📈 Developing' },
+                          { id: 'mastered', label: '🏆 Mastered' },
+                          { id: 'due', label: '⏰ Due' },
+                        ].map((flt) => (
+                          <button
+                            key={flt.id}
+                            type="button"
+                            onClick={() => setCardFilter(flt.id as CardFilterType)}
+                            className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                              cardFilter === flt.id
+                                ? 'bg-[var(--primary)] text-white shadow-xs'
+                                : 'bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)] border border-[var(--border-subtle)]'
+                            }`}
+                          >
+                            {flt.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
 
                   {/* Cards List / Empty State */}
                   {(() => {
-                    const allCards = initialDeck?.cards || [];
+                    const allCards = localCards.length > 0 ? localCards : (initialDeck?.cards || []);
                     const q = cardSearchQuery.trim().toLowerCase();
+                    const totalMissingRationale = allCards.filter(c => !c.rationale || !c.rationale.trim()).length;
 
                     // Step 1: Text search
                     let processed = q
@@ -517,8 +617,12 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
                         )
                       : [...allCards];
 
-                    // Step 2: Stage Filter
-                    if (cardFilter !== 'all') {
+                    // Step 2: Stage & Rationale Filter
+                    if (cardFilter === 'missing-rationale') {
+                      processed = processed.filter((c) => !c.rationale || !c.rationale.trim());
+                    } else if (cardFilter === 'has-rationale') {
+                      processed = processed.filter((c) => Boolean(c.rationale && c.rationale.trim()));
+                    } else if (cardFilter !== 'all') {
                       processed = processed.filter((c) => {
                         const info = getCardProgressInfo(c);
                         if (cardFilter === 'due') return info.isDue;
@@ -569,12 +673,48 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
                       );
                     }
 
+                    // Step 4: Pagination calculations
+                    const totalCards = processed.length;
+                    const totalPages = Math.max(1, Math.ceil(totalCards / cardPageSize));
+                    const safeCurrentPage = Math.min(Math.max(1, cardPage), totalPages);
+                    const startIndex = (safeCurrentPage - 1) * cardPageSize;
+                    const endIndex = Math.min(startIndex + cardPageSize, totalCards);
+                    const paginatedCards = processed.slice(startIndex, endIndex);
+
+                    const getPageNumbers = () => {
+                      if (totalPages <= 5) {
+                        return Array.from({ length: totalPages }, (_, i) => i + 1);
+                      }
+                      if (safeCurrentPage <= 3) {
+                        return [1, 2, 3, '...', totalPages];
+                      }
+                      if (safeCurrentPage >= totalPages - 2) {
+                        return [1, '...', totalPages - 2, totalPages - 1, totalPages];
+                      }
+                      return [1, '...', safeCurrentPage, '...', totalPages];
+                    };
+
                     return (
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between text-[11px] font-semibold text-[var(--text-muted)] px-1">
-                          <span>
-                            Showing {processed.length} of {allCards.length} cards
-                          </span>
+                      <div className="space-y-3">
+                        {/* Summary Header */}
+                        <div className="flex items-center justify-between text-[11px] font-semibold text-[var(--text-muted)] px-1 flex-wrap gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span>
+                              Showing <span className="font-bold text-[var(--text-main)]">{startIndex + 1}–{endIndex}</span> of{' '}
+                              <span className="font-bold text-[var(--text-main)]">{totalCards}</span> cards
+                            </span>
+                            {totalMissingRationale > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setCardFilter(cardFilter === 'missing-rationale' ? 'all' : 'missing-rationale')}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 cursor-pointer transition-colors"
+                                title="Click to filter cards missing rationales"
+                              >
+                                <AlertCircle className="w-2.5 h-2.5 text-amber-500" />
+                                <span>{totalMissingRationale} missing rationale</span>
+                              </button>
+                            )}
+                          </div>
                           {cardFilter !== 'all' && (
                             <span className="text-[10px] font-bold text-[var(--primary)]">
                               Filter active: {cardFilter}
@@ -582,18 +722,24 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
                           )}
                         </div>
 
-                        <div className="space-y-2.5 max-h-[460px] overflow-y-auto pr-1">
-                          {processed.map((card, idx) => {
+                        {/* Paginated Cards List */}
+                        <div className="space-y-3">
+                          {paginatedCards.map((card, idx) => {
                             const prog = getCardProgressInfo(card);
+                            const hasRationale = Boolean(card.rationale && card.rationale.trim());
+                            const isEditingThisRationale = inlineEditingCardId === card.id;
+                            const globalCardIndex = startIndex + idx + 1;
+
                             return (
                               <div
                                 key={card.id}
-                                className="p-4 rounded-2xl bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] flex items-start justify-between gap-3 group hover:border-[var(--border-color-strong)] transition-all"
+                                className="p-3.5 sm:p-4 rounded-2xl bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] flex flex-col gap-2.5 group hover:border-[var(--primary)]/40 transition-all"
                               >
-                                <div className="flex-1 min-w-0 space-y-1.5">
-                                  <div className="flex items-center gap-2 flex-wrap">
+                                {/* Card Header Row: Badge & Index on left, Edit & Delete Actions on right */}
+                                <div className="flex items-start justify-between gap-2.5">
+                                  <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                                     <span className="w-5 h-5 rounded-lg bg-[var(--border-color)] text-[10px] font-bold flex items-center justify-center text-[var(--text-muted)] flex-shrink-0">
-                                      {idx + 1}
+                                      {globalCardIndex}
                                     </span>
                                     {/* Progression Stage Badge */}
                                     <span
@@ -612,36 +758,216 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
                                       {prog.totalReviews > 0 && ` (${prog.totalReviews} rev)`}
                                     </span>
 
-                                    <h4 className="text-xs font-bold text-[var(--text-main)] truncate max-w-[260px] sm:max-w-[340px]">
-                                      {cleanRawHtml(card.front)}
-                                    </h4>
+                                    {/* Rationale Status Indicator Badge */}
+                                    {hasRationale ? (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                        <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
+                                        <span>Rationale Included</span>
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                                        <AlertCircle className="w-2.5 h-2.5 text-amber-500" />
+                                        <span>No rationale</span>
+                                      </span>
+                                    )}
                                   </div>
-                                  <p className="text-xs font-semibold text-[var(--primary)] line-clamp-1 pl-7">
-                                    Key: {cleanRawHtml(card.back)}
-                                  </p>
+
+                                  <div className="flex items-center gap-1 flex-shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => startEditCard(card)}
+                                      className="p-1.5 rounded-xl text-[var(--text-subtle)] hover:text-[var(--primary)] hover:bg-[var(--bg-surface)] transition-colors cursor-pointer"
+                                      title="Edit full card"
+                                    >
+                                      <Edit3 className="w-3.5 h-3.5" />
+                                    </button>
+                                    {onDeleteCard && initialDeck && (
+                                      <button
+                                        type="button"
+                                        onClick={async () => {
+                                          await onDeleteCard(initialDeck.id, card.id);
+                                          setLocalCards(prev => prev.filter(c => c.id !== card.id));
+                                        }}
+                                        className="p-1.5 rounded-xl text-[var(--text-subtle)] hover:text-rose-500 hover:bg-[var(--bg-surface)] transition-colors cursor-pointer"
+                                        title="Delete card"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
 
-                                <div className="flex items-center gap-1 flex-shrink-0">
-                                  <button
-                                    onClick={() => startEditCard(card)}
-                                    className="p-1.5 rounded-xl text-[var(--text-subtle)] hover:text-[var(--primary)] hover:bg-[var(--bg-surface)] transition-colors cursor-pointer"
-                                    title="Edit card"
-                                  >
-                                    <Edit3 className="w-3.5 h-3.5" />
-                                  </button>
-                                  {onDeleteCard && initialDeck && (
-                                    <button
-                                      onClick={() => onDeleteCard(initialDeck.id, card.id)}
-                                      className="p-1.5 rounded-xl text-[var(--text-subtle)] hover:text-rose-500 hover:bg-[var(--bg-surface)] transition-colors cursor-pointer"
-                                      title="Delete card"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  )}
-                                </div>
+                                {/* Question (Front) - Full width, clean wrap */}
+                                <h4 className="text-xs sm:text-sm font-bold text-[var(--text-main)] leading-snug break-words [overflow-wrap:anywhere]">
+                                  {cleanRawHtml(card.front)}
+                                </h4>
+
+                                {/* Answer (Back / Key) - Full width, clean wrap */}
+                                <p className="text-xs font-semibold text-[var(--primary)] break-words [overflow-wrap:anywhere] leading-relaxed">
+                                  Key: {cleanRawHtml(card.back)}
+                                </p>
+
+                                {/* RATIONALE SECTION */}
+                                {isEditingThisRationale ? (
+                                  <div className="mt-1 w-full">
+                                    <div className="p-3 rounded-2xl bg-[var(--bg-surface)] border-2 border-[var(--primary)] space-y-2 shadow-xs">
+                                      <div className="flex items-center justify-between">
+                                        <label className="text-[11px] font-bold text-[var(--text-main)] flex items-center gap-1.5">
+                                          <BookOpen className="w-3.5 h-3.5 text-[var(--primary)]" />
+                                          <span>{hasRationale ? 'Edit Rationale' : 'Add Missing Rationale'}</span>
+                                        </label>
+                                        <span className="text-[10px] text-[var(--text-muted)]">Saved directly to reviewer</span>
+                                      </div>
+                                      <textarea
+                                        value={inlineRationaleText}
+                                        onChange={(e) => setInlineRationaleText(e.target.value)}
+                                        placeholder="Enter clinical rationale, reasoning, or key board exam concept..."
+                                        rows={3}
+                                        className="w-full p-2.5 rounded-xl bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-xs text-[var(--text-main)] outline-none focus:border-[var(--primary)] resize-y leading-relaxed font-normal"
+                                        autoFocus
+                                      />
+                                      <div className="flex items-center justify-end gap-2 pt-0.5">
+                                        <button
+                                          type="button"
+                                          onClick={cancelInlineRationale}
+                                          disabled={isSavingRationale}
+                                          className="px-3 py-1 rounded-xl border border-[var(--border-color)] text-xs font-semibold text-[var(--text-muted)] hover:bg-[var(--bg-surface-subtle)] cursor-pointer"
+                                        >
+                                          Cancel
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleSaveInlineRationale(card.id)}
+                                          disabled={isSavingRationale}
+                                          className="px-3 py-1 rounded-xl bg-[var(--primary)] text-white text-xs font-bold hover:bg-[var(--primary-hover)] flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+                                        >
+                                          <Check className="w-3.5 h-3.5" />
+                                          <span>{isSavingRationale ? 'Saving...' : 'Save Rationale'}</span>
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : hasRationale ? (
+                                  <div className="mt-1 w-full">
+                                    <div className="p-2.5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] space-y-1">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--primary)] flex items-center gap-1">
+                                          <BookOpen className="w-3 h-3" />
+                                          Rationale:
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => startInlineEditRationale(card)}
+                                          className="text-[10px] font-bold text-[var(--primary)] hover:underline inline-flex items-center gap-1 cursor-pointer"
+                                          title="Edit rationale inline"
+                                        >
+                                          <Edit3 className="w-3 h-3" />
+                                          <span>Edit Rationale</span>
+                                        </button>
+                                      </div>
+                                      <p className="text-xs text-[var(--text-main)] leading-relaxed whitespace-pre-wrap font-normal break-words [overflow-wrap:anywhere]">
+                                        {cleanRawHtml(card.rationale)}
+                                      </p>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="mt-1 w-full">
+                                    <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-2 p-2.5 rounded-xl bg-amber-500/5 border border-dashed border-amber-500/30">
+                                      <div className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 min-w-0">
+                                        <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                        <span className="text-[11px] font-semibold break-words">No rationale provided for this card</span>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => startInlineEditRationale(card)}
+                                        className="px-2.5 py-1 rounded-lg bg-[var(--primary)] text-white hover:bg-[var(--primary-hover)] text-xs font-bold transition-all inline-flex items-center justify-center gap-1 cursor-pointer shadow-xs active:scale-95 shrink-0 self-start xs:self-auto min-h-[30px]"
+                                        title="Add rationale without opening card"
+                                      >
+                                        <Plus className="w-3 h-3" />
+                                        <span>Add Rationale</span>
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             );
                           })}
+                        </div>
+
+                        {/* Pagination Controls Bar at the bottom */}
+                        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-3 py-2.5 rounded-2xl bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-xs text-[var(--text-muted)] mt-4 w-full">
+                          {/* Result Range & Configurable Page Size Selector */}
+                          <div className="flex items-center gap-2.5 flex-wrap justify-center sm:justify-start">
+                            <span>
+                              Showing <span className="font-bold text-[var(--text-main)]">{startIndex + 1}–{endIndex}</span> of{' '}
+                              <span className="font-bold text-[var(--text-main)]">{totalCards}</span> cards
+                            </span>
+
+                            <div className="flex items-center gap-1.5 text-[11px] border-l border-[var(--border-color)] pl-2.5">
+                              <span className="text-[var(--text-subtle)] font-medium">Per page:</span>
+                              <select
+                                value={cardPageSize}
+                                onChange={(e) => {
+                                  setCardPageSize(Number(e.target.value));
+                                  setCardPage(1);
+                                }}
+                                aria-label="Cards per page"
+                                className="px-2 py-0.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-color)] text-[var(--text-main)] font-bold outline-none cursor-pointer focus:border-[var(--primary)]"
+                              >
+                                <option value={10}>10</option>
+                                <option value={20}>20</option>
+                                <option value={50}>50</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Navigation Buttons */}
+                          {totalPages > 1 && (
+                            <div className="flex items-center gap-1 flex-wrap justify-center">
+                              <button
+                                type="button"
+                                onClick={() => setCardPage((p) => Math.max(1, p - 1))}
+                                disabled={safeCurrentPage === 1}
+                                className="px-2.5 py-1 rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-subtle)] text-xs font-semibold disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex items-center gap-1 transition-colors"
+                                title="Previous page"
+                              >
+                                <ChevronLeft className="w-3.5 h-3.5" />
+                                <span className="hidden xs:inline">Prev</span>
+                              </button>
+
+                              <div className="flex items-center gap-1 mx-1">
+                                {getPageNumbers().map((p, pIdx) =>
+                                  p === '...' ? (
+                                    <span key={`dots-${pIdx}`} className="px-1 text-[var(--text-subtle)] text-xs">…</span>
+                                  ) : (
+                                    <button
+                                      key={`page-${p}`}
+                                      type="button"
+                                      onClick={() => setCardPage(Number(p))}
+                                      className={`min-w-[28px] h-7 px-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                        safeCurrentPage === p
+                                          ? 'bg-[var(--primary)] text-white shadow-xs'
+                                          : 'border border-[var(--border-color)] bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-subtle)] text-[var(--text-main)]'
+                                      }`}
+                                    >
+                                      {p}
+                                    </button>
+                                  )
+                                )}
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => setCardPage((p) => Math.min(totalPages, p + 1))}
+                                disabled={safeCurrentPage === totalPages}
+                                className="px-2.5 py-1 rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-subtle)] text-xs font-semibold disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex items-center gap-1 transition-colors"
+                                title="Next page"
+                              >
+                                <span className="hidden xs:inline">Next</span>
+                                <ChevronRight className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
@@ -755,23 +1081,43 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
         </div>
 
         {/* Modal Footer */}
-        {activeTab === 'info' && (
-          <div className="flex items-center justify-end gap-3 p-6 border-t border-[var(--border-subtle)] bg-[var(--bg-surface-subtle)]/30">
-            <button
-              onClick={onClose}
-              className="px-5 py-2.5 rounded-2xl border border-[var(--border-color)] text-xs font-bold text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)] transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleSaveDeck}
-              className="px-6 py-2.5 rounded-2xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white text-xs font-bold shadow-sm transition-colors flex items-center gap-1.5"
-            >
-              <Check className="w-3.5 h-3.5" />
-              <span>{initialDeck ? 'Save Deck' : 'Create Deck'}</span>
-            </button>
-          </div>
-        )}
+        <div className="flex items-center justify-between gap-3 p-3.5 sm:p-5 border-t border-[var(--border-subtle)] bg-[var(--bg-surface-subtle)]/40">
+          {activeTab === 'info' ? (
+            <>
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl border border-[var(--border-color)] text-xs font-bold text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)] transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveDeck}
+                className="px-5 sm:px-6 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white text-xs font-bold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>{initialDeck ? 'Save Deck' : 'Create Deck'}</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="text-[11px] text-[var(--text-muted)] hidden xs:block">
+                All card changes and rationales are saved automatically.
+              </p>
+              <div className="flex items-center justify-end gap-2 w-full xs:w-auto">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="w-full xs:w-auto px-5 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white text-xs font-bold shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 active:scale-98"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Done / Close</span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </motion.div>
     </div>
   );

@@ -34,11 +34,8 @@ function getInitialCardGroupFilters(): Record<string, CardGroupFilterConfig> {
     const raw = localStorage.getItem(CARD_GROUP_FILTERS_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object') {
-        return {
-          ...DEFAULT_CARD_GROUP_FILTERS,
-          ...parsed
-        };
+      if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+        return parsed;
       }
     }
   } catch {}
@@ -191,6 +188,10 @@ interface NutriStore {
   // Card Group Filter Management
   cardGroupFilters: Record<string, CardGroupFilterConfig>;
   updateGroupFilterConfig: (groupId: string, updates: Partial<CardGroupFilterConfig>) => void;
+  updatePracticeAreaName: (groupId: string, newName: string) => void;
+  deletePracticeArea: (groupId: string) => Promise<void>;
+  assignCardToPracticeArea: (deckId: string, cardId: string, practiceAreaId: string) => Promise<void>;
+  unassignCardFromPracticeArea: (deckId: string, cardId: string) => Promise<void>;
   addGroupFilterItem: (groupId: string, item: { label: string; tag: string }) => void;
   removeGroupFilterItem: (groupId: string, filterId: string) => void;
   toggleGroupFilterItem: (groupId: string, filterId: string, enabled?: boolean) => void;
@@ -841,6 +842,89 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
         } catch {}
       }
       return { cardGroupFilters: updated };
+    });
+  },
+
+  updatePracticeAreaName: (groupId, newName) => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    set((state) => {
+      const current = state.cardGroupFilters[groupId] || DEFAULT_CARD_GROUP_FILTERS[groupId];
+      if (!current) return state;
+      const updated = {
+        ...state.cardGroupFilters,
+        [groupId]: {
+          ...current,
+          name: trimmed
+        }
+      };
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(CARD_GROUP_FILTERS_STORAGE_KEY, JSON.stringify(updated));
+        } catch {}
+      }
+      return { cardGroupFilters: updated };
+    });
+  },
+
+  deletePracticeArea: async (groupId) => {
+    const { decks, updateCard } = get();
+    const groupToDelete = get().cardGroupFilters[groupId];
+
+    // Remove group from cardGroupFilters
+    set((state) => {
+      const nextFilters = { ...state.cardGroupFilters };
+      delete nextFilters[groupId];
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(CARD_GROUP_FILTERS_STORAGE_KEY, JSON.stringify(nextFilters));
+        } catch {}
+      }
+      return { cardGroupFilters: nextFilters };
+    });
+
+    // Safely mark associated cards as unassigned without deleting records, rationales, or progress
+    for (const deck of decks) {
+      for (const card of deck.cards || []) {
+        let isAssociated = false;
+        if (card.practiceAreaId === groupId) {
+          isAssociated = true;
+        } else if (!card.practiceAreaId && !card.unassigned && groupToDelete) {
+          if (groupToDelete.ndleSubject && resolveCardSubject(card, deck.category) === groupToDelete.ndleSubject) {
+            isAssociated = true;
+          } else if (groupToDelete.category && (deck.category === groupToDelete.category || (card.tags || []).some(t => t.toLowerCase() === groupToDelete.category?.toLowerCase()))) {
+            isAssociated = true;
+          }
+        }
+
+        if (isAssociated) {
+          await updateCard(deck.id, card.id, {
+            practiceAreaId: 'unassigned',
+            unassigned: true
+          });
+        }
+      }
+    }
+  },
+
+  assignCardToPracticeArea: async (deckId, cardId, practiceAreaId) => {
+    const { cardGroupFilters, updateCard } = get();
+    const targetGroup = cardGroupFilters[practiceAreaId];
+    const updates: Partial<Flashcard> = {
+      practiceAreaId,
+      unassigned: false
+    };
+    if (targetGroup?.ndleSubject) {
+      updates.ndleSubject = targetGroup.ndleSubject;
+    }
+    await updateCard(deckId, cardId, updates);
+  },
+
+  unassignCardFromPracticeArea: async (deckId, cardId) => {
+    const { updateCard } = get();
+    await updateCard(deckId, cardId, {
+      practiceAreaId: 'unassigned',
+      unassigned: true
     });
   },
 

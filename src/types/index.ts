@@ -97,6 +97,8 @@ export interface Flashcard {
   options?: string[]; // 4 options for Multiple Choice mode (including the correct answer)
   tags: string[]; // e.g. ["CKD", "Renal", "MNT"]
   ndleSubject?: import('./ndle').NDLESubject; // Canonical PRC NDLE Subject
+  practiceAreaId?: string; // Explicit assignment to a practice area
+  unassigned?: boolean; // True if card is unassigned from practice areas
   difficulty?: 'easy' | 'medium' | 'hard';
   leitnerBox?: number; // 1 to 5 (ARtLS box)
   userNotes?: string; // User personal notes / mnemonics per item

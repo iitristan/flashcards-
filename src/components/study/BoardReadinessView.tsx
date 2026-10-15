@@ -437,7 +437,7 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <span className="font-bold text-xs sm:text-sm text-foreground leading-snug block">
-                      {subjectName}
+                      {groupConfig?.name || subjectName}
                     </span>
                   </div>
 
@@ -560,7 +560,7 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-extrabold text-[var(--text-main)] flex items-center gap-1.5">
                         <Tag className="w-3.5 h-3.5 text-[var(--primary)]" />
-                        <span>Independent Filter & Sort for {config.shortTitle}</span>
+                        <span>Independent Filter & Sort for {groupConfig.name || config.shortTitle}</span>
                       </span>
                       <button
                         type="button"

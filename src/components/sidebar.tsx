@@ -43,7 +43,11 @@ export function Sidebar({ userEmail }: SidebarProps) {
 
   return (
     <aside className="flex h-screen w-64 flex-col border-r bg-card">
-      <div className="flex items-center gap-2.5 px-6 py-5 border-b border-border/50">
+      <Link
+        href="/"
+        className="flex items-center gap-2.5 px-6 py-5 border-b border-border/50 hover:bg-muted/40 transition-colors"
+        title="Return to Nutriboard Deck Hub"
+      >
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <Brain className="h-5 w-5" />
         </div>
@@ -51,7 +55,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
           <span className="text-base font-bold tracking-tight text-foreground">Nutriboard</span>
           <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Board Reviewer</p>
         </div>
-      </div>
+      </Link>
 
       <nav className="flex-1 space-y-1 px-3">
         {navItems.map(({ href, label, icon: Icon }) => {

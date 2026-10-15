@@ -255,6 +255,21 @@ export default function NutriboardApp() {
     setIsImportExportOpen(true);
   };
 
+  const handleNavigateToDeck = () => {
+    setActiveTab('decks');
+    setSelectedCategory('All');
+    setSearchQuery('');
+    setEditingDeck(null);
+    setIsCreatingDeck(false);
+    setIsImportExportOpen(false);
+    setIsSettingsOpen(false);
+    setIsAuthModalOpen(false);
+    setIsConfirmCBLEOpen(false);
+    if (activeSession) {
+      endStudySession();
+    }
+  };
+
   // --------------------------------------------------------------------------
   // ACTIVE STUDY SESSION VIEW
   // --------------------------------------------------------------------------
@@ -286,6 +301,7 @@ export default function NutriboardApp() {
               updatePreferences({ soundEnabled: !preferences.soundEnabled })
             }
             onExit={endStudySession}
+            onNutriboardClick={handleNavigateToDeck}
             onTimerExpire={handleTimerExpire}
             onFilterChange={(filter) => updateSessionFilterAndSort({ filter })}
             onSortChange={(sort) => updateSessionFilterAndSort({ sort })}
@@ -384,19 +400,24 @@ export default function NutriboardApp() {
   // MAIN DASHBOARD VIEW
   // --------------------------------------------------------------------------
   return (
-    <main className="min-h-screen bg-[var(--bg-main)] text-[var(--text-main)] transition-colors duration-300 pb-16">
+    <main className="min-h-screen bg-[var(--bg-main)] text-[var(--text-main)] transition-colors duration-300 pb-16 overflow-x-hidden">
       {/* TOP NAVIGATION BAR */}
       <header className="sticky top-0 z-30 bg-[var(--bg-surface)]/95 backdrop-blur-md border-b border-[var(--border-color)]">
         <div className="max-w-6xl mx-auto px-3.5 sm:px-6 py-3 sm:py-3.5 flex items-center justify-between gap-2 sm:gap-4">
-          {/* Logo & App Title */}
-          <div className="flex flex-col justify-center flex-shrink-0">
-            <h1 className="font-extrabold text-xl tracking-tight text-[var(--text-main)] leading-none">
+          {/* Logo & App Title - Clicking returns to Deck page */}
+          <button
+            onClick={handleNavigateToDeck}
+            className="flex flex-col justify-center flex-shrink-0 text-left group cursor-pointer focus:outline-none transition-transform active:scale-98"
+            title="Return to Deck page"
+            aria-label="Return to Deck page"
+          >
+            <h1 className="font-extrabold text-xl tracking-tight text-[var(--text-main)] group-hover:text-[var(--primary)] transition-colors leading-none">
               Nutriboard
             </h1>
-            <p className="text-[11px] font-medium text-[var(--text-muted)] mt-1 hidden xs:block">
+            <p className="text-[11px] font-medium text-[var(--text-muted)] mt-1 hidden xs:block group-hover:text-[var(--text-subtle)] transition-colors">
               Board Examination & Dietetics Reviewer
             </p>
-          </div>
+          </button>
 
           {/* Right Action Icons & Buttons */}
           <div className="flex items-center gap-2 sm:gap-2.5">

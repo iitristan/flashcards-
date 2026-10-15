@@ -7,6 +7,7 @@ import { StudyMode, Flashcard, CardSortOption, CardFilterOption, SparkleStyle, g
 import { NDLESubject, NDLE_SUBJECT_CONFIGS } from '@/types/ndle';
 import { StudyTimer } from './StudyTimer';
 import { soundEffects } from '@/lib/soundEffects';
+import { useNutriStore } from '@/lib/store/useNutriStore';
 
 interface StudyHeaderProps {
   deckTitle: string;
@@ -25,6 +26,7 @@ interface StudyHeaderProps {
   onReviewMissed?: () => void;
   onToggleSound: () => void;
   onExit: () => void;
+  onNutriboardClick?: () => void;
   onTimerExpire?: () => void;
   onFilterChange?: (filter: CardFilterOption) => void;
   onSortChange?: (sort: CardSortOption) => void;
@@ -48,6 +50,7 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
   onReviewMissed,
   onToggleSound,
   onExit,
+  onNutriboardClick,
   onTimerExpire,
   onFilterChange,
   onSortChange,
@@ -57,7 +60,11 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
   const [showCustomizeMenu, setShowCustomizeMenu] = useState(false);
 
+  const cardGroupFilters = useNutriStore((state) => state.cardGroupFilters);
   const practiceConfig = practiceArea ? NDLE_SUBJECT_CONFIGS[practiceArea] : null;
+  const customGroupName = practiceArea
+    ? Object.values(cardGroupFilters).find((g) => g.ndleSubject === practiceArea)?.name || practiceConfig?.name
+    : null;
   const cardProgress = currentCard ? getCardProgressInfo(currentCard) : null;
 
   const modeDetails: Record<StudyMode, { label: string; icon: typeof Sparkles; color: string }> = {
@@ -100,8 +107,20 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
     <div className="w-full max-w-3xl mx-auto mb-6 space-y-3">
       {/* Top action row */}
       <div className="flex items-center justify-between gap-3">
-        {/* Back button & Save Status */}
+        {/* Nutriboard Brand Button, Back button & Save Status */}
         <div className="flex items-center gap-2">
+          {onNutriboardClick && (
+            <button
+              onClick={onNutriboardClick}
+              aria-label="Return to Nutriboard Deck Hub"
+              title="Return to Deck page"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-[var(--text-main)] hover:text-[var(--primary)] hover:bg-[var(--bg-surface)] border border-[var(--border-color)] transition-all active:scale-95 flex-shrink-0 shadow-xs cursor-pointer group"
+            >
+              <span className="text-[var(--primary)] font-black">✦</span>
+              <span className="group-hover:underline">Nutriboard</span>
+            </button>
+          )}
+
           <button
             onClick={handleExitClick}
             aria-label="Exit review session"
@@ -193,9 +212,10 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
                 borderColor: practiceConfig.borderColor,
                 color: practiceConfig.color,
               }}
+              title={customGroupName || practiceConfig.name}
             >
               <ShieldCheck className="w-3 h-3" />
-              <span>{practiceConfig.code} ({practiceConfig.weightPercentage}%)</span>
+              <span>{customGroupName ? `${customGroupName} (${practiceConfig.weightPercentage}%)` : `${practiceConfig.code} (${practiceConfig.weightPercentage}%)`}</span>
             </span>
           )}
         </div>
