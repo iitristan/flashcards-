@@ -13,6 +13,11 @@ import {
   ChevronRight,
   Bookmark,
   Home,
+  CheckCircle2,
+  XCircle,
+  HelpCircle,
+  FileSpreadsheet,
+  BookOpen,
 } from "lucide-react";
 
 import { DEFAULT_EXAMINEE, CBLEQuestion, MOCK_CBLE_QUESTIONS } from "@/data/cble-mock-data";
@@ -72,6 +77,7 @@ export function CBLEExamView({ initialQuestions, initialItemCount = 100 }: CBLEE
   const [showProfile, setShowProfile] = useState(false);
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
   const [showResults, setShowResults] = useState(false);
+  const [isReviewMode, setIsReviewMode] = useState(false);
 
   // Load saved in-progress exam session on mount
   useEffect(() => {
@@ -172,12 +178,13 @@ export function CBLEExamView({ initialQuestions, initialItemCount = 100 }: CBLEE
 
   // Timer Countdown
   useEffect(() => {
-    if (!isExamStarted || showResults) return;
+    if (!isExamStarted || showResults || isReviewMode) return;
 
     const interval = setInterval(() => {
       setTimeRemainingSeconds((prev) => {
         if (prev <= 1) {
           clearInterval(interval);
+          setIsReviewMode(true);
           setShowResults(true);
           return 0;
         }
@@ -193,7 +200,7 @@ export function CBLEExamView({ initialQuestions, initialItemCount = 100 }: CBLEE
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [isExamStarted, showResults, currentIndex]);
+  }, [isExamStarted, showResults, isReviewMode, currentIndex]);
 
   // Derived Best Time & Worst Time tracking (pure calculation, no setState inside useEffect)
   const { bestTime, worstTime } = useMemo(() => {
@@ -223,11 +230,12 @@ export function CBLEExamView({ initialQuestions, initialItemCount = 100 }: CBLEE
   };
 
   const handleSelectOption = useCallback((key: "A" | "B" | "C" | "D") => {
+    if (isReviewMode) return;
     setUserAnswers((prev) => ({
       ...prev,
       [currentIndex]: key,
     }));
-  }, [currentIndex]);
+  }, [currentIndex, isReviewMode]);
 
   const handleToggleFlag = useCallback(() => {
     setFlaggedQuestions((prev) => {
@@ -244,10 +252,12 @@ export function CBLEExamView({ initialQuestions, initialItemCount = 100 }: CBLEE
   const handleNext = useCallback(() => {
     if (currentIndex < questions.length - 1) {
       setCurrentIndex((prev) => prev + 1);
+    } else if (isReviewMode) {
+      setShowResults(true);
     } else {
       setShowSubmitDialog(true);
     }
-  }, [currentIndex, questions.length]);
+  }, [currentIndex, questions.length, isReviewMode]);
 
   const handlePrev = useCallback(() => {
     if (currentIndex > 0) {
@@ -279,18 +289,18 @@ export function CBLEExamView({ initialQuestions, initialItemCount = 100 }: CBLEE
 
       const key = e.key.toUpperCase();
 
-      if (key === 'A' || key === '1') {
+      if (!isReviewMode && (key === 'A' || key === '1')) {
         e.preventDefault();
         handleSelectOption('A');
-      } else if (key === 'B' || key === '2') {
+      } else if (!isReviewMode && (key === 'B' || key === '2')) {
         e.preventDefault();
         handleSelectOption('B');
-      } else if (key === 'C' && !e.ctrlKey && !e.metaKey) {
+      } else if (!isReviewMode && key === 'C' && !e.ctrlKey && !e.metaKey) {
         if (questions[currentIndex]?.options?.some(o => o.key === 'C')) {
           e.preventDefault();
           handleSelectOption('C');
         }
-      } else if (key === 'D' || key === '4') {
+      } else if (!isReviewMode && (key === 'D' || key === '4')) {
         e.preventDefault();
         handleSelectOption('D');
       } else if (e.key === 'ArrowRight' || e.key === 'Enter') {
@@ -314,6 +324,7 @@ export function CBLEExamView({ initialQuestions, initialItemCount = 100 }: CBLEE
 
   const handleFinalizeSubmission = useCallback(async () => {
     setShowSubmitDialog(false);
+    setIsReviewMode(true);
     setShowResults(true);
 
     let correctCount = 0;
@@ -407,6 +418,7 @@ export function CBLEExamView({ initialQuestions, initialItemCount = 100 }: CBLEE
     setTotalTimeElapsed(0);
     setQuestionTimeSpent({});
     setShowResults(false);
+    setIsReviewMode(false);
     try {
       const freshQuestions = await getCBLEExamQuestions(selectedItemCount);
       setQuestions(freshQuestions && freshQuestions.length > 0 ? freshQuestions : MOCK_CBLE_QUESTIONS);
@@ -529,15 +541,27 @@ export function CBLEExamView({ initialQuestions, initialItemCount = 100 }: CBLEE
                 <span>Exit to Nutriboard Dashboard</span>
               </Link>
               <div className="border-t border-slate-200 mt-1 pt-1">
-                <button
-                  onClick={() => {
-                    setShowSubmitDialog(true);
-                    setExamineeDropdownOpen(false);
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-rose-700 hover:bg-rose-50 font-bold cursor-pointer"
-                >
-                  <span>Submit Examination</span>
-                </button>
+                {isReviewMode ? (
+                  <button
+                    onClick={() => {
+                      setShowResults(true);
+                      setExamineeDropdownOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-[#00838f] hover:bg-sky-50 font-bold cursor-pointer"
+                  >
+                    <span>View Evaluation Sheet & Downloads</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setShowSubmitDialog(true);
+                      setExamineeDropdownOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-rose-700 hover:bg-rose-50 font-bold cursor-pointer"
+                  >
+                    <span>Submit Examination</span>
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -679,24 +703,40 @@ export function CBLEExamView({ initialQuestions, initialItemCount = 100 }: CBLEE
                 {/* Right Side: Timer Panel */}
                 <div className="md:col-span-4 flex flex-col items-center md:items-end justify-center pt-2 sm:pt-0 border-t border-slate-300 md:border-t-0">
                   <div className="text-center md:text-right">
-                    <span className="text-xs font-semibold text-slate-700 block">
-                      Time Remaining:
-                    </span>
+                    {isReviewMode ? (
+                      <>
+                        <span className="text-xs font-bold text-emerald-800 block">
+                          Exam Completed:
+                        </span>
+                        <div className="mt-0.5 font-mono text-2xl sm:text-3xl font-black tracking-wider text-emerald-700">
+                          REVIEW MODE
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-slate-600 font-semibold">
+                          Total Time: {formatTimer(totalTimeElapsed)}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-xs font-semibold text-slate-700 block">
+                          Time Remaining:
+                        </span>
 
-                    {/* Bold Digital Countdown Timer in Red (Classic Gov Monospace Font) */}
-                    <div className="mt-0.5 font-mono text-3xl sm:text-4xl font-bold tracking-wider text-[#cc0000]">
-                      {formatTimer(timeRemainingSeconds)}
-                    </div>
+                        {/* Bold Digital Countdown Timer in Red (Classic Gov Monospace Font) */}
+                        <div className="mt-0.5 font-mono text-3xl sm:text-4xl font-bold tracking-wider text-[#cc0000]">
+                          {formatTimer(timeRemainingSeconds)}
+                        </div>
 
-                    {/* Best Time & Worst Time Subtext */}
-                    <div className="mt-0.5 flex items-center justify-center md:justify-end gap-3 sm:gap-4 text-[11px] sm:text-xs text-slate-600 font-medium">
-                      <span>
-                        Best Time: <strong className="text-slate-800">{bestTime}s</strong>
-                      </span>
-                      <span>
-                        Worst Time: <strong className="text-slate-800">{worstTime}s</strong>
-                      </span>
-                    </div>
+                        {/* Best Time & Worst Time Subtext */}
+                        <div className="mt-0.5 flex items-center justify-center md:justify-end gap-3 sm:gap-4 text-[11px] sm:text-xs text-slate-600 font-medium">
+                          <span>
+                            Best Time: <strong className="text-slate-800">{bestTime}s</strong>
+                          </span>
+                          <span>
+                            Worst Time: <strong className="text-slate-800">{worstTime}s</strong>
+                          </span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -709,6 +749,17 @@ export function CBLEExamView({ initialQuestions, initialItemCount = 100 }: CBLEE
               </span>
 
               <div className="flex items-center gap-2">
+                {/* Review Mode: View Summary Button */}
+                {isReviewMode && (
+                  <button
+                    onClick={() => setShowResults(true)}
+                    className="flex items-center gap-1.5 rounded-[2px] bg-slate-900 hover:bg-black px-3 py-1 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
+                  >
+                    <FileSpreadsheet className="h-3.5 w-3.5 text-amber-400" />
+                    <span>Evaluation Sheet & Downloads</span>
+                  </button>
+                )}
+
                 {/* Button 0: Flag / Bookmark Question for review */}
                 <button
                   onClick={handleToggleFlag}
@@ -738,7 +789,7 @@ export function CBLEExamView({ initialQuestions, initialItemCount = 100 }: CBLEE
                   className="flex items-center gap-1.5 rounded-[2px] bg-[#b45309] hover:bg-[#9a3412] px-3 py-1 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
                 >
                   <ListOrdered className="h-3.5 w-3.5" />
-                  <span>Question Roadmap</span>
+                  <span>{isReviewMode ? "Diagnostic Roadmap" : "Question Roadmap"}</span>
                 </button>
               </div>
             </div>
@@ -752,11 +803,29 @@ export function CBLEExamView({ initialQuestions, initialItemCount = 100 }: CBLEE
                     <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">
                       Question {currentIndex + 1} of {totalQuestions}
                     </span>
-                    {isCurrentFlagged && (
-                      <span className="rounded bg-amber-100 text-amber-800 px-2 py-0.5 text-[11px] font-bold">
-                        ★ Marked for Review
-                      </span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {isReviewMode ? (
+                        currentAnswer === currentQ.correctAnswer ? (
+                          <span className="flex items-center gap-1 rounded bg-emerald-100 text-emerald-800 px-2.5 py-0.5 text-xs font-bold">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Correct (+1)
+                          </span>
+                        ) : currentAnswer !== undefined ? (
+                          <span className="flex items-center gap-1 rounded bg-rose-100 text-rose-800 px-2.5 py-0.5 text-xs font-bold">
+                            <XCircle className="w-3.5 h-3.5" /> Mistake / Wrong (0)
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 rounded bg-amber-100 text-amber-800 px-2.5 py-0.5 text-xs font-bold">
+                            <HelpCircle className="w-3.5 h-3.5" /> Unanswered (0)
+                          </span>
+                        )
+                      ) : (
+                        isCurrentFlagged && (
+                          <span className="rounded bg-amber-100 text-amber-800 px-2 py-0.5 text-[11px] font-bold">
+                            ★ Marked for Review
+                          </span>
+                        )
+                      )}
+                    </div>
                   </div>
 
                   {/* Primary Question Text */}
@@ -788,37 +857,93 @@ export function CBLEExamView({ initialQuestions, initialItemCount = 100 }: CBLEE
                     </div>
                   )}
 
-                  {/* Multiple Choice Options (Classic Clean Radio Buttons, Touch-Friendly) */}
+                  {/* Multiple Choice Options (Classic Clean Radio Buttons with Right & Wrong Mistake Highlighting in Review Mode) */}
                   <div className="space-y-2 pt-2 sm:pt-3">
                     {currentQ.options.map((option) => {
                       const isSelected = currentAnswer === option.key;
+                      const isTheCorrectOption = currentQ.correctAnswer === option.key;
+
+                      let optionBoxStyle = isSelected
+                        ? "bg-[#e0f2fe] text-slate-950 font-medium"
+                        : "text-slate-800 hover:bg-slate-50";
+                      let badge = null;
+
+                      if (isReviewMode) {
+                        if (isSelected && isTheCorrectOption) {
+                          optionBoxStyle = "bg-emerald-50 text-emerald-950 border-2 border-emerald-500 font-semibold";
+                          badge = (
+                            <span className="ml-auto text-[11px] font-bold bg-emerald-600 text-white px-2 py-0.5 rounded flex items-center gap-1 shrink-0">
+                              <CheckCircle2 className="w-3 h-3" /> Your Choice (Correct)
+                            </span>
+                          );
+                        } else if (isSelected && !isTheCorrectOption) {
+                          optionBoxStyle = "bg-rose-50 text-rose-950 border-2 border-rose-500 font-semibold";
+                          badge = (
+                            <span className="ml-auto text-[11px] font-bold bg-rose-600 text-white px-2 py-0.5 rounded flex items-center gap-1 shrink-0">
+                              <XCircle className="w-3 h-3" /> Your Choice (Mistake)
+                            </span>
+                          );
+                        } else if (!isSelected && isTheCorrectOption) {
+                          optionBoxStyle = "bg-emerald-50 text-emerald-950 border-2 border-emerald-500 font-semibold";
+                          badge = (
+                            <span className="ml-auto text-[11px] font-bold bg-emerald-600 text-white px-2 py-0.5 rounded flex items-center gap-1 shrink-0">
+                              <CheckCircle2 className="w-3 h-3" /> Correct Answer
+                            </span>
+                          );
+                        } else {
+                          optionBoxStyle = "text-slate-500 border border-slate-200 bg-white opacity-70";
+                        }
+                      }
 
                       return (
                         <label
                           key={option.key}
                           onClick={() => handleSelectOption(option.key)}
-                          className={`flex items-start gap-3 p-2.5 sm:p-2 text-xs sm:text-sm cursor-pointer transition-colors min-h-[44px] ${
-                            isSelected
-                              ? "bg-[#e0f2fe] text-slate-950 font-medium"
-                              : "text-slate-800 hover:bg-slate-50"
-                          }`}
+                          className={`flex items-start justify-between gap-3 p-2.5 sm:p-2 text-xs sm:text-sm rounded transition-colors min-h-[44px] ${
+                            isReviewMode ? "cursor-default" : "cursor-pointer"
+                          } ${optionBoxStyle}`}
                         >
-                          <input
-                            type="radio"
-                            name={`cble-q-${currentQ.id}`}
-                            value={option.key}
-                            checked={isSelected}
-                            onChange={() => handleSelectOption(option.key)}
-                            className="mt-0.5 h-4 w-4 text-sky-600 focus:ring-0 cursor-pointer"
-                          />
-                          <div className="leading-snug">
-                            <span className="font-bold mr-1.5">{option.key}.</span>
-                            <span>{option.text}</span>
+                          <div className="flex items-start gap-3">
+                            <input
+                              type="radio"
+                              name={`cble-q-${currentQ.id}`}
+                              value={option.key}
+                              checked={isSelected}
+                              disabled={isReviewMode}
+                              onChange={() => handleSelectOption(option.key)}
+                              className="mt-0.5 h-4 w-4 text-sky-600 focus:ring-0 cursor-pointer disabled:cursor-default"
+                            />
+                            <div className="leading-snug">
+                              <span className="font-bold mr-1.5">{option.key}.</span>
+                              <span>{option.text}</span>
+                            </div>
                           </div>
+                          {badge}
                         </label>
                       );
                     })}
                   </div>
+
+                  {/* Review Mode: Rationalization & Answer Key Box */}
+                  {isReviewMode && (
+                    <div className="mt-4 p-4 rounded-lg border-l-4 border-l-[#00838f] border border-slate-200 bg-slate-50 space-y-2 animate-in fade-in">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-slate-900 border-b border-slate-200 pb-2">
+                        <span className="flex items-center gap-1.5 text-[#00838f]">
+                          <BookOpen className="w-4 h-4" /> Official Rationalization & Key Takeaways
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-emerald-700">Correct Key: [{currentQ.correctAnswer}]</span>
+                          <span className="text-slate-300">•</span>
+                          <span className={currentAnswer === currentQ.correctAnswer ? "text-emerald-700" : "text-rose-700"}>
+                            Your Key: [{currentAnswer || "None"}]
+                          </span>
+                        </div>
+                      </div>
+                      <p className="text-xs sm:text-sm text-slate-800 leading-relaxed font-normal">
+                        {currentQ.explanation}
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Bottom Pagination / Next Button (Mobile Friendly & Responsive) */}
@@ -839,17 +964,32 @@ export function CBLEExamView({ initialQuestions, initialItemCount = 100 }: CBLEE
                       onClick={handleNext}
                       className="flex flex-1 sm:flex-initial sm:w-56 items-center justify-center gap-1 rounded-[2px] bg-[#00838f] hover:bg-[#006978] px-5 py-2.5 text-sm font-bold text-white shadow-xs transition-colors cursor-pointer min-h-[38px]"
                     >
-                      <span>{currentIndex === totalQuestions - 1 ? "Submit Exam" : "Next"}</span>
+                      <span>
+                        {currentIndex === totalQuestions - 1
+                          ? isReviewMode
+                            ? "View Evaluation Sheet"
+                            : "Submit Exam"
+                          : "Next"}
+                      </span>
                       <ChevronRight className="h-4 w-4" />
                     </button>
 
-                    {/* Finish Test (Right) */}
-                    <button
-                      onClick={() => setShowSubmitDialog(true)}
-                      className="text-xs font-semibold text-slate-600 hover:text-slate-950 underline cursor-pointer px-1 py-2 min-h-[38px] flex items-center"
-                    >
-                      Finish Test
-                    </button>
+                    {/* Finish Test / View Results */}
+                    {isReviewMode ? (
+                      <button
+                        onClick={() => setShowResults(true)}
+                        className="text-xs font-bold text-slate-700 hover:text-slate-950 underline cursor-pointer px-1 py-2 min-h-[38px] flex items-center"
+                      >
+                        Summary Sheet
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setShowSubmitDialog(true)}
+                        className="text-xs font-semibold text-slate-600 hover:text-slate-950 underline cursor-pointer px-1 py-2 min-h-[38px] flex items-center"
+                      >
+                        Finish Test
+                      </button>
+                    )}
                   </div>
 
                   {/* Hotkeys Quick Reference Bar */}
@@ -891,6 +1031,7 @@ export function CBLEExamView({ initialQuestions, initialItemCount = 100 }: CBLEE
         userAnswers={userAnswers}
         flaggedQuestions={flaggedQuestions}
         onSelectQuestion={(idx) => setCurrentIndex(idx)}
+        isReviewMode={isReviewMode}
       />
 
       <ProfileModal
@@ -917,6 +1058,7 @@ export function CBLEExamView({ initialQuestions, initialItemCount = 100 }: CBLEE
         userAnswers={userAnswers}
         profile={DEFAULT_EXAMINEE}
         timeSpentSeconds={totalTimeElapsed}
+        onSwitchToExamReview={() => setIsReviewMode(true)}
       />
 
       {/* Initial Examination Briefing & Confirmation Modal */}
