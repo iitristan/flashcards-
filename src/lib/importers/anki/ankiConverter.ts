@@ -8,13 +8,31 @@ import { ExtractedArchive } from './ankiArchive';
  */
 export function inferCategoryFromName(name: string, defaultCategory: DeckCategory = 'General Dietetics'): DeckCategory {
   const lower = name.toLowerCase();
-  if (lower.includes('ffss') || lower.includes('food service') || lower.includes('cookery') || lower.includes('meal management') || lower.includes('culinary')) {
+  if (
+    lower.includes('ffss') ||
+    lower.includes('food service') ||
+    lower.includes('cookery') ||
+    lower.includes('meal management') ||
+    lower.includes('culinary') ||
+    lower.includes('food preservation') ||
+    lower.includes('basic food') ||
+    lower.includes('preservation')
+  ) {
     return 'Food Service Systems';
   }
   if (lower.includes('nbcd') || lower.includes('biochem') || lower.includes('microbiology') || lower.includes('metabolism') || lower.includes('vitamin')) {
     return 'Nutritional Biochemistry';
   }
-  if (lower.includes('mnt') || lower.includes('clinical') || lower.includes('hospital') || lower.includes('renal') || lower.includes('diet therapy')) {
+  if (
+    lower.includes('mnt') ||
+    lower.includes('clinical') ||
+    lower.includes('hospital') ||
+    lower.includes('renal') ||
+    lower.includes('diet therapy') ||
+    lower.includes('nutrition assessment') ||
+    lower.includes('nutritional assessment') ||
+    lower.includes('assessment')
+  ) {
     return 'Clinical Nutrition';
   }
   if (lower.includes('community') || lower.includes('public health') || lower.includes('epidemiology') || lower.includes('fies') || lower.includes('program')) {

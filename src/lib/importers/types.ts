@@ -21,6 +21,13 @@ export interface PdfImportOptions {
   onProgress?: (progress: ImportProgress) => void;
 }
 
+export interface HtmlImportOptions {
+  deckTitle?: string;
+  category?: DeckCategory;
+  tags?: string[];
+  onProgress?: (progress: ImportProgress) => void;
+}
+
 export interface ImportResult {
   decks: Deck[];
   totalCards: number;
@@ -28,7 +35,7 @@ export interface ImportResult {
   errors: string[];
 }
 
-export type ImportableFileFormat = 'anki' | 'pdf' | 'csv' | 'json' | 'unknown';
+export type ImportableFileFormat = 'anki' | 'pdf' | 'csv' | 'json' | 'html' | 'unknown';
 
 export interface BulkImportItem {
   id: string;

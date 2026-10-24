@@ -20,7 +20,8 @@ import {
   CheckCircle2,
   FolderUp,
   Layers,
-  Award
+  Award,
+  Globe
 } from 'lucide-react';
 import { Deck, DeckCategory } from '@/types';
 import { deckService } from '@/lib/services/deckService';
@@ -28,6 +29,8 @@ import { useNutriStore } from '@/lib/store/useNutriStore';
 import { ankiImporter, AnkiDeckPreview } from '@/lib/importers/anki';
 import { pdfImporter } from '@/lib/importers/pdf/pdfImporter';
 import { parseQuizletExamText } from '@/lib/importers/pdf/quizletPdfParser';
+import { htmlImporter } from '@/lib/importers/html/htmlImporter';
+import { parseHtmlExamText } from '@/lib/importers/html/htmlExamParser';
 import { importService } from '@/lib/importers/importService';
 import { ImportableFileFormat } from '@/lib/importers/types';
 import { NDLESubject, NDLE_SUBJECT_LIST, NDLE_SUBJECT_CONFIGS } from '@/types/ndle';
@@ -41,7 +44,7 @@ interface ImportExportModalProps {
   onClose: () => void;
 }
 
-type ImportTabMode = 'bulk' | 'anki' | 'pdf' | 'csv_json' | 'ndle_review';
+type ImportTabMode = 'bulk' | 'anki' | 'pdf' | 'html' | 'csv_json' | 'ndle_review';
 
 export interface QueuedImportFile {
   id: string;
@@ -101,6 +104,12 @@ function getFormatBadge(format: ImportableFileFormat) {
         bg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
         icon: Code2
       };
+    case 'html':
+      return {
+        label: 'HTML Exam',
+        bg: 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20',
+        icon: Globe
+      };
     default:
       return {
         label: 'Unknown',
@@ -151,6 +160,21 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   const [csvDeckTitle, setCsvDeckTitle] = useState('');
   const [csvCategory, setCsvCategory] = useState<DeckCategory>('General Dietetics');
   const [csvDetectedCards, setCsvDetectedCards] = useState<number>(0);
+
+  // HTML Interactive Exam Single Import State
+  const htmlFileInputRef = useRef<HTMLInputElement>(null);
+  const [htmlFile, setHtmlFile] = useState<File | null>(null);
+  const [htmlDeckTitle, setHtmlDeckTitle] = useState('Nutrition & Dietetics Exam');
+  const [htmlCategory, setHtmlCategory] = useState<DeckCategory>('Clinical Nutrition');
+  const [htmlDetectedCards, setHtmlDetectedCards] = useState<number>(0);
+  const [htmlPasteText, setHtmlPasteText] = useState('');
+  const [htmlInputMode, setHtmlInputMode] = useState<'file' | 'paste'>('file');
+  const [htmlPreviewCards, setHtmlPreviewCards] = useState<Array<{
+    front: string;
+    back: string;
+    options: string[];
+    rationale?: string;
+  }>>([]);
 
   // NDLE AI Categorization & Review State
   const [ndlePasteText, setNdlePasteText] = useState('');
@@ -570,6 +594,119 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
     }
   };
 
+  const handleHtmlFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    if (files.length > 1) {
+      handleFilesAdded(files);
+      setImportType('bulk');
+      toast.info(`Added ${files.length} HTML files to Bulk Upload queue!`);
+      e.target.value = '';
+      return;
+    }
+
+    const file = files[0];
+    setHtmlFile(file);
+    setIsProcessing(true);
+
+    try {
+      const text = await file.text();
+      const parsed = parseHtmlExamText(text, file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' '));
+      setHtmlDeckTitle(parsed.title);
+      setHtmlCategory(parsed.category);
+      setHtmlDetectedCards(parsed.cards.length);
+      setHtmlPreviewCards(
+        parsed.cards.slice(0, 3).map((c) => ({
+          front: c.front || '',
+          back: c.back || '',
+          options: c.options || [],
+          rationale: c.rationale || ''
+        }))
+      );
+      toast.success(`Detected ${parsed.cards.length} questions with aligned choices in "${parsed.title}"!`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to parse HTML exam';
+      toast.error(msg);
+      setHtmlFile(null);
+      setHtmlDetectedCards(0);
+    } finally {
+      setIsProcessing(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleHtmlPasteAnalyze = () => {
+    if (!htmlPasteText.trim()) {
+      toast.error('Please paste the HTML exam code first');
+      return;
+    }
+
+    try {
+      const parsed = parseHtmlExamText(htmlPasteText, 'Pasted Interactive Exam');
+      if (parsed.cards.length === 0) {
+        toast.error('No question items or quiz data could be detected in the pasted HTML');
+        return;
+      }
+      setHtmlDeckTitle(parsed.title);
+      setHtmlCategory(parsed.category);
+      setHtmlDetectedCards(parsed.cards.length);
+      setHtmlPreviewCards(
+        parsed.cards.slice(0, 3).map((c) => ({
+          front: c.front || '',
+          back: c.back || '',
+          options: c.options || [],
+          rationale: c.rationale || ''
+        }))
+      );
+      toast.success(`Extracted ${parsed.cards.length} questions with aligned answer choices!`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to parse pasted HTML';
+      toast.error(msg);
+    }
+  };
+
+  const handleImportHtml = async () => {
+    if (htmlInputMode === 'file' && !htmlFile) {
+      toast.error('Please select an HTML file first');
+      return;
+    }
+    if (htmlInputMode === 'paste' && !htmlPasteText.trim()) {
+      toast.error('Please paste HTML content first');
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      let result;
+      if (htmlInputMode === 'file' && htmlFile) {
+        result = await htmlImporter.importData(htmlFile, {
+          deckTitle: htmlDeckTitle,
+          category: htmlCategory
+        });
+      } else {
+        result = await htmlImporter.importData(htmlPasteText, {
+          deckTitle: htmlDeckTitle || 'Pasted Interactive Exam',
+          category: htmlCategory
+        });
+      }
+
+      if (result.decks.length === 0 || result.totalCards === 0) {
+        throw new Error(result.errors.join('; ') || 'No cards could be parsed from the HTML exam');
+      }
+
+      await useNutriStore.getState().importMultipleDecks(result.decks);
+      toast.success(`Imported "${result.decks[0].title}" with ${result.totalCards} cards & aligned choices! 🎉`);
+      onImportSuccess();
+      onClose();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Import failed';
+      toast.error(msg);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleLoadFoodServiceDeck = async () => {
     setIsProcessing(true);
     try {
@@ -826,7 +963,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
           {activeTab === 'import' ? (
             <div className="space-y-4">
               {/* Import Type Selector Pills */}
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
                 <button
                   type="button"
                   onClick={() => setImportType('bulk')}
@@ -873,6 +1010,19 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
 
                 <button
                   type="button"
+                  onClick={() => setImportType('html')}
+                  className={`py-2 px-2.5 rounded-2xl text-xs font-bold border-2 transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    importType === 'html'
+                      ? 'border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary)] shadow-xs'
+                      : 'border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-muted)] hover:bg-[var(--bg-surface-subtle)]'
+                  }`}
+                >
+                  <Globe className="w-3.5 h-3.5 text-cyan-500 flex-shrink-0" />
+                  <span className="truncate">HTML Exam</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setImportType('csv_json')}
                   className={`py-2 px-2.5 rounded-2xl text-xs font-bold border-2 transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                     importType === 'csv_json'
@@ -887,7 +1037,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setImportType('ndle_review')}
-                  className={`py-2 px-2.5 rounded-2xl text-xs font-bold border-2 transition-all flex items-center justify-center gap-1.5 cursor-pointer col-span-2 sm:col-span-1 ${
+                  className={`py-2 px-2.5 rounded-2xl text-xs font-bold border-2 transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                     importType === 'ndle_review'
                       ? 'border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary)] shadow-xs'
                       : 'border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-muted)] hover:bg-[var(--bg-surface-subtle)]'
@@ -930,7 +1080,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
                       ref={bulkFileInputRef}
                       type="file"
                       multiple
-                      accept=".colpkg,.apkg,.zip,.bin,.pdf,.csv,.tsv,.txt,.json,application/pdf,application/json,text/csv,text/plain"
+                      accept=".colpkg,.apkg,.zip,.bin,.pdf,.csv,.tsv,.txt,.json,.html,.htm,application/pdf,application/json,text/csv,text/plain,text/html"
                       onChange={(e) => {
                         const files = Array.from(e.target.files || []);
                         handleFilesAdded(files);
@@ -949,7 +1099,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
                         {isDragging ? 'Drop your files here to import!' : 'Drag & drop multiple files, or click to browse'}
                       </p>
                       <p className="text-[11px] text-[var(--text-muted)]">
-                        Select any combination of Anki packages, Quizlet PDFs, CSV spreadsheets, and JSON decks
+                        Select any combination of Anki packages, Quizlet PDFs, CSV spreadsheets, JSON decks, and HTML Interactive Exams
                       </p>
                     </div>
 
@@ -960,6 +1110,9 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
                       </span>
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
                         .pdf
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20">
+                        .html / .htm
                       </span>
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                         .csv / .tsv
@@ -1415,6 +1568,166 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
               )}
 
               {/* ----------------------------------------------------------- */}
+              {/* TAB 4: HTML INTERACTIVE EXAM TAB                           */}
+              {/* ----------------------------------------------------------- */}
+              {importType === 'html' && (
+                <div className="space-y-4">
+                  {/* Mode toggle: Upload File vs Paste HTML Code */}
+                  <div className="flex p-1 bg-[var(--bg-surface-subtle)] rounded-2xl border border-[var(--border-subtle)] gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setHtmlInputMode('file')}
+                      className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                        htmlInputMode === 'file'
+                          ? 'bg-[var(--bg-surface)] text-[var(--primary)] shadow-xs border border-[var(--border-subtle)]'
+                          : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'
+                      }`}
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>Upload HTML File</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHtmlInputMode('paste')}
+                      className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                        htmlInputMode === 'paste'
+                          ? 'bg-[var(--bg-surface)] text-[var(--primary)] shadow-xs border border-[var(--border-subtle)]'
+                          : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'
+                      }`}
+                    >
+                      <Code2 className="w-3.5 h-3.5" />
+                      <span>Paste HTML Code</span>
+                    </button>
+                  </div>
+
+                  {htmlInputMode === 'file' ? (
+                    <div className="relative border-2 border-dashed border-[var(--border-color)] hover:border-[var(--primary)] rounded-3xl p-6 text-center cursor-pointer bg-[var(--bg-surface-subtle)]/40 hover:bg-[var(--primary-light)]/20 transition-all space-y-2 group overflow-hidden">
+                      <input
+                        ref={htmlFileInputRef}
+                        type="file"
+                        multiple
+                        accept=".html,.htm,text/html"
+                        onChange={handleHtmlFileSelect}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                        aria-label="Upload HTML Interactive Exam"
+                      />
+                      <div className="w-12 h-12 mx-auto rounded-2xl bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 flex items-center justify-center group-hover:scale-110 transition-transform pointer-events-none">
+                        <Globe className="w-6 h-6" />
+                      </div>
+                      <div className="space-y-1 pointer-events-none">
+                        <p className="text-xs font-extrabold text-[var(--text-main)]">
+                          {htmlFile ? htmlFile.name : 'Tap or drop any Interactive Exam HTML file here'}
+                        </p>
+                        <p className="text-[11px] text-[var(--text-muted)]">
+                          Auto-aligns question stems, all 4 choices, and accurate answer keys from interactive exam scripts
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="relative">
+                        <textarea
+                          value={htmlPasteText}
+                          onChange={(e) => setHtmlPasteText(e.target.value)}
+                          placeholder="Paste raw HTML interactive exam code or script tags here..."
+                          rows={5}
+                          className="w-full p-3 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-color)] text-xs text-[var(--text-main)] font-mono outline-none focus:border-[var(--primary)] resize-none"
+                        />
+                      </div>
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={handleHtmlPasteAnalyze}
+                          disabled={!htmlPasteText.trim()}
+                          className="px-3.5 py-1.5 rounded-xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] disabled:opacity-40 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                          <span>Analyze & Extract Questions</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {htmlDetectedCards > 0 && (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-surface)]">
+                        <div>
+                          <label className="block text-xs font-bold text-[var(--text-subtle)] mb-1">
+                            Deck Name
+                          </label>
+                          <input
+                            type="text"
+                            value={htmlDeckTitle}
+                            onChange={(e) => setHtmlDeckTitle(e.target.value)}
+                            className="w-full px-3 py-2 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] text-xs text-[var(--text-main)] outline-none focus:border-[var(--primary)]"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-[var(--text-subtle)] mb-1">
+                            Category
+                          </label>
+                          <select
+                            value={htmlCategory}
+                            onChange={(e) => setHtmlCategory(e.target.value as DeckCategory)}
+                            className="w-full px-3 py-2 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] text-xs font-semibold text-[var(--text-main)] outline-none cursor-pointer"
+                          >
+                            {CATEGORIES.map((cat) => (
+                              <option key={cat} value={cat}>
+                                {cat}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="col-span-1 sm:col-span-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 pt-1">
+                          <Check className="w-3.5 h-3.5" /> Successfully aligned {htmlDetectedCards} questions with choices & accurate answers!
+                        </div>
+                      </div>
+
+                      {/* Preview Cards */}
+                      {htmlPreviewCards.length > 0 && (
+                        <div className="space-y-2 p-3 rounded-2xl bg-[var(--bg-surface-subtle)]/50 border border-[var(--border-subtle)]">
+                          <span className="text-[11px] font-extrabold text-[var(--text-subtle)] uppercase tracking-wider block">
+                            Sample Question Preview (First {htmlPreviewCards.length} Items)
+                          </span>
+                          <div className="space-y-2">
+                            {htmlPreviewCards.map((pc, i) => (
+                              <div key={i} className="p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] space-y-2">
+                                <p className="text-xs font-bold text-[var(--text-main)] leading-relaxed">
+                                  <span className="text-[var(--primary)] mr-1">Q{i + 1}.</span> {pc.front}
+                                </p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-1">
+                                  {pc.options.map((opt, optIdx) => {
+                                    const isCorrect = opt.toLowerCase() === pc.back.toLowerCase();
+                                    return (
+                                      <div
+                                        key={optIdx}
+                                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium flex items-center justify-between border ${
+                                          isCorrect
+                                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300 font-bold'
+                                            : 'bg-[var(--bg-surface-subtle)] border-transparent text-[var(--text-muted)]'
+                                        }`}
+                                      >
+                                        <span className="truncate">{String.fromCharCode(65 + optIdx)}. {opt}</span>
+                                        {isCorrect && (
+                                          <span className="ml-1 text-[9px] px-1.5 py-0.2 rounded-full bg-emerald-500 text-white font-black flex-shrink-0">
+                                            CORRECT
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ----------------------------------------------------------- */}
               {/* TAB 4: CSV / TSV / JSON TAB                                 */}
               {/* ----------------------------------------------------------- */}
               {importType === 'csv_json' && (
@@ -1726,6 +2039,15 @@ A: Protein restriction 0.6-0.8 g/kg/day with adequate caloric intake.`}
               >
                 {isProcessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                 <span>{isProcessing ? 'Importing PDF...' : `Import ${pdfExtractedCards} Parsed Cards`}</span>
+              </button>
+            ) : importType === 'html' ? (
+              <button
+                onClick={handleImportHtml}
+                disabled={isProcessing || htmlDetectedCards === 0}
+                className="px-6 py-2.5 rounded-2xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] disabled:opacity-40 text-white text-xs font-bold shadow-sm transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                {isProcessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                <span>{isProcessing ? 'Importing HTML Exam...' : `Import ${htmlDetectedCards} Exam Cards`}</span>
               </button>
             ) : importType === 'ndle_review' ? (
               <button

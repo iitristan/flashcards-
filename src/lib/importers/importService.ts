@@ -5,6 +5,8 @@ import { ImportResult, ImportableFileFormat, BulkImportResult } from './types';
 import { deckService } from '@/lib/services/deckService';
 import { inferCategoryFromName } from './anki/ankiConverter';
 import { parseQuizletExamText } from './pdf/quizletPdfParser';
+import { htmlImporter } from './html/htmlImporter';
+import { parseHtmlExamText } from './html/htmlExamParser';
 
 export interface FilePreviewSummary {
   format: ImportableFileFormat;
@@ -33,6 +35,9 @@ export class ImportService {
     if (lower.endsWith('.json')) {
       return 'json';
     }
+    if (lower.endsWith('.html') || lower.endsWith('.htm')) {
+      return 'html';
+    }
     return 'unknown';
   }
 
@@ -57,7 +62,7 @@ export class ImportService {
         category: 'General Dietetics',
         cardsCount: 0,
         decksCount: 0,
-        error: `Unsupported file type (${file.name}). Please upload .colpkg, .apkg, .pdf, .csv, .tsv, or .json.`
+        error: `Unsupported file type (${file.name}). Please upload .html, .colpkg, .apkg, .pdf, .csv, .tsv, or .json.`
       };
     }
 
@@ -82,6 +87,43 @@ export class ImportService {
           cardsCount: 0,
           decksCount: 0,
           error: err instanceof Error ? err.message : 'Failed to parse Anki package archive'
+        };
+      }
+    }
+
+    if (format === 'html') {
+      try {
+        const text = await file.text();
+        const parsed = parseHtmlExamText(text, fallbackTitle);
+        const title = parsed.title || fallbackTitle;
+        const category = parsed.category;
+
+        if (parsed.cards.length === 0) {
+          return {
+            format: 'html',
+            title,
+            category,
+            cardsCount: 0,
+            decksCount: 0,
+            error: 'No interactive exam questions found in HTML (requires questions array or quiz data)'
+          };
+        }
+
+        return {
+          format: 'html',
+          title,
+          category,
+          cardsCount: parsed.cards.length,
+          decksCount: 1
+        };
+      } catch (err: unknown) {
+        return {
+          format: 'html',
+          title: fallbackTitle,
+          category: 'General Dietetics',
+          cardsCount: 0,
+          decksCount: 0,
+          error: err instanceof Error ? err.message : 'Failed to parse Interactive Exam HTML'
         };
       }
     }
@@ -302,6 +344,14 @@ export class ImportService {
       });
     }
 
+    if (filename.endsWith('.html') || filename.endsWith('.htm')) {
+      return htmlImporter.importData(file, {
+        deckTitle: options?.title,
+        category: options?.category,
+        onProgress: options?.onProgress
+      });
+    }
+
     if (filename.endsWith('.json')) {
       const text = await file.text();
       let parsed: unknown;
@@ -389,7 +439,7 @@ export class ImportService {
       };
     }
 
-    throw new Error(`Unsupported file type: ${file.name}. Please upload a .colpkg, .apkg, .pdf, .json, or .csv file.`);
+    throw new Error(`Unsupported file type: ${file.name}. Please upload a .html, .colpkg, .apkg, .pdf, .json, or .csv file.`);
   }
 
   /**
