@@ -52,6 +52,88 @@ export function resolveCardSubject(
 }
 
 /**
+ * Returns all cards strictly belonging to an NDLE subject across all decks.
+ */
+export function getSubjectCards(
+  subjectName: NDLESubject,
+  decks: Deck[]
+): Flashcard[] {
+  const cfg = NDLE_SUBJECT_CONFIGS[subjectName];
+  const subjectCards: Flashcard[] = [];
+
+  for (const deck of decks) {
+    for (const card of deck.cards || []) {
+      if (resolveCardSubject(card, deck.category) === subjectName) {
+        subjectCards.push({ ...card, deckId: card.deckId || deck.id });
+      }
+    }
+  }
+
+  // Fallback if no cards resolved through classifier
+  if (subjectCards.length === 0 && cfg) {
+    for (const deck of decks) {
+      if (deck.category && deck.category.toLowerCase().includes(cfg.code.toLowerCase())) {
+        subjectCards.push(...(deck.cards || []));
+      }
+    }
+  }
+
+  if (subjectCards.length === 0 && decks.length > 0) {
+    subjectCards.push(...(decks[0].cards || []));
+  }
+
+  return subjectCards;
+}
+
+/**
+ * Strictly calculates the list of missed / wrong cards for a specific NDLE subject.
+ * Eliminates the discrepancy between displayed missed count and practice session queue.
+ */
+export function getSubjectMissedCards(
+  subjectName: NDLESubject,
+  decks: Deck[],
+  reviewLogs: StudyLogEntry[] = [],
+  checkpointResults?: Array<{ cardId: string; isCorrect: boolean; rating?: string }>,
+  activeSessionResults?: Array<{ cardId: string; isCorrect: boolean; rating?: string }>
+): Flashcard[] {
+  const subjectCards = getSubjectCards(subjectName, decks);
+  if (subjectCards.length === 0) return [];
+
+  const wrongCardIds = new Set<string>();
+
+  if (checkpointResults && checkpointResults.length > 0) {
+    for (const r of checkpointResults) {
+      if (!r.isCorrect || r.rating === "again" || r.rating === "hard") {
+        wrongCardIds.add(r.cardId);
+      }
+    }
+  }
+
+  if (activeSessionResults && activeSessionResults.length > 0) {
+    for (const r of activeSessionResults) {
+      if (!r.isCorrect || r.rating === "again" || r.rating === "hard") {
+        wrongCardIds.add(r.cardId);
+      }
+    }
+  }
+
+  if (reviewLogs && reviewLogs.length > 0) {
+    for (const l of reviewLogs) {
+      if (!l.isCorrect || l.rating === "again" || l.rating === "hard") {
+        wrongCardIds.add(l.cardId);
+      }
+    }
+  }
+
+  return subjectCards.filter(
+    (c) =>
+      wrongCardIds.has(c.id) ||
+      (c.lastReviewedAt && (c.sm2?.repetitions || 0) === 0)
+  );
+}
+
+
+/**
  * 1. Volume Factor (V):
  * Lower confidence when sample size is small (< 30 items per subject).
  * V = min(1.0, N / 30)

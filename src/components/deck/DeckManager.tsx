@@ -6,6 +6,8 @@ import { X, Plus, Trash2, Edit3, Tag, Layers, Check, Search, AlertCircle, CheckC
 import { Deck, Flashcard, DeckCategory, getCardProgressInfo } from '@/types';
 import { toast } from 'sonner';
 import { cleanRawHtml } from '@/components/study/FormattedCardText';
+import { CompactCardText } from '@/components/study/CompactCardText';
+import { cleanOptionLabel } from '@/lib/importers/anki/ankiConverter';
 
 interface DeckManagerProps {
   initialDeck?: Deck | null;
@@ -797,15 +799,45 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
                                   </div>
                                 </div>
 
-                                {/* Question (Front) - Full width, clean wrap */}
-                                <h4 className="text-xs sm:text-sm font-bold text-[var(--text-main)] leading-snug break-words [overflow-wrap:anywhere]">
-                                  {cleanRawHtml(card.front)}
-                                </h4>
+                                {/* Question (Front) - Full width, clean wrap, compact images */}
+                                <div className="text-xs sm:text-sm font-bold text-[var(--text-main)] leading-snug break-words [overflow-wrap:anywhere]">
+                                  <CompactCardText content={card.front} />
+                                </div>
+
+                                {/* Multiple Choice Options (if present) */}
+                                {card.options && card.options.length > 0 && (
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-0.5">
+                                    {card.options.map((opt, optIdx) => {
+                                      const isKey =
+                                        cleanOptionLabel(opt).trim().toLowerCase() ===
+                                        cleanRawHtml(card.back).trim().toLowerCase();
+                                      return (
+                                        <div
+                                          key={optIdx}
+                                          className={`px-2.5 py-1.5 rounded-xl border text-xs flex items-start gap-1.5 ${
+                                            isKey
+                                              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-300 font-semibold'
+                                              : 'bg-[var(--bg-surface)] border-[var(--border-subtle)] text-[var(--text-muted)]'
+                                          }`}
+                                        >
+                                          <span className="font-bold text-[10px] text-[var(--text-subtle)] shrink-0 mt-0.5">
+                                            {String.fromCharCode(65 + optIdx)}.
+                                          </span>
+                                          <CompactCardText
+                                            content={opt}
+                                            className="break-words leading-relaxed flex-1 min-w-0"
+                                          />
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
 
                                 {/* Answer (Back / Key) - Full width, clean wrap */}
-                                <p className="text-xs font-semibold text-[var(--primary)] break-words [overflow-wrap:anywhere] leading-relaxed">
-                                  Key: {cleanRawHtml(card.back)}
-                                </p>
+                                <div className="text-xs font-semibold text-[var(--primary)] break-words [overflow-wrap:anywhere] leading-relaxed flex items-baseline gap-1">
+                                  <span className="shrink-0 font-bold">Key:</span>
+                                  <CompactCardText content={card.back} className="break-words" />
+                                </div>
 
                                 {/* RATIONALE SECTION */}
                                 {isEditingThisRationale ? (
@@ -865,9 +897,9 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
                                           <span>Edit Rationale</span>
                                         </button>
                                       </div>
-                                      <p className="text-xs text-[var(--text-main)] leading-relaxed whitespace-pre-wrap font-normal break-words [overflow-wrap:anywhere]">
-                                        {cleanRawHtml(card.rationale)}
-                                      </p>
+                                      <div className="text-xs text-[var(--text-main)] leading-relaxed whitespace-pre-wrap font-normal break-words [overflow-wrap:anywhere]">
+                                        <CompactCardText content={card.rationale} />
+                                      </div>
                                     </div>
                                   </div>
                                 ) : (

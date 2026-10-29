@@ -21,7 +21,7 @@ import { soundEffects } from '@/lib/soundEffects';
 import { shuffleArray, computeDeckStats } from '@/lib/services/flashcardService';
 import { syncService } from '@/lib/services/syncService';
 import { getSupabaseClient } from '@/lib/supabase/client';
-import { resolveCardSubject } from '@/lib/services/boardReadinessService';
+import { resolveCardSubject, getSubjectCards, getSubjectMissedCards } from '@/lib/services/boardReadinessService';
 import { NDLESubject, NDLE_SUBJECT_CONFIGS } from '@/types/ndle';
 
 const PREFS_STORAGE_KEY = 'nutrianki_prefs_v1';
@@ -1503,26 +1503,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     }
 
     // Gather cards strictly belonging to this practice area
-    let subjectCards: Flashcard[] = [];
-    for (const deck of decks) {
-      for (const card of deck.cards || []) {
-        if (resolveCardSubject(card, deck.category) === subject) {
-          subjectCards.push({ ...card, deckId: card.deckId || deck.id });
-        }
-      }
-    }
-
-    // Fallback if no cards resolved through classifier
-    if (subjectCards.length === 0) {
-      for (const deck of decks) {
-        if (deck.category && deck.category.toLowerCase().includes(code.toLowerCase())) {
-          subjectCards.push(...(deck.cards || []));
-        }
-      }
-    }
-    if (subjectCards.length === 0 && decks.length > 0) {
-      subjectCards = [...(decks[0].cards || [])];
-    }
+    let subjectCards: Flashcard[] = getSubjectCards(subject, decks);
 
     if (subjectCards.length === 0) {
       throw new Error(`No practice questions found for ${subject}.`);
@@ -1530,26 +1511,17 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
 
     // Handle Missed / Wrong answers filter
     if (options?.missedOnly || filter === 'wrong') {
-      const wrongCardIds = new Set<string>();
-      if (existingSession) {
-        (existingSession.results || [])
-          .filter(r => !r.isCorrect || r.rating === 'again' || r.rating === 'hard')
-          .forEach(r => wrongCardIds.add(r.cardId));
-      }
-      if (activeSession) {
-        (activeSession.results || [])
-          .filter(r => !r.isCorrect || r.rating === 'again' || r.rating === 'hard')
-          .forEach(r => wrongCardIds.add(r.cardId));
-      }
+      let logs: any[] = [];
       try {
-        const logs = await deckService.getReviewLogs();
-        logs
-          .filter(l => !l.isCorrect || l.rating === 'again' || l.rating === 'hard')
-          .forEach(l => wrongCardIds.add(l.cardId));
+        logs = await deckService.getReviewLogs();
       } catch {}
 
-      const wrongCards = subjectCards.filter(c =>
-        wrongCardIds.has(c.id) || (c.lastReviewedAt && (c.sm2?.repetitions || 0) === 0)
+      const wrongCards = getSubjectMissedCards(
+        subject,
+        decks,
+        logs,
+        existingSession?.results,
+        activeSession?.results
       );
 
       if (wrongCards.length > 0) {

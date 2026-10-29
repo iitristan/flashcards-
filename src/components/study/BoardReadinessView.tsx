@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useBoardReadiness } from "@/lib/hooks/useBoardReadiness";
 import { useNutriStore } from "@/lib/store/useNutriStore";
+import { getSubjectMissedCards } from "@/lib/services/boardReadinessService";
 import {
   NDLESubject,
   NDLE_SUBJECT_LIST,
@@ -59,6 +60,8 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
   } = useBoardReadiness();
 
   const {
+    decks,
+    activeSession,
     startPracticeAreaSession,
     preferences,
     deckCheckpoints,
@@ -88,19 +91,16 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
     const cfg = NDLE_SUBJECT_CONFIGS[subjectName];
     const pDeckId = `practice-area-${cfg.code}`;
     const cp = deckCheckpoints[pDeckId] || getDeckCheckpoint(pDeckId);
-    const cpMissed = (cp?.results || []).filter(r => !r.isCorrect || r.rating === 'again' || r.rating === 'hard').length;
 
-    let historicalMissed = 0;
-    if (reviewLogs && reviewLogs.length > 0) {
-      const missedCardIds = new Set<string>();
-      for (const log of reviewLogs) {
-        if (!log.isCorrect || log.rating === 'again' || log.rating === 'hard') {
-          missedCardIds.add(log.cardId);
-        }
-      }
-      historicalMissed = missedCardIds.size;
-    }
-    return Math.max(cpMissed, historicalMissed);
+    // Calculate strictly using getSubjectMissedCards scoped to this subject
+    const missedCards = getSubjectMissedCards(
+      subjectName,
+      decks,
+      reviewLogs,
+      cp?.results,
+      activeSession?.deckId === pDeckId ? activeSession.results : undefined
+    );
+    return missedCards.length;
   };
 
   // Handle starting targeted practice for an NDLE subject with its own independent filters
@@ -161,9 +161,9 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
       ? report.passingProbability
       : Math.round(report.gwa);
 
-  // SVG dimensions for smooth responsiveness
-  const size = 180;
-  const stroke = 15;
+  // SVG dimensions for smooth responsiveness & spacious aesthetic
+  const size = 220;
+  const stroke = 14;
   const radius = (size - stroke) / 2;
   const circumference = radius * 2 * Math.PI;
   const strokeDashoffset =
@@ -207,11 +207,11 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
   }
 
   return (
-    <div className="w-full max-w-xl mx-auto py-4 sm:py-6 px-3 sm:px-4 space-y-6 sm:space-y-7 animate-in fade-in duration-300">
+    <div className="w-full max-w-2xl sm:max-w-3xl mx-auto py-6 sm:py-8 px-4 sm:px-6 space-y-7 sm:space-y-8 animate-in fade-in duration-300">
       {/* ------------------------------------------------------------- */}
       {/* HERO SECTION: CIRCULAR DONUT GAUGE (Exact match to reference) */}
       {/* ------------------------------------------------------------- */}
-      <div className="flex flex-col items-center justify-center text-center space-y-3.5 pt-1 sm:pt-2">
+      <div className="flex flex-col items-center justify-center text-center space-y-4 pt-2 sm:pt-4 pb-1">
         {/* Donut Chart Container */}
         <div className="relative flex items-center justify-center">
           <svg
@@ -243,14 +243,14 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
             />
           </svg>
 
-          {/* Centered Large Percentage & Subtext */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none">
+          {/* Centered Large Percentage & Subtext (Spacious & never touching borders) */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none px-4">
             <span
-              className={`text-4xl sm:text-5xl font-black tracking-tight leading-none ${centerTextColor}`}
+              className={`text-5xl sm:text-6xl font-black tracking-tight leading-none ${centerTextColor}`}
             >
               {displayScore}%
             </span>
-            <span className="text-xs sm:text-sm font-semibold text-slate-500 dark:text-slate-400 mt-1.5 tabular-nums">
+            <span className="text-xs sm:text-sm font-semibold text-slate-500 dark:text-slate-400 mt-2 tabular-nums text-center max-w-[170px] leading-tight">
               {report.totalAttempts > 0
                 ? `${report.totalCorrect} of ${report.totalAttempts} correct`
                 : "No attempts yet"}
@@ -258,16 +258,16 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
           </div>
         </div>
 
-        {/* Status Pill Badge (Exact matching aesthetic from inspiration reference) */}
+        {/* Status Pill Badge (Exact matching aesthetic with proper breathing room) */}
         <div
-          className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full border text-xs sm:text-sm font-bold shadow-2xs transition-all ${pillClasses}`}
+          className={`inline-flex items-center gap-2 px-5 py-2 rounded-full border text-xs sm:text-sm font-bold shadow-xs transition-all mt-1 ${pillClasses}`}
         >
           <span className="text-base leading-none">{emoji}</span>
           <span>{statusText}</span>
         </div>
 
         {/* Minimal Metric Switcher (Segmented Control) */}
-        <div className="flex items-center gap-1.5 pt-1">
+        <div className="flex items-center gap-1.5 pt-1.5">
           <div className="flex items-center p-0.5 rounded-xl bg-muted/80 border border-border/50 text-[11px] font-bold">
             <button
               onClick={() => setActiveMetricView("probability")}
