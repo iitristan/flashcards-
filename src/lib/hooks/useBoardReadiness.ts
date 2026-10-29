@@ -97,7 +97,21 @@ export function useBoardReadiness() {
     total: number;
   }>({ current: 0, total: 0 });
 
-  // Initial load
+  // Manual refresh trigger
+  const fetchLogs = useCallback(async () => {
+    try {
+      setIsLoadingLogs(true);
+      const logs = await deckService.getReviewLogs();
+      setReviewLogs(logs);
+      setCbleAttempts(getStoredCbleAttempts());
+    } catch (e) {
+      console.warn("Failed to reload review logs for board readiness:", e);
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  }, []);
+
+  // Initial load and auto-refresh whenever decks change (reviews recorded)
   useEffect(() => {
     let isMounted = true;
 
@@ -119,21 +133,7 @@ export function useBoardReadiness() {
     return () => {
       isMounted = false;
     };
-  }, []);
-
-  // Manual refresh trigger
-  const fetchLogs = useCallback(async () => {
-    try {
-      setIsLoadingLogs(true);
-      const logs = await deckService.getReviewLogs();
-      setReviewLogs(logs);
-      setCbleAttempts(getStoredCbleAttempts());
-    } catch (e) {
-      console.warn("Failed to reload review logs for board readiness:", e);
-    } finally {
-      setIsLoadingLogs(false);
-    }
-  }, []);
+  }, [decks]);
 
   // Real-time report computation whenever decks or reviewLogs change
   const report: BoardReadinessReport = useMemo(() => {

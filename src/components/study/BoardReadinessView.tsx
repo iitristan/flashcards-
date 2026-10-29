@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   AlertTriangle,
   Sparkles,
@@ -81,10 +81,22 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
   const [selectedSubjectModal, setSelectedSubjectModal] = useState<NDLESubject | null>(null);
   const [expandedFilterSubject, setExpandedFilterSubject] = useState<NDLESubject | null>(null);
 
+  // Auto-refresh readiness stats whenever view mounts
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
   const getSubjectCheckpoint = (subjectName: NDLESubject) => {
     const cfg = NDLE_SUBJECT_CONFIGS[subjectName];
     const pDeckId = `practice-area-${cfg.code}`;
-    return deckCheckpoints[pDeckId] || getDeckCheckpoint(pDeckId);
+    const cp = deckCheckpoints[pDeckId] || getDeckCheckpoint(pDeckId);
+    if (!cp) return null;
+    // Guard: If completed or past queue length, clean it up and treat as completed
+    if (cp.isCompleted || (cp.cardsQueue && cp.cardsQueue.length > 0 && cp.currentIndex >= cp.cardsQueue.length)) {
+      clearDeckCheckpoint(pDeckId);
+      return null;
+    }
+    return cp;
   };
 
   const getSubjectWrongCount = (subjectName: NDLESubject) => {
@@ -409,6 +421,9 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
             const hasCheckpoint = Boolean(
               checkpoint &&
               !checkpoint.isCompleted &&
+              checkpoint.cardsQueue &&
+              checkpoint.cardsQueue.length > 0 &&
+              checkpoint.currentIndex < checkpoint.cardsQueue.length &&
               (checkpoint.currentIndex > 0 || (checkpoint.results || []).length > 0)
             );
             const wrongCount = getSubjectWrongCount(subjectName);
@@ -663,6 +678,9 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
         const modalHasCheckpoint = Boolean(
           modalCheckpoint &&
           !modalCheckpoint.isCompleted &&
+          modalCheckpoint.cardsQueue &&
+          modalCheckpoint.cardsQueue.length > 0 &&
+          modalCheckpoint.currentIndex < modalCheckpoint.cardsQueue.length &&
           (modalCheckpoint.currentIndex > 0 || (modalCheckpoint.results || []).length > 0)
         );
         const modalWrongCount = getSubjectWrongCount(selectedSubjectModal);

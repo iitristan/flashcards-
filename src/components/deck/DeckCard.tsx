@@ -72,10 +72,19 @@ export const DeckCard: React.FC<DeckCardProps> = ({
   const [showResumeModal, setShowResumeModal] = useState(false);
 
   const { deckCheckpoints, getDeckCheckpoint, clearDeckCheckpoint } = useNutriStore();
-  const checkpoint = deckCheckpoints[deck.id] || getDeckCheckpoint(deck.id);
+  const rawCheckpoint = deckCheckpoints[deck.id] || getDeckCheckpoint(deck.id);
+  const isFinished = Boolean(
+    rawCheckpoint &&
+    (rawCheckpoint.isCompleted || (rawCheckpoint.cardsQueue && rawCheckpoint.cardsQueue.length > 0 && rawCheckpoint.currentIndex >= rawCheckpoint.cardsQueue.length))
+  );
+
+  const checkpoint = isFinished ? null : rawCheckpoint;
   const hasActiveCheckpoint = Boolean(
     checkpoint &&
     !checkpoint.isCompleted &&
+    checkpoint.cardsQueue &&
+    checkpoint.cardsQueue.length > 0 &&
+    checkpoint.currentIndex < checkpoint.cardsQueue.length &&
     (checkpoint.currentIndex > 0 || (checkpoint.results || []).length > 0)
   );
 

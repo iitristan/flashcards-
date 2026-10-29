@@ -488,7 +488,12 @@ export default function NutriboardApp() {
       {/* MAIN CONTAINER */}
       <div className="max-w-6xl mx-auto px-3.5 sm:px-6 pt-4 sm:pt-6 space-y-4 sm:space-y-5">
         {/* RESUME IN-PROGRESS STUDY CHECKPOINT BANNER */}
-        {resumeAvailableSession && !activeSession && (
+        {resumeAvailableSession &&
+          !activeSession &&
+          !resumeAvailableSession.isCompleted &&
+          resumeAvailableSession.cardsQueue &&
+          resumeAvailableSession.cardsQueue.length > 0 &&
+          resumeAvailableSession.currentIndex < resumeAvailableSession.cardsQueue.length && (
           <div className="p-2.5 sm:p-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3 shadow-[var(--card-shadow)]">
             <div className="flex items-center justify-between sm:justify-start gap-2.5 min-w-0">
               <div className="flex items-center gap-2.5 min-w-0">

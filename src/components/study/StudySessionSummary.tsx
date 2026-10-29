@@ -23,8 +23,14 @@ export const StudySessionSummary: React.FC<StudySessionSummaryProps> = ({
   onRestart,
   onReturnHome
 }) => {
-  const totalCards = results.length;
-  const correctCount = results.filter(
+  // Evaluate results by the most recent attempt per card to prevent duplicate counting on retries
+  const latestResultMap = new Map<string, CardReviewResult>();
+  for (const r of results) {
+    latestResultMap.set(r.cardId, r);
+  }
+  const uniqueResults = latestResultMap.size > 0 ? Array.from(latestResultMap.values()) : results;
+  const totalCards = uniqueResults.length;
+  const correctCount = uniqueResults.filter(
     (r) => r.isCorrect || r.rating === 'good' || r.rating === 'easy'
   ).length;
   const missedCount = totalCards - correctCount;

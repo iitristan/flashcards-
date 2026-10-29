@@ -462,7 +462,7 @@ export const BlitzMarathonView: React.FC<BlitzMarathonViewProps> = ({
                   {letters[idx] || idx + 1}
                 </span>
                 <span className={`text-sm sm:text-base leading-snug font-medium ${textColor}`}>
-                  {cleanOptionLabel(option)}
+                  <FormattedCardText content={cleanOptionLabel(option)} />
                 </span>
               </div>
 

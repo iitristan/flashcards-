@@ -87,7 +87,8 @@ export function getSubjectCards(
 
 /**
  * Strictly calculates the list of missed / wrong cards for a specific NDLE subject.
- * Eliminates the discrepancy between displayed missed count and practice session queue.
+ * Accurately tracks the most recent attempt per card so answered/corrected cards
+ * are immediately removed from the missed queue.
  */
 export function getSubjectMissedCards(
   subjectName: NDLESubject,
@@ -99,37 +100,63 @@ export function getSubjectMissedCards(
   const subjectCards = getSubjectCards(subjectName, decks);
   if (subjectCards.length === 0) return [];
 
-  const wrongCardIds = new Set<string>();
-
-  if (checkpointResults && checkpointResults.length > 0) {
-    for (const r of checkpointResults) {
-      if (!r.isCorrect || r.rating === "again" || r.rating === "hard") {
-        wrongCardIds.add(r.cardId);
-      }
-    }
-  }
-
+  // 1. Build a map of the latest active session result for each card
+  const activeMap = new Map<string, { isCorrect: boolean; rating?: string }>();
   if (activeSessionResults && activeSessionResults.length > 0) {
     for (const r of activeSessionResults) {
-      if (!r.isCorrect || r.rating === "again" || r.rating === "hard") {
-        wrongCardIds.add(r.cardId);
-      }
+      activeMap.set(r.cardId, r);
     }
   }
 
+  // 2. Build a map of the latest checkpoint result for each card
+  const checkpointMap = new Map<string, { isCorrect: boolean; rating?: string }>();
+  if (checkpointResults && checkpointResults.length > 0) {
+    for (const r of checkpointResults) {
+      checkpointMap.set(r.cardId, r);
+    }
+  }
+
+  // 3. Build a map of the most recent review log for each card
+  // Sort chronologically so the latest entry overwrites older ones
+  const latestLogMap = new Map<string, StudyLogEntry>();
   if (reviewLogs && reviewLogs.length > 0) {
-    for (const l of reviewLogs) {
-      if (!l.isCorrect || l.rating === "again" || l.rating === "hard") {
-        wrongCardIds.add(l.cardId);
-      }
+    const sortedLogs = [...reviewLogs].sort((a, b) => {
+      const timeA = new Date(a.createdAt || a.timestamp || 0).getTime();
+      const timeB = new Date(b.createdAt || b.timestamp || 0).getTime();
+      return timeA - timeB;
+    });
+    for (const log of sortedLogs) {
+      latestLogMap.set(log.cardId, log);
     }
   }
 
-  return subjectCards.filter(
-    (c) =>
-      wrongCardIds.has(c.id) ||
-      (c.lastReviewedAt && (c.sm2?.repetitions || 0) === 0)
-  );
+  return subjectCards.filter((c) => {
+    // Priority 1: Current active session result (most recent in-memory attempt)
+    if (activeMap.has(c.id)) {
+      const r = activeMap.get(c.id)!;
+      return !r.isCorrect || r.rating === 'again' || r.rating === 'hard';
+    }
+
+    // Priority 2: In-progress checkpoint result
+    if (checkpointMap.has(c.id)) {
+      const r = checkpointMap.get(c.id)!;
+      return !r.isCorrect || r.rating === 'again' || r.rating === 'hard';
+    }
+
+    // Priority 3: Historical review logs (most recent attempt)
+    if (latestLogMap.has(c.id)) {
+      const log = latestLogMap.get(c.id)!;
+      return !log.isCorrect || log.rating === 'again' || log.rating === 'hard';
+    }
+
+    // Priority 4: SM-2 state fallback if card was reviewed previously
+    if (c.lastReviewedAt) {
+      return (c.sm2?.repetitions || 0) === 0;
+    }
+
+    // Unseen / new card
+    return false;
+  });
 }
 
 
