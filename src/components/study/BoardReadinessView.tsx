@@ -37,6 +37,7 @@ interface BoardReadinessViewProps {
       resume?: boolean;
       startFresh?: boolean;
       missedOnly?: boolean;
+      limit?: number;
     }
   ) => void;
   initialSearchQuery?: string;
@@ -122,6 +123,7 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
       resume?: boolean;
       startFresh?: boolean;
       missedOnly?: boolean;
+      limit?: number;
     }
   ) => {
     const cfg = NDLE_SUBJECT_CONFIGS[subject];
@@ -144,6 +146,7 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
       resume: options?.resume,
       startFresh: options?.startFresh,
       missedOnly: options?.missedOnly,
+      limit: options?.limit,
     });
   };
 
@@ -550,13 +553,7 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
                     </button>
 
                     <button
-                      onClick={() => {
-                        if (hasCheckpoint || wrongCount > 0) {
-                          setSelectedSubjectModal(subjectName);
-                        } else {
-                          handlePracticeSubject(subjectName, { startFresh: true });
-                        }
-                      }}
+                      onClick={() => setSelectedSubjectModal(subjectName)}
                       className={`inline-flex items-center gap-1.5 font-bold transition-all cursor-pointer px-3 py-1 rounded-xl text-xs ${
                         hasCheckpoint
                           ? 'bg-[var(--primary)] text-white hover:bg-[var(--primary-hover)] shadow-xs'
@@ -756,7 +753,7 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
                   </button>
                 )}
 
-                {/* Option 2: Get Back to Wrong Answers */}
+                {/* Option 2: Get Back to Wrong Answers (if any) */}
                 {modalWrongCount > 0 && (
                   <button
                     type="button"
@@ -786,7 +783,54 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
                   </button>
                 )}
 
-                {/* Option 3: Start Fresh / Comprehensive Session */}
+                {/* Celebratory Banner when 0 Misses */}
+                {modalWrongCount === 0 && (
+                  <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-300 flex items-center justify-center flex-shrink-0 font-bold">
+                      <Check className="w-4 h-4 stroke-[3]" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <span className="font-bold text-xs text-emerald-800 dark:text-emerald-200 block">
+                        All Missed Questions Conquered!
+                      </span>
+                      <span className="text-[11px] text-emerald-700/80 dark:text-emerald-300/80 block mt-0.5">
+                        No incorrect answers pending review. Ready for standard board simulation.
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Option 3: Standard 30-Question Board Exam Set (Always Available) */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const subj = selectedSubjectModal;
+                    const pDeckId = `practice-area-${modalConfig.code}`;
+                    clearDeckCheckpoint(pDeckId);
+                    setSelectedSubjectModal(null);
+                    handlePracticeSubject(subj, { limit: 30, startFresh: true });
+                  }}
+                  className="w-full p-3.5 rounded-2xl border-2 border-emerald-500/40 bg-emerald-50/40 dark:bg-emerald-950/20 hover:bg-emerald-50/80 dark:hover:bg-emerald-950/40 hover:border-emerald-500 text-left flex items-center gap-3 transition-all cursor-pointer group shadow-xs"
+                >
+                  <div className="w-9 h-9 rounded-xl bg-emerald-500 text-white flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform shadow-xs">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-sm text-[var(--text-main)]">
+                        Standard 30-Question Exam Set
+                      </span>
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-600 text-white">
+                        30 Questions
+                      </span>
+                    </div>
+                    <span className="text-xs text-[var(--text-muted)] block mt-0.5">
+                      Calibrated 30-item exam set prioritizing unseen & due questions without repeating recent ones
+                    </span>
+                  </div>
+                </button>
+
+                {/* Option 4: Comprehensive Subject Practice (All Questions) */}
                 <button
                   type="button"
                   onClick={() => {
@@ -796,19 +840,22 @@ export const BoardReadinessView: React.FC<BoardReadinessViewProps> = ({
                     setSelectedSubjectModal(null);
                     handlePracticeSubject(subj, { startFresh: true });
                   }}
-                  className="w-full p-3.5 rounded-2xl border border-[var(--border-color)] hover:border-amber-500 hover:bg-amber-50/40 dark:hover:bg-amber-950/20 text-left flex items-center gap-3 transition-all cursor-pointer group"
+                  className="w-full p-3.5 rounded-2xl border border-[var(--border-color)] hover:border-blue-500 hover:bg-blue-50/30 dark:hover:bg-blue-950/20 text-left flex items-center gap-3 transition-all cursor-pointer group"
                 >
-                  <div className="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+                  <div className="w-9 h-9 rounded-xl bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
                     <RotateCcw className="w-4 h-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <span className="font-bold text-sm text-[var(--text-main)] block">
-                      {modalHasCheckpoint ? 'Start Fresh (Question 1)' : 'Start Full Practice Set'}
-                    </span>
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-sm text-[var(--text-main)]">
+                        Comprehensive Subject Practice
+                      </span>
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-[var(--bg-surface-subtle)] text-[var(--text-muted)] border border-[var(--border-subtle)]">
+                        All Questions
+                      </span>
+                    </div>
                     <span className="text-xs text-[var(--text-muted)] block mt-0.5">
-                      {modalHasCheckpoint
-                        ? 'Reset current practice progress and begin a new 30-question set'
-                        : '30 randomized board questions aligned with NDLE standards'}
+                      Drill through all available questions in {modalConfig.shortTitle} with your custom filters & sort
                     </span>
                   </div>
                 </button>

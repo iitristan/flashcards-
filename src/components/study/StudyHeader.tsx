@@ -96,7 +96,7 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
   const ModeIcon = currentMode?.icon || Sparkles;
 
   const handleExitClick = () => {
-    if (currentIndex > 0) {
+    if (currentIndex > 0 && !isPaused && currentIndex < totalCards) {
       setShowExitConfirm(true);
     } else {
       onExit();

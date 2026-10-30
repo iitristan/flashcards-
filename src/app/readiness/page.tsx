@@ -35,6 +35,7 @@ export default function BoardReadinessPage() {
                 resume: options?.resume,
                 startFresh: options?.startFresh,
                 missedOnly: options?.missedOnly,
+                limit: options?.limit,
               });
               router.push("/");
             } catch (err: unknown) {

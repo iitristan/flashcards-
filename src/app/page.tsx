@@ -862,7 +862,8 @@ export default function NutriboardApp() {
                   sort,
                   resume: options?.resume,
                   startFresh: options?.startFresh,
-                  missedOnly: options?.missedOnly
+                  missedOnly: options?.missedOnly,
+                  limit: options?.limit
                 }).catch((err: unknown) => {
                   const errorMsg = err instanceof Error ? err.message : 'Could not launch practice area session';
                   toast.error(errorMsg);

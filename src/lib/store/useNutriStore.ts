@@ -157,6 +157,7 @@ interface NutriStore {
       resume?: boolean;
       startFresh?: boolean;
       missedOnly?: boolean;
+      limit?: number;
     }
   ) => Promise<void>;
   updateSessionFilterAndSort: (options: {
@@ -226,6 +227,12 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       const cp = deckCheckpoints[deckId];
       if (!cp.isCompleted && (!cp.cardsQueue || cp.currentIndex < cp.cardsQueue.length)) {
         return cp;
+      } else {
+        set((state) => {
+          const next = { ...state.deckCheckpoints };
+          delete next[deckId];
+          return { deckCheckpoints: next };
+        });
       }
     }
     if (activeSession?.deckId === deckId) {
@@ -556,7 +563,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
         // Check for cloud active session checkpoint with timestamp & progress guard
         try {
           const remoteSession = await syncService.fetchActiveSession();
-          if (remoteSession && !remoteSession.isCompleted && (remoteSession.currentIndex > 0 || remoteSession.results.length > 0)) {
+          if (remoteSession && !remoteSession.isCompleted && remoteSession.cardsQueue && remoteSession.cardsQueue.length > 0 && remoteSession.currentIndex < remoteSession.cardsQueue.length && (remoteSession.currentIndex > 0 || remoteSession.results.length > 0)) {
             const currentLocal = get().activeSession || get().resumeAvailableSession;
             if (!currentLocal) {
               set({ resumeAvailableSession: remoteSession });
@@ -770,18 +777,27 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       const checkpoints: Record<string, StudySessionState> = {};
       if (typeof window !== 'undefined') {
         try {
+          const keysToRemove: string[] = [];
           for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
             if (key && (key.startsWith('nutrianki_deck_session_') || key.startsWith('nutriboard_practice_session_'))) {
               const val = localStorage.getItem(key);
               if (val) {
-                const parsed: StudySessionState = JSON.parse(val);
-                if (parsed && !parsed.isCompleted && (parsed.currentIndex > 0 || (parsed.results || []).length > 0)) {
-                  checkpoints[parsed.deckId] = parsed;
+                try {
+                  const parsed: StudySessionState = JSON.parse(val);
+                  const isCompleted = parsed.isCompleted || (parsed.cardsQueue && parsed.cardsQueue.length > 0 && parsed.currentIndex >= parsed.cardsQueue.length);
+                  if (parsed && !isCompleted && (parsed.currentIndex > 0 || (parsed.results || []).length > 0)) {
+                    checkpoints[parsed.deckId] = parsed;
+                  } else {
+                    keysToRemove.push(key);
+                  }
+                } catch {
+                  keysToRemove.push(key);
                 }
               }
             }
           }
+          keysToRemove.forEach((k) => localStorage.removeItem(k));
         } catch {}
       }
 
@@ -790,12 +806,17 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       if (storedSession) {
         try {
           parsedSession = JSON.parse(storedSession);
-          if (parsedSession && !parsedSession.isCompleted && (parsedSession.currentIndex > 0 || (parsedSession.results || []).length > 0)) {
+          const isCompleted = parsedSession && (parsedSession.isCompleted || (parsedSession.cardsQueue && parsedSession.cardsQueue.length > 0 && parsedSession.currentIndex >= parsedSession.cardsQueue.length));
+          if (parsedSession && !isCompleted && (parsedSession.currentIndex > 0 || (parsedSession.results || []).length > 0)) {
             checkpoints[parsedSession.deckId] = parsedSession;
           } else {
+            localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
             parsedSession = null;
           }
-        } catch {}
+        } catch {
+          localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+          parsedSession = null;
+        }
       }
 
       set({
@@ -1623,6 +1644,47 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       }
     }
 
+    // Prioritization for targeted practice sets (e.g. standard 30-question NDLE exam set)
+    // Ensures questions completed recently do not repeat immediately, prioritizing unseen & due cards
+    if (options?.limit && options.limit > 0 && !options?.missedOnly && filter !== 'wrong') {
+      const nowMs = Date.now();
+      const recentThresholdMs = 2 * 60 * 60 * 1000; // 2 hours
+
+      const tier1: Flashcard[] = []; // Unseen or due cards
+      const tier2: Flashcard[] = []; // Prior reviews (not recent)
+      const tier3: Flashcard[] = []; // Very recently reviewed (< 2 hours, e.g. just answered in missed drill)
+
+      for (const card of subjectCards) {
+        const lastRev = card.lastReviewedAt ? new Date(card.lastReviewedAt).getTime() : 0;
+        const isVeryRecent = lastRev > 0 && (nowMs - lastRev) < recentThresholdMs;
+        const isUnseen = !card.lastReviewedAt || (card.sm2?.repetitions || 0) === 0;
+        const isDue = card.sm2?.dueDate ? new Date(card.sm2.dueDate).getTime() <= nowMs : true;
+
+        if (isVeryRecent) {
+          tier3.push(card);
+        } else if (isUnseen || isDue) {
+          tier1.push(card);
+        } else {
+          tier2.push(card);
+        }
+      }
+
+      // Sort tier 2 by oldest reviewed first so stale cards come before fresher ones
+      tier2.sort((a, b) => {
+        const tA = a.lastReviewedAt ? new Date(a.lastReviewedAt).getTime() : 0;
+        const tB = b.lastReviewedAt ? new Date(b.lastReviewedAt).getTime() : 0;
+        return tA - tB;
+      });
+
+      const prioritizedPool = [
+        ...shuffleArray(tier1),
+        ...tier2,
+        ...tier3
+      ];
+
+      subjectCards = prioritizedPool.slice(0, options.limit);
+    }
+
     // Apply sorting
     if (sort === 'progress-asc') {
       subjectCards.sort((a, b) => (a.sm2?.repetitions || 0) - (b.sm2?.repetitions || 0));
@@ -1648,6 +1710,8 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       deckId: practiceDeckId,
       deckTitle: isMissedMode
         ? `${config ? config.shortTitle : subject} (Wrong Answers)`
+        : options?.limit
+        ? `${config ? config.shortTitle : subject} (${options.limit} Board Questions)`
         : (config ? `${config.shortTitle} Practice` : `${subject} Practice`),
       practiceArea: subject,
       activeSort: sort,
@@ -1843,6 +1907,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
 
     // Update local session state & set saving status
     const sessionDeckId = activeSession.deckId;
+    const isPracticeArea = sessionDeckId.startsWith('practice-area-') || Boolean(activeSession.practiceArea);
     const practiceCode = activeSession.practiceArea
       ? NDLE_SUBJECT_CONFIGS[activeSession.practiceArea]?.code
       : (sessionDeckId.startsWith('practice-area-') ? sessionDeckId.replace('practice-area-', '') : null);
@@ -1851,11 +1916,11 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       set((state) => {
         const nextCheckpoints = { ...state.deckCheckpoints };
         if (sessionDeckId) delete nextCheckpoints[sessionDeckId];
-        if (targetDeckId) delete nextCheckpoints[targetDeckId];
+        if (!isPracticeArea && targetDeckId) delete nextCheckpoints[targetDeckId];
         return {
           activeSession: updatedSession,
           deckCheckpoints: nextCheckpoints,
-          resumeAvailableSession: (state.resumeAvailableSession?.deckId === sessionDeckId || state.resumeAvailableSession?.deckId === targetDeckId) ? null : state.resumeAvailableSession,
+          resumeAvailableSession: (state.resumeAvailableSession?.deckId === sessionDeckId || (!isPracticeArea && state.resumeAvailableSession?.deckId === targetDeckId)) ? null : state.resumeAvailableSession,
           saveStatus: 'saving'
         };
       });
@@ -1864,15 +1929,20 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
         try {
           localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
           if (sessionDeckId) localStorage.removeItem(`nutrianki_deck_session_${sessionDeckId}`);
-          if (targetDeckId) localStorage.removeItem(`nutrianki_deck_session_${targetDeckId}`);
-          if (practiceCode) localStorage.removeItem(`nutriboard_practice_session_${practiceCode}`);
+          if (!isPracticeArea && targetDeckId) localStorage.removeItem(`nutrianki_deck_session_${targetDeckId}`);
+          if (practiceCode) {
+            localStorage.removeItem(`nutriboard_practice_session_${practiceCode}`);
+            localStorage.removeItem(`nutrianki_deck_session_practice-area-${practiceCode}`);
+          }
         } catch {}
       }
     } else {
       set((state) => {
         const nextCheckpoints = { ...state.deckCheckpoints };
         if (sessionDeckId) nextCheckpoints[sessionDeckId] = updatedSession;
-        if (targetDeckId && targetDeckId !== sessionDeckId) nextCheckpoints[targetDeckId] = updatedSession;
+        if (!isPracticeArea && targetDeckId && targetDeckId !== sessionDeckId) {
+          nextCheckpoints[targetDeckId] = updatedSession;
+        }
         return {
           activeSession: updatedSession,
           deckCheckpoints: nextCheckpoints,
@@ -1885,7 +1955,9 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
         try {
           localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify(updatedSession));
           if (sessionDeckId) localStorage.setItem(`nutrianki_deck_session_${sessionDeckId}`, JSON.stringify(updatedSession));
-          if (targetDeckId && targetDeckId !== sessionDeckId) localStorage.setItem(`nutrianki_deck_session_${targetDeckId}`, JSON.stringify(updatedSession));
+          if (!isPracticeArea && targetDeckId && targetDeckId !== sessionDeckId) {
+            localStorage.setItem(`nutrianki_deck_session_${targetDeckId}`, JSON.stringify(updatedSession));
+          }
           if (practiceCode) localStorage.setItem(`nutriboard_practice_session_${practiceCode}`, JSON.stringify(updatedSession));
         } catch {}
       }
@@ -2037,7 +2109,9 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       clearTimeout(checkpointDebounceTimer);
       checkpointDebounceTimer = null;
     }
-    if (activeSession && !activeSession.isCompleted && (activeSession.currentIndex > 0 || (activeSession.results || []).length > 0)) {
+    const isFinished = !activeSession || activeSession.isCompleted || (Boolean(activeSession.cardsQueue && activeSession.cardsQueue.length > 0 && activeSession.currentIndex >= activeSession.cardsQueue.length));
+
+    if (!isFinished && activeSession && (activeSession.currentIndex > 0 || (activeSession.results || []).length > 0)) {
       // Save in-progress session checkpoint before closing
       if (typeof window !== 'undefined') {
         try {
@@ -2070,10 +2144,17 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
           const cfg = NDLE_SUBJECT_CONFIGS[activeSession.practiceArea];
           if (cfg) {
             localStorage.removeItem(`nutriboard_practice_session_${cfg.code}`);
+            localStorage.removeItem(`nutrianki_deck_session_practice-area-${cfg.code}`);
           }
         } catch {}
       }
-      set({ activeSession: null });
+      if (activeSession?.id) {
+        syncService.completeStudySession(activeSession.id).catch(console.warn);
+      }
+      set((state) => ({
+        activeSession: null,
+        resumeAvailableSession: (state.resumeAvailableSession?.id === activeSession?.id || state.resumeAvailableSession?.deckId === activeSession?.deckId) ? null : state.resumeAvailableSession
+      }));
     }
     syncService.flushStudyLogs().catch(console.warn);
     get().loadDecks();

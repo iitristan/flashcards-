@@ -666,6 +666,11 @@ export class SyncService {
 
       if (error || !data) return null;
 
+      const queue = Array.isArray(data.cards_queue) ? data.cards_queue : [];
+      if (data.is_completed || (queue.length > 0 && data.current_index >= queue.length)) {
+        return null;
+      }
+
       return {
         id: data.id,
         deckId: data.deck_id,
