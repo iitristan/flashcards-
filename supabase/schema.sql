@@ -15,6 +15,7 @@ ALTER TABLE IF EXISTS public.flashcards ALTER COLUMN user_id DROP NOT NULL;
 ALTER TABLE IF EXISTS public.playlists ALTER COLUMN user_id DROP NOT NULL;
 ALTER TABLE IF EXISTS public.study_sessions ALTER COLUMN user_id DROP NOT NULL;
 ALTER TABLE IF EXISTS public.study_logs ALTER COLUMN user_id DROP NOT NULL;
+ALTER TABLE IF EXISTS public.study_logs ALTER COLUMN id SET DEFAULT ('log-' || substr(md5(random()::text || clock_timestamp()::text), 1, 16));
 
 -- 1. DECKS TABLE
 CREATE TABLE IF NOT EXISTS public.decks (
@@ -93,7 +94,7 @@ CREATE TABLE IF NOT EXISTS public.study_sessions (
 
 -- 6. STUDY LOGS TABLE (Historical Review Entries & Cross-Device Analytics)
 CREATE TABLE IF NOT EXISTS public.study_logs (
-  id TEXT PRIMARY KEY,
+  id TEXT PRIMARY KEY DEFAULT ('log-' || substr(md5(random()::text || clock_timestamp()::text), 1, 16)),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   card_id TEXT NOT NULL,
   deck_id TEXT NOT NULL,

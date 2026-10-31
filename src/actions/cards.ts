@@ -1,8 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getAuthUser } from "@/lib/auth";
-import { prisma, hasDatabaseUrl } from "@/lib/prisma";
+import { query, queryOne, withTransaction } from "@/lib/db";
 import type { GeneratedFlashcard } from "@/types/gemini";
 
 export async function bulkCreateCards(
@@ -17,30 +16,28 @@ export async function bulkCreateCards(
     throw new Error("No valid cards to save");
   }
 
-  if (!hasDatabaseUrl) {
-    revalidatePath("/dashboard");
-    revalidatePath("/decks");
-    revalidatePath("/review");
-    revalidatePath("/create");
-    return { count: validCards.length };
-  }
-
-  const user = await getAuthUser();
-
-  const deck = await prisma.deck.findFirst({
-    where: { id: deckId, userId: user.id },
-  });
+  const deck = await queryOne<{ id: string }>(
+    "SELECT id FROM public.decks WHERE id = $1",
+    [deckId]
+  );
 
   if (!deck) {
     throw new Error("Deck not found");
   }
 
-  await prisma.flashcard.createMany({
-    data: validCards.map((card) => ({
-      deckId,
-      front: card.front.trim(),
-      back: card.back.trim(),
-    })),
+  await withTransaction(async (client) => {
+    for (const card of validCards) {
+      const cardId = `card-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      await client.query(`
+        INSERT INTO public.flashcards (
+          id, deck_id, front, back, rationale, options, tags, sm2, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, '', '[]'::jsonb, '[]'::jsonb,
+          '{"interval":0,"easeFactor":2.5,"repetitions":0,"dueDate":""}'::jsonb,
+          NOW()
+        )
+      `, [cardId, deckId, card.front.trim(), card.back.trim()]);
+    }
   });
 
   revalidatePath("/dashboard");

@@ -695,7 +695,9 @@ export function CBLEExamView({ initialQuestions, initialItemCount = 100 }: CBLEE
                       Subject:
                     </span>
                     <span className="col-span-7 sm:col-span-8 lg:col-span-9 font-semibold text-slate-800">
-                      {currentQ.category || DEFAULT_EXAMINEE.subject}
+                      {currentQ.subject && currentQ.category && currentQ.subject !== currentQ.category
+                        ? `${currentQ.subject} • ${currentQ.category}`
+                        : currentQ.subject || currentQ.category || DEFAULT_EXAMINEE.subject}
                     </span>
                   </div>
                 </div>

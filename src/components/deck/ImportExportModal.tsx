@@ -842,6 +842,373 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   // ---------------------------------------------------------------------------
   // Export Handling
   // ---------------------------------------------------------------------------
+  const handleExportFullMasterBackup = async (format: 'json' | 'sql') => {
+    setIsProcessing(true);
+    try {
+      // 1. Gather all local decks & cards
+      const allDecks = await deckService.getDecks();
+      const allLogs = await deckService.getReviewLogs();
+      const allPlaylists = await deckService.getPlaylists();
+
+      // 2. Gather localStorage configurations
+      let groupFilters = null;
+      let userPrefs = null;
+      let activeSession = null;
+      if (typeof window !== 'undefined') {
+        try {
+          const rawFilters = localStorage.getItem('nutriboard_card_group_filters_v1');
+          if (rawFilters) groupFilters = JSON.parse(rawFilters);
+          const rawPrefs = localStorage.getItem('nutrianki_prefs_v1');
+          if (rawPrefs) userPrefs = JSON.parse(rawPrefs);
+          const rawSess = localStorage.getItem('nutrianki_active_session_v1');
+          if (rawSess) activeSession = JSON.parse(rawSess);
+        } catch (e) {
+          console.warn('Error reading localStorage for backup:', e);
+        }
+      }
+
+      // 3. Compute Analytics & Board Readiness Metrics
+      let analytics = null;
+      try {
+        analytics = await deckService.getAnalyticsData();
+      } catch (e) {
+        console.warn('Could not compute analytics:', e);
+      }
+
+      const totalCards = allDecks.reduce((sum, d) => sum + (d.cards?.length || 0), 0);
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+
+      if (format === 'json') {
+        const fullBackupPayload = {
+          metadata: {
+            appName: 'Nutriboard',
+            backupVersion: '2.0',
+            exportedAt: new Date().toISOString(),
+            totalDecks: allDecks.length,
+            totalCards,
+            totalReviewLogs: allLogs.length,
+            totalPlaylists: allPlaylists.length,
+          },
+          decks: allDecks,
+          reviewLogs: allLogs,
+          playlists: allPlaylists,
+          cardGroupFilters: groupFilters,
+          analyticsAndGraphs: analytics,
+          userPreferences: userPrefs || useNutriStore.getState().preferences,
+          activeSessionCheckpoint: activeSession || useNutriStore.getState().activeSession,
+        };
+
+        const blob = new Blob([JSON.stringify(fullBackupPayload, null, 2)], {
+          type: 'application/json',
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `nutriboard_master_backup_${totalCards}_cards_${timestamp}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        toast.success(`Exported complete master backup (${totalCards} cards, ${allLogs.length} review logs)!`);
+      } else {
+        // SQL Seed Script for any PostgreSQL / Supabase
+        const escapeSql = (val: any): string => {
+          if (val === null || val === undefined) return 'NULL';
+          if (typeof val === 'object') {
+            return `'${JSON.stringify(val).replace(/'/g, "''")}'::jsonb`;
+          }
+          return `'${String(val).replace(/'/g, "''")}'`;
+        };
+
+        const sqlChunks: string[] = [
+          '-- ====================================================================',
+          `-- Nutriboard Complete System & Progress Seed Dump`,
+          `-- Exported At: ${new Date().toISOString()}`,
+          `-- Decks: ${allDecks.length} | Cards: ${totalCards} | Review Logs: ${allLogs.length}`,
+          '-- Compatible with: Supabase, Neon, Railway, Local Postgres',
+          '-- ====================================================================\n',
+          'BEGIN;\n',
+          "SET session_replication_role = 'replica';\n",
+          `CREATE TABLE IF NOT EXISTS public.decks (
+  id TEXT PRIMARY KEY,
+  user_id UUID DEFAULT NULL,
+  title TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  category TEXT NOT NULL DEFAULT 'Clinical Nutrition',
+  icon TEXT DEFAULT '🥑',
+  color TEXT DEFAULT '#7FA98B',
+  tags JSONB DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.flashcards (
+  id TEXT PRIMARY KEY,
+  deck_id TEXT NOT NULL REFERENCES public.decks(id) ON DELETE CASCADE,
+  user_id UUID DEFAULT NULL,
+  front TEXT NOT NULL,
+  back TEXT NOT NULL,
+  rationale TEXT DEFAULT '',
+  options JSONB DEFAULT '[]'::jsonb,
+  tags JSONB DEFAULT '[]'::jsonb,
+  ndle_subject TEXT DEFAULT NULL,
+  difficulty TEXT,
+  leitner_box INT DEFAULT 1,
+  user_notes TEXT DEFAULT '',
+  sm2 JSONB NOT NULL DEFAULT '{"interval":0,"easeFactor":2.5,"repetitions":0,"dueDate":""}'::jsonb,
+  last_reviewed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.playlists (
+  id TEXT PRIMARY KEY,
+  user_id UUID DEFAULT NULL,
+  title TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  deck_ids JSONB DEFAULT '[]'::jsonb,
+  color TEXT DEFAULT '#7FA98B',
+  icon TEXT DEFAULT '🎵',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.user_preferences (
+  user_id TEXT PRIMARY KEY,
+  preferences JSONB NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.study_sessions (
+  id TEXT PRIMARY KEY,
+  user_id UUID DEFAULT NULL,
+  deck_id TEXT NOT NULL,
+  deck_title TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  current_index INT NOT NULL DEFAULT 0,
+  is_completed BOOLEAN NOT NULL DEFAULT FALSE,
+  timer_duration_seconds INT NOT NULL DEFAULT 0,
+  cards_queue JSONB NOT NULL DEFAULT '[]'::jsonb,
+  results JSONB NOT NULL DEFAULT '[]'::jsonb,
+  start_time BIGINT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.study_logs (
+  id TEXT PRIMARY KEY DEFAULT ('log-' || substr(md5(random()::text || clock_timestamp()::text), 1, 16)),
+  user_id UUID DEFAULT NULL,
+  card_id TEXT NOT NULL,
+  deck_id TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  rating TEXT NOT NULL,
+  user_answer TEXT DEFAULT '',
+  is_correct BOOLEAN DEFAULT TRUE,
+  time_spent_seconds INT DEFAULT 0,
+  verdict TEXT DEFAULT 'correct',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- CBLE Exam Results Table
+CREATE TABLE IF NOT EXISTS public.cble_exam_results (
+  id TEXT PRIMARY KEY,
+  user_id UUID DEFAULT NULL,
+  examinee_name TEXT NOT NULL DEFAULT 'BRIGETTE',
+  examination_name TEXT NOT NULL DEFAULT 'NDLE PRC EXAMINATION',
+  subject TEXT NOT NULL DEFAULT 'MIXED SUBJECT',
+  total_questions INT NOT NULL DEFAULT 100,
+  correct_count INT NOT NULL DEFAULT 0,
+  score_percentage NUMERIC(5,2) NOT NULL DEFAULT 0.00,
+  is_passed BOOLEAN NOT NULL DEFAULT FALSE,
+  time_spent_seconds INT NOT NULL DEFAULT 0,
+  user_answers JSONB NOT NULL DEFAULT '{}'::jsonb,
+  category_breakdown JSONB NOT NULL DEFAULT '{}'::jsonb,
+  completed_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- CBLE Questions Pool Table
+CREATE TABLE IF NOT EXISTS public.cble_questions (
+  id TEXT PRIMARY KEY,
+  question_number INT,
+  subject TEXT NOT NULL DEFAULT 'MIXED SUBJECT',
+  category TEXT NOT NULL DEFAULT 'General Nutrition',
+  question TEXT NOT NULL,
+  image_url TEXT,
+  options JSONB NOT NULL DEFAULT '[]'::jsonb,
+  correct_answer TEXT NOT NULL DEFAULT 'A',
+  explanation TEXT DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- AI Caches
+CREATE TABLE IF NOT EXISTS public.ai_explanation_cache (
+  id TEXT PRIMARY KEY,
+  question_text TEXT NOT NULL,
+  user_answer TEXT NOT NULL,
+  is_correct BOOLEAN NOT NULL DEFAULT FALSE,
+  ai_explanation JSONB NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.ai_grade_cache (
+  id TEXT PRIMARY KEY,
+  question_text TEXT NOT NULL,
+  user_answer TEXT NOT NULL,
+  grade_result JSONB NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.cble_question_reframes (
+  original_stem TEXT PRIMARY KEY,
+  reframed_stem TEXT NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Ensure default generator and optional user_id
+ALTER TABLE IF EXISTS public.decks ALTER COLUMN user_id DROP NOT NULL;
+ALTER TABLE IF EXISTS public.flashcards ALTER COLUMN user_id DROP NOT NULL;
+ALTER TABLE IF EXISTS public.playlists ALTER COLUMN user_id DROP NOT NULL;
+ALTER TABLE IF EXISTS public.study_sessions ALTER COLUMN user_id DROP NOT NULL;
+ALTER TABLE IF EXISTS public.study_logs ALTER COLUMN user_id DROP NOT NULL;
+ALTER TABLE IF EXISTS public.study_logs ALTER COLUMN id SET DEFAULT ('log-' || substr(md5(random()::text || clock_timestamp()::text), 1, 16));
+
+-- High performance indexes
+CREATE INDEX IF NOT EXISTS idx_decks_user_id ON public.decks(user_id);
+CREATE INDEX IF NOT EXISTS idx_decks_updated_at ON public.decks(updated_at);
+CREATE INDEX IF NOT EXISTS idx_flashcards_deck_id ON public.flashcards(deck_id);
+CREATE INDEX IF NOT EXISTS idx_flashcards_user_id ON public.flashcards(user_id);
+CREATE INDEX IF NOT EXISTS idx_flashcards_updated_at ON public.flashcards(updated_at);
+CREATE INDEX IF NOT EXISTS idx_flashcards_ndle_subject ON public.flashcards(ndle_subject);
+CREATE INDEX IF NOT EXISTS idx_playlists_user_id ON public.playlists(user_id);
+CREATE INDEX IF NOT EXISTS idx_study_sessions_user ON public.study_sessions(user_id, is_completed, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_study_logs_user ON public.study_logs(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_study_logs_deck ON public.study_logs(deck_id);
+CREATE INDEX IF NOT EXISTS idx_cble_exam_results_created ON public.cble_exam_results(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cble_questions_subject ON public.cble_questions(subject);
+CREATE INDEX IF NOT EXISTS idx_ai_explanation_created ON public.ai_explanation_cache(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_grade_created ON public.ai_grade_cache(created_at DESC);
+
+-- Enable RLS & permissive migration policies
+ALTER TABLE public.decks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.flashcards ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.playlists ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_preferences ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.study_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.study_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cble_exam_results ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cble_questions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_explanation_cache ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_grade_cache ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cble_question_reframes ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow all access to decks" ON public.decks;
+CREATE POLICY "Allow all access to decks" ON public.decks FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow all access to flashcards" ON public.flashcards;
+CREATE POLICY "Allow all access to flashcards" ON public.flashcards FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow all access to playlists" ON public.playlists;
+CREATE POLICY "Allow all access to playlists" ON public.playlists FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow all access to user_preferences" ON public.user_preferences;
+CREATE POLICY "Allow all access to user_preferences" ON public.user_preferences FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow all access to study_sessions" ON public.study_sessions;
+CREATE POLICY "Allow all access to study_sessions" ON public.study_sessions FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow all access to study_logs" ON public.study_logs;
+CREATE POLICY "Allow all access to study_logs" ON public.study_logs FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow all access to cble_exam_results" ON public.cble_exam_results;
+CREATE POLICY "Allow all access to cble_exam_results" ON public.cble_exam_results FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow all access to cble_questions" ON public.cble_questions;
+CREATE POLICY "Allow all access to cble_questions" ON public.cble_questions FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow all access to ai_explanation_cache" ON public.ai_explanation_cache;
+CREATE POLICY "Allow all access to ai_explanation_cache" ON public.ai_explanation_cache FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow all access to ai_grade_cache" ON public.ai_grade_cache;
+CREATE POLICY "Allow all access to ai_grade_cache" ON public.ai_grade_cache FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow all access to cble_question_reframes" ON public.cble_question_reframes;
+CREATE POLICY "Allow all access to cble_question_reframes" ON public.cble_question_reframes FOR ALL USING (true) WITH CHECK (true);
+\n`,
+          '-- 1. DECKS'
+        ];
+
+        for (const deck of allDecks) {
+          sqlChunks.push(
+            `INSERT INTO public.decks (id, title, description, category, icon, color, tags, updated_at) VALUES (${escapeSql(deck.id)}, ${escapeSql(deck.title)}, ${escapeSql(deck.description)}, ${escapeSql(deck.category)}, ${escapeSql(deck.icon)}, ${escapeSql(deck.color)}, ${escapeSql(deck.tags)}, NOW()) ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title, description = EXCLUDED.description, category = EXCLUDED.category, updated_at = NOW();`
+          );
+        }
+
+        sqlChunks.push('\n-- 2. FLASHCARDS');
+        for (const deck of allDecks) {
+          for (const c of deck.cards || []) {
+            sqlChunks.push(
+              `INSERT INTO public.flashcards (id, deck_id, front, back, rationale, options, tags, ndle_subject, difficulty, leitner_box, user_notes, sm2, last_reviewed_at, updated_at) VALUES (${escapeSql(c.id)}, ${escapeSql(deck.id)}, ${escapeSql(c.front)}, ${escapeSql(c.back)}, ${escapeSql(c.rationale)}, ${escapeSql(c.options || [])}, ${escapeSql(c.tags || [])}, ${escapeSql(c.ndleSubject || null)}, ${escapeSql(c.difficulty || 'medium')}, ${c.leitnerBox || 1}, ${escapeSql(c.userNotes || '')}, ${escapeSql(c.sm2 || { interval: 0, easeFactor: 2.5, repetitions: 0, dueDate: new Date().toISOString() })}, ${escapeSql(c.lastReviewedAt || null)}, NOW()) ON CONFLICT (id) DO UPDATE SET front = EXCLUDED.front, back = EXCLUDED.back, rationale = EXCLUDED.rationale, options = EXCLUDED.options, tags = EXCLUDED.tags, ndle_subject = EXCLUDED.ndle_subject, difficulty = EXCLUDED.difficulty, leitner_box = EXCLUDED.leitner_box, sm2 = EXCLUDED.sm2, updated_at = NOW();`
+            );
+          }
+        }
+
+        if (allLogs.length > 0) {
+          sqlChunks.push('\n-- 3. STUDY & REVIEW LOGS');
+          let logSeq = 1;
+          for (const log of allLogs) {
+            const safeLogId =
+              log.id && typeof log.id === 'string' && log.id.trim().length > 0
+                ? log.id.trim()
+                : `log-${log.cardId || 'card'}-${log.createdAt ? new Date(log.createdAt).getTime() : Date.now()}-${logSeq++}`;
+
+            sqlChunks.push(
+              `INSERT INTO public.study_logs (id, card_id, deck_id, mode, rating, user_answer, is_correct, time_spent_seconds, verdict, created_at) VALUES (${escapeSql(safeLogId)}, ${escapeSql(log.cardId || 'unknown-card')}, ${escapeSql(log.deckId || 'unknown-deck')}, ${escapeSql(log.mode || 'spaced-repetition')}, ${escapeSql(log.rating || 'good')}, ${escapeSql(log.userAnswer || '')}, ${Boolean(log.isCorrect)}, ${Number(log.timeSpentSeconds || 0)}, ${escapeSql(log.verdict || (log.isCorrect ? 'correct' : 'incorrect'))}, ${escapeSql(log.createdAt || new Date().toISOString())}) ON CONFLICT (id) DO NOTHING;`
+            );
+          }
+        }
+
+        if (allPlaylists.length > 0) {
+          sqlChunks.push('\n-- 4. PLAYLISTS');
+          for (const pl of allPlaylists) {
+            sqlChunks.push(
+              `INSERT INTO public.playlists (id, title, description, deck_ids, color, icon, updated_at) VALUES (${escapeSql(pl.id)}, ${escapeSql(pl.title)}, ${escapeSql(pl.description || '')}, ${escapeSql(pl.deckIds || [])}, ${escapeSql(pl.color || '#7FA98B')}, ${escapeSql(pl.icon || '🎵')}, NOW()) ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title, deck_ids = EXCLUDED.deck_ids, updated_at = NOW();`
+            );
+          }
+        }
+
+        if (userPrefs) {
+          sqlChunks.push('\n-- 5. USER PREFERENCES');
+          sqlChunks.push(
+            `INSERT INTO public.user_preferences (user_id, preferences, updated_at) VALUES ('00000000-0000-0000-0000-000000000001', ${escapeSql(userPrefs)}, NOW()) ON CONFLICT (user_id) DO UPDATE SET preferences = EXCLUDED.preferences, updated_at = NOW();`
+          );
+        }
+
+        sqlChunks.push(`
+-- Restore foreign key checks & triggers
+SET session_replication_role = 'origin';
+
+COMMIT;
+
+-- Verify Ingestion Results
+SELECT 
+  (SELECT count(*) FROM public.decks) as total_decks,
+  (SELECT count(*) FROM public.flashcards) as total_flashcards,
+  (SELECT count(*) FROM public.study_logs) as total_study_logs;
+`);
+
+        const blob = new Blob([sqlChunks.join('\n')], { type: 'application/sql' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `nutriboard_database_seed_${totalCards}_cards_${timestamp}.sql`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        toast.success(`Exported complete PostgreSQL seed SQL with ${totalCards} cards & ${allLogs.length} progress logs!`);
+      }
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : 'Master backup export failed';
+      toast.error(errorMsg);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleExport = async () => {
     if (!exportDeckId) {
       toast.error('Please select a deck to export');
@@ -1935,52 +2302,98 @@ A: Protein restriction 0.6-0.8 g/kg/day with adequate caloric intake.`}
             /* ------------------------------------------------------------- */
             /* EXPORT TAB                                                    */
             /* ------------------------------------------------------------- */
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-[var(--text-subtle)] mb-1">
-                  Select Deck to Export
-                </label>
-                <select
-                  value={exportDeckId}
-                  onChange={(e) => setExportDeckId(e.target.value)}
-                  className="w-full p-3 rounded-2xl bg-[var(--bg-surface)] border-2 border-[var(--border-color)] text-xs font-bold text-[var(--text-main)] outline-none focus:border-[var(--primary)] cursor-pointer"
-                >
-                  {decks.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.title} ({d.cards.length} cards)
-                    </option>
-                  ))}
-                </select>
+            <div className="space-y-6">
+              {/* Full System Master Backup Banner */}
+              <div className="p-4 sm:p-5 rounded-2xl border-2 border-[var(--primary)] bg-[var(--primary-light)]/40 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-amber-500" />
+                      <h3 className="text-sm font-black text-[var(--text-main)]">
+                        Full System & Live Progress Backup
+                      </h3>
+                    </div>
+                    <p className="text-xs text-[var(--text-muted)] mt-1 leading-relaxed">
+                      Exports all active cards in your collection ({decks.reduce((sum, d) => sum + d.cards.length, 0)} cards across {decks.length} decks), complete review history & answered questions, board readiness metrics, graphs/analytics data, custom filters, and study sessions.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => handleExportFullMasterBackup('json')}
+                    disabled={isProcessing}
+                    className="p-3 rounded-xl border border-[var(--primary)] bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer disabled:opacity-50"
+                  >
+                    {isProcessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                    <span>Download Full Progress Backup (.json)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleExportFullMasterBackup('sql')}
+                    disabled={isProcessing}
+                    className="p-3 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-subtle)] text-[var(--text-main)] text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-xs cursor-pointer disabled:opacity-50"
+                  >
+                    {isProcessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Code2 className="w-3.5 h-3.5 text-blue-500" />}
+                    <span>Download PostgreSQL Seed (.sql)</span>
+                  </button>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-[var(--text-subtle)] mb-1">
-                  Export Format
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setExportFormat('csv')}
-                    className={`p-3 rounded-2xl border-2 text-xs font-bold transition-all cursor-pointer ${
-                      exportFormat === 'csv'
-                        ? 'border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary)]'
-                        : 'border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-muted)]'
-                    }`}
-                  >
-                    CSV (Excel / Quizlet / Anki)
-                  </button>
+              {/* Single Deck Export */}
+              <div className="pt-2 border-t border-[var(--border-subtle)] space-y-4">
+                <h4 className="text-xs font-black uppercase tracking-wider text-[var(--text-subtle)]">
+                  Or Export an Individual Deck
+                </h4>
 
-                  <button
-                    type="button"
-                    onClick={() => setExportFormat('json')}
-                    className={`p-3 rounded-2xl border-2 text-xs font-bold transition-all cursor-pointer ${
-                      exportFormat === 'json'
-                        ? 'border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary)]'
-                        : 'border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-muted)]'
-                    }`}
+                <div>
+                  <label className="block text-xs font-bold text-[var(--text-subtle)] mb-1">
+                    Select Deck to Export
+                  </label>
+                  <select
+                    value={exportDeckId}
+                    onChange={(e) => setExportDeckId(e.target.value)}
+                    className="w-full p-3 rounded-2xl bg-[var(--bg-surface)] border-2 border-[var(--border-color)] text-xs font-bold text-[var(--text-main)] outline-none focus:border-[var(--primary)] cursor-pointer"
                   >
-                    JSON (Full Nutriboard Backup)
-                  </button>
+                    {decks.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.title} ({d.cards.length} cards)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-[var(--text-subtle)] mb-1">
+                    Export Format
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setExportFormat('csv')}
+                      className={`p-3 rounded-2xl border-2 text-xs font-bold transition-all cursor-pointer ${
+                        exportFormat === 'csv'
+                          ? 'border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary)]'
+                          : 'border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-muted)]'
+                      }`}
+                    >
+                      CSV (Excel / Quizlet / Anki)
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setExportFormat('json')}
+                      className={`p-3 rounded-2xl border-2 text-xs font-bold transition-all cursor-pointer ${
+                        exportFormat === 'json'
+                          ? 'border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary)]'
+                          : 'border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-muted)]'
+                      }`}
+                    >
+                      JSON (Single Deck)
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

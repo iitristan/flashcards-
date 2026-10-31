@@ -41,3 +41,8 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+# Large binary / redundant export archives
+exports/*.colpkg
+exports/*FULL_COMPLETE*
+exports/*master_postgres*

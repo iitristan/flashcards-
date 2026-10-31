@@ -14,7 +14,8 @@ import {
   SparkleStyle,
   CardGroupFilterConfig,
   CardGroupFilterItem,
-  DEFAULT_CARD_GROUP_FILTERS
+  DEFAULT_CARD_GROUP_FILTERS,
+  StudyLogEntry
 } from '@/types';
 import { deckService } from '@/lib/services/deckService';
 import { soundEffects } from '@/lib/soundEffects';
@@ -467,7 +468,12 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
         for (const localDeck of localDecks) {
           const cloudDeck = cloudDeckMap.get(localDeck.id);
           if (!cloudDeck) {
-            // New local deck created on this device not yet in cloud: PRESERVE IT!
+            // If the database has a populated library, do NOT resurrect deleted/ghost decks
+            if (cloudData.decks.length >= 10) {
+              console.log(`[Sync] Pruning local ghost deck "${localDeck.title}" not present in database.`);
+              continue;
+            }
+            // Truly new offline deck created when cloud was empty: preserve it
             mergedDecks.push(localDeck);
             unsyncedLocalDecks.push(localDeck);
           } else {
@@ -556,6 +562,14 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
               localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify(mergedPrefs));
             } catch {}
           }
+          if ((cloudPrefs as any).cardGroupFilters && typeof (cloudPrefs as any).cardGroupFilters === 'object') {
+            set({ cardGroupFilters: (cloudPrefs as any).cardGroupFilters });
+            if (typeof window !== 'undefined') {
+              try {
+                localStorage.setItem(CARD_GROUP_FILTERS_STORAGE_KEY, JSON.stringify((cloudPrefs as any).cardGroupFilters));
+              } catch {}
+            }
+          }
         } else if (get().preferences) {
           await syncService.pushPreferences(get().preferences);
         }
@@ -599,11 +613,17 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
           const remoteLogs = await syncService.pullStudyLogs(latestTimestamp);
           if (remoteLogs && remoteLogs.length > 0) {
             const logMap = new Map();
-            for (const l of localLogs) logMap.set(l.timestamp || l.createdAt || l.cardId, l);
-            for (const r of remoteLogs) {
-              const key = r.createdAt || r.cardId;
+            for (let i = 0; i < localLogs.length; i++) {
+              const l = localLogs[i];
+              const key = l.id || `${l.cardId}_${l.timestamp || l.createdAt || i}`;
+              logMap.set(key, l);
+            }
+            for (let i = 0; i < remoteLogs.length; i++) {
+              const r = remoteLogs[i];
+              const key = r.id || `${r.cardId}_${r.createdAt || r.timestamp || i}`;
               if (!logMap.has(key)) {
                 logMap.set(key, {
+                  id: r.id,
                   cardId: r.cardId,
                   deckId: r.deckId,
                   mode: r.mode,
@@ -611,7 +631,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
                   userAnswer: r.userAnswer,
                   isCorrect: r.isCorrect,
                   timeSpentSeconds: r.timeSpentSeconds,
-                  timestamp: r.createdAt
+                  timestamp: r.createdAt || r.timestamp
                 });
               }
             }
@@ -631,19 +651,32 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
           syncStatus: 'synced',
           lastSyncedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         });
-      } else {
-        // Cloud is currently empty. If this device has local decks, upload them as the initial seed!
-        const localDecks = await deckService.getDecks();
-        const localPlaylists = await deckService.getPlaylists();
-        if (localDecks.length > 0) {
-          await syncService.migrateLocalToCloud(localDecks, localPlaylists);
-        }
-        if (get().preferences) {
-          await syncService.pushPreferences(get().preferences);
+      } else if (cloudData && cloudData.isEmpty) {
+        // Cloud is genuinely empty. If this device has local decks and cloud is available, upload initial seed!
+        if (syncService.isCloudAvailable()) {
+          const localDecks = await deckService.getDecks();
+          const localPlaylists = await deckService.getPlaylists();
+          if (localDecks.length > 0) {
+            await syncService.migrateLocalToCloud(localDecks, localPlaylists);
+          }
+          if (get().preferences) {
+            await syncService.pushPreferences(get().preferences);
+          }
         }
         set({
           syncStatus: 'synced',
           lastSyncedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        });
+      } else {
+        // Cloud is unavailable or offline (network error / quota limit exceeded):
+        // Silently preserve local IndexedDB data without throwing or attempting to overwrite!
+        const localDecks = await deckService.getDecks();
+        const localPlaylists = await deckService.getPlaylists();
+        set({
+          decks: localDecks,
+          playlists: localPlaylists,
+          isLoadingDecks: false,
+          syncStatus: 'idle',
         });
       }
     } catch (err) {
@@ -770,7 +803,10 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       }
 
       // Rehydrate independent card group filters
-      const groupFilters = getInitialCardGroupFilters();
+      let groupFilters = getInitialCardGroupFilters();
+      if ((!groupFilters || Object.keys(groupFilters).length === 0 || groupFilters.nbcd?.name === DEFAULT_CARD_GROUP_FILTERS.nbcd.name) && (get().preferences as any)?.cardGroupFilters) {
+        groupFilters = (get().preferences as any).cardGroupFilters;
+      }
       set({ cardGroupFilters: groupFilters });
 
       // Check for in-progress session checkpoints and make them available for resumption
@@ -1566,7 +1602,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
 
     // Handle Missed / Wrong answers filter
     if (options?.missedOnly || filter === 'wrong') {
-      let logs: any[] = [];
+      let logs: StudyLogEntry[] = [];
       try {
         logs = await deckService.getReviewLogs();
       } catch {}

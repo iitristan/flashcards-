@@ -365,7 +365,7 @@ class IndexedDbDeckService implements IDeckService {
         mode,
         timestamp: now.toISOString()
       });
-      await idbStorage.setItem(STORAGE_KEY_LOGS, logs.slice(-1000));
+      await idbStorage.setItem(STORAGE_KEY_LOGS, logs.slice(-10000));
     } catch {
       // ignore log store failures
     }
@@ -383,7 +383,7 @@ class IndexedDbDeckService implements IDeckService {
 
   public async saveReviewLogs(logs: StudyLogEntry[]): Promise<void> {
     try {
-      await idbStorage.setItem(STORAGE_KEY_LOGS, logs.slice(-1000));
+      await idbStorage.setItem(STORAGE_KEY_LOGS, logs.slice(-10000));
     } catch (e) {
       console.error('Failed to save review logs:', e);
     }

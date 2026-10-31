@@ -1,5 +1,5 @@
 import type { MCExplanationResponse, AIGradeResponse } from "@/types";
-import { getServerSupabaseClient } from "@/lib/supabase/serverClient";
+import { query, queryOne } from "@/lib/db";
 
 // In-memory cache fallback for high-speed hit without network roundtrips
 const memoryExplanationCache = new Map<string, MCExplanationResponse>();
@@ -29,7 +29,6 @@ export function normalizeQuestionText(q: string): string {
   clean = clean.replace(/<[^>]+>/g, " ");
 
   // Strip trailing multiple-choice lists if appended to the prompt:
-  // e.g. "Question prompt...\n a. Choice 1\n b. Choice 2..."
   clean = clean.split(/\n\s*(?:[a-dA-D][\.\)\:\-]\s*|[1-4]\.(?!\d)\s+|[1-4][\)\:\-]\s+)/)[0];
 
   // Strip markdown markers and stray asterisks/underscores
@@ -46,13 +45,7 @@ export function createCacheKey(prefix: string, question: string, answer: string 
 }
 
 /**
- * Get cached multiple-choice explanation from memory or Supabase.
- * Searches:
- * 1. Exact match (question + userAnswer) in memory (< 1ms)
- * 2. General question match in memory (< 1ms)
- * 3. Exact match in Supabase
- * 4. Question prefix match in Supabase (matches any previous choice for this question)
- * 5. Case-insensitive question_text match in Supabase
+ * Get cached multiple-choice explanation from memory or PostgreSQL.
  */
 export async function getCachedMCExplanation(
   question: string,
@@ -80,67 +73,35 @@ export async function getCachedMCExplanation(
     }
   }
 
-  // 2. Database check if Supabase is configured
-  const supabase = getServerSupabaseClient();
-  if (supabase) {
-    try {
+  // 2. Database check in PostgreSQL
+  try {
+    const row = await queryOne<{ id: string; ai_explanation: any }>(`
+      SELECT id, ai_explanation
+      FROM public.ai_explanation_cache
+      WHERE id = $1 OR id LIKE $2 OR question_text ILIKE $3
+      ORDER BY created_at DESC
+      LIMIT 1
+    `, [exactKey, `${generalKey}%`, cleanQ]);
 
-      // Optimization #5: Combined query — exact key OR prefix key OR question_text match in ONE round-trip
-      const { data: combinedResults } = await supabase
-        .from("ai_explanation_cache")
-        .select("id, ai_explanation")
-        .or(`id.eq.${exactKey},id.like.${generalKey}%,question_text.ilike.${cleanQ}`)
-        .order("created_at", { ascending: false })
-        .limit(3);
-
-      if (combinedResults && combinedResults.length > 0) {
-        // Prioritize exact match, then any result
-        const exactHit = combinedResults.find((r) => r.id === exactKey);
-        const bestHit = exactHit || combinedResults[0];
-
-        if (bestHit?.ai_explanation) {
-          const parsed = typeof bestHit.ai_explanation === "string"
-            ? JSON.parse(bestHit.ai_explanation)
-            : bestHit.ai_explanation;
-          if (parsed && (parsed.whyRight || parsed.searchOverview)) {
-            memoryExplanationCache.set(exactKey, parsed);
-            memoryExplanationCache.set(generalKey, parsed);
-            return parsed;
-          }
-        }
+    if (row?.ai_explanation) {
+      const parsed = typeof row.ai_explanation === "string"
+        ? JSON.parse(row.ai_explanation)
+        : row.ai_explanation;
+      if (parsed && (parsed.whyRight || parsed.searchOverview)) {
+        memoryExplanationCache.set(exactKey, parsed);
+        memoryExplanationCache.set(generalKey, parsed);
+        return parsed;
       }
-
-      // Fallback: substring lookup for long questions (only if combined query missed)
-      if (cleanQ.length >= 25) {
-        const coreText = cleanQ.slice(0, 60);
-        const { data: subList } = await supabase
-          .from("ai_explanation_cache")
-          .select("ai_explanation")
-          .ilike("question_text", `%${coreText}%`)
-          .order("created_at", { ascending: false })
-          .limit(1);
-
-        if (subList && subList.length > 0 && subList[0].ai_explanation) {
-          const parsed = typeof subList[0].ai_explanation === "string"
-            ? JSON.parse(subList[0].ai_explanation)
-            : subList[0].ai_explanation;
-          if (parsed && (parsed.whyRight || parsed.searchOverview)) {
-            memoryExplanationCache.set(exactKey, parsed);
-            memoryExplanationCache.set(generalKey, parsed);
-            return parsed;
-          }
-        }
-      }
-    } catch {
-      // Non-fatal database lookup failure
     }
+  } catch {
+    // Non-fatal database lookup failure
   }
 
   return null;
 }
 
 /**
- * Persist generated multiple-choice explanation to memory and Supabase
+ * Persist generated multiple-choice explanation to memory and PostgreSQL
  */
 export async function setCachedMCExplanation(
   question: string,
@@ -158,22 +119,24 @@ export async function setCachedMCExplanation(
   memoryExplanationCache.set(exactKey, explanation);
   memoryExplanationCache.set(generalKey, explanation);
 
-  // 2. Persist to database if Supabase is available
-  const supabase = getServerSupabaseClient();
-  if (supabase) {
-    try {
-
-      await supabase.from("ai_explanation_cache").upsert({
-        id: exactKey,
-        question_text: cleanQ.slice(0, 500),
-        user_answer: userAnswer || "General Explanation",
-        is_correct: isCorrect,
-        ai_explanation: explanation,
-        created_at: new Date().toISOString(),
-      }, { onConflict: "id" });
-    } catch {
-      // Non-fatal if table not yet created in Supabase
-    }
+  // 2. Persist to PostgreSQL database
+  try {
+    await query(`
+      INSERT INTO public.ai_explanation_cache (
+        id, question_text, user_answer, is_correct, ai_explanation, created_at
+      ) VALUES ($1, $2, $3, $4, $5, NOW())
+      ON CONFLICT (id) DO UPDATE SET
+        ai_explanation = EXCLUDED.ai_explanation,
+        created_at = NOW()
+    `, [
+      exactKey,
+      cleanQ.slice(0, 500),
+      userAnswer || "General Explanation",
+      isCorrect,
+      JSON.stringify(explanation),
+    ]);
+  } catch {
+    // Non-fatal
   }
 }
 
@@ -193,33 +156,27 @@ export async function getCachedAnswerGrade(
     return memoryGradeCache.get(exactKey) || null;
   }
 
-  const supabase = getServerSupabaseClient();
-  if (supabase) {
-    try {
+  try {
+    const row = await queryOne<{ grade_result: any }>(`
+      SELECT grade_result FROM public.ai_grade_cache WHERE id = $1
+    `, [exactKey]);
 
-      const { data } = await supabase
-        .from("ai_grade_cache")
-        .select("grade_result")
-        .eq("id", exactKey)
-        .maybeSingle();
-
-      if (data?.grade_result) {
-        const parsed = typeof data.grade_result === "string"
-          ? JSON.parse(data.grade_result)
-          : data.grade_result;
-        memoryGradeCache.set(exactKey, parsed);
-        return parsed;
-      }
-    } catch {
-      // Table may not exist yet
+    if (row?.grade_result) {
+      const parsed = typeof row.grade_result === "string"
+        ? JSON.parse(row.grade_result)
+        : row.grade_result;
+      memoryGradeCache.set(exactKey, parsed);
+      return parsed;
     }
+  } catch {
+    // Non-fatal
   }
 
   return null;
 }
 
 /**
- * Persist identification/short-answer grade
+ * Persist identification/short-answer grade to PostgreSQL
  */
 export async function setCachedAnswerGrade(
   question: string,
@@ -230,22 +187,23 @@ export async function setCachedAnswerGrade(
   if (!cleanQ) return;
 
   const exactKey = createCacheKey("grade", question, userAnswer);
-
   memoryGradeCache.set(exactKey, gradeResult);
 
-  const supabase = getServerSupabaseClient();
-  if (supabase) {
-    try {
-
-      await supabase.from("ai_grade_cache").upsert({
-        id: exactKey,
-        question_text: cleanQ.slice(0, 500),
-        user_answer: (userAnswer || "").trim(),
-        grade_result: gradeResult,
-        created_at: new Date().toISOString(),
-      }, { onConflict: "id" });
-    } catch {
-      // Table may not exist yet
-    }
+  try {
+    await query(`
+      INSERT INTO public.ai_grade_cache (
+        id, question_text, user_answer, grade_result, created_at
+      ) VALUES ($1, $2, $3, $4, NOW())
+      ON CONFLICT (id) DO UPDATE SET
+        grade_result = EXCLUDED.grade_result,
+        created_at = NOW()
+    `, [
+      exactKey,
+      cleanQ.slice(0, 500),
+      (userAnswer || "").trim(),
+      JSON.stringify(gradeResult),
+    ]);
+  } catch {
+    // Non-fatal
   }
 }

@@ -1,17 +1,18 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getAuthUser } from "@/lib/auth";
-import { prisma, hasDatabaseUrl } from "@/lib/prisma";
+import { query, queryOne, withTransaction, hasDatabaseUrl } from "@/lib/db";
 import { getEndOfToday } from "@/lib/sm2";
 import { INITIAL_DECKS } from "@/lib/data/sampleDecks";
 import type { DeckWithStats } from "@/types";
 
-async function computeDeckStats(
-  deckId: string,
-  userId: string
-): Promise<DeckWithStats | null> {
-  if (!hasDatabaseUrl) {
+async function computeDeckStats(deckId: string): Promise<DeckWithStats | null> {
+  const deck = await queryOne<{ id: string; title: string }>(
+    "SELECT id, title FROM public.decks WHERE id = $1",
+    [deckId]
+  );
+
+  if (!deck) {
     const sample = INITIAL_DECKS.find((d) => d.id === deckId);
     if (!sample) return null;
     const totalCards = sample.cards.length;
@@ -25,23 +26,33 @@ async function computeDeckStats(
     };
   }
 
-  const deck = await prisma.deck.findFirst({
-    where: { id: deckId, userId },
-    include: { cards: true },
-  });
+  const cards = await query<{
+    id: string;
+    sm2: { interval?: number; dueDate?: string } | null;
+  }>(
+    "SELECT id, sm2 FROM public.flashcards WHERE deck_id = $1",
+    [deckId]
+  );
 
-  if (!deck) return null;
+  const endOfToday = getEndOfToday().getTime();
+  const totalCards = cards.length;
+  let dueToday = 0;
+  let matureCards = 0;
 
-  const endOfToday = getEndOfToday();
-  const totalCards = deck.cards.length;
-  const dueToday = deck.cards.filter((c) => c.dueDate <= endOfToday).length;
-  const matureCards = deck.cards.filter((c) => c.interval >= 21).length;
-  const masteryPercent =
-    totalCards === 0 ? 0 : Math.round((matureCards / totalCards) * 100);
+  for (const c of cards) {
+    const sm2 = c.sm2 || {};
+    const interval = sm2.interval || 0;
+    if (interval >= 21) matureCards++;
+
+    const dueTime = sm2.dueDate ? new Date(sm2.dueDate).getTime() : 0;
+    if (dueTime <= endOfToday) dueToday++;
+  }
+
+  const masteryPercent = totalCards === 0 ? 0 : Math.round((matureCards / totalCards) * 100);
 
   return {
     id: deck.id,
-    name: deck.name,
+    name: deck.title,
     totalCards,
     dueToday,
     masteryPercent,
@@ -49,122 +60,131 @@ async function computeDeckStats(
 }
 
 export async function getDecksWithStats(): Promise<DeckWithStats[]> {
-  if (!hasDatabaseUrl) {
-    return INITIAL_DECKS.map((deck) => {
-      const totalCards = deck.cards.length;
-      const matureCards = deck.cards.filter((c) => (c.sm2?.interval || 0) >= 21).length;
-      const masteryPercent =
-        totalCards === 0 ? 0 : Math.round((matureCards / totalCards) * 100);
+  try {
+    const decks = await query<{ id: string; title: string }>(
+      "SELECT id, title FROM public.decks ORDER BY updated_at DESC"
+    );
+
+    if (decks.length === 0) {
+      return INITIAL_DECKS.map((deck) => {
+        const totalCards = deck.cards.length;
+        const matureCards = deck.cards.filter((c) => (c.sm2?.interval || 0) >= 21).length;
+        const masteryPercent = totalCards === 0 ? 0 : Math.round((matureCards / totalCards) * 100);
+        return {
+          id: deck.id,
+          name: deck.title,
+          totalCards,
+          dueToday: totalCards,
+          masteryPercent,
+        };
+      });
+    }
+
+    const allCards = await query<{
+      id: string;
+      deck_id: string;
+      sm2: { interval?: number; dueDate?: string } | null;
+    }>("SELECT id, deck_id, sm2 FROM public.flashcards");
+
+    const cardsByDeck = new Map<string, typeof allCards>();
+    for (const c of allCards) {
+      const list = cardsByDeck.get(c.deck_id) || [];
+      list.push(c);
+      cardsByDeck.set(c.deck_id, list);
+    }
+
+    const endOfToday = getEndOfToday().getTime();
+
+    return decks.map((deck) => {
+      const cards = cardsByDeck.get(deck.id) || [];
+      const totalCards = cards.length;
+      let dueToday = 0;
+      let matureCards = 0;
+
+      for (const c of cards) {
+        const sm2 = c.sm2 || {};
+        const interval = sm2.interval || 0;
+        if (interval >= 21) matureCards++;
+
+        const dueTime = sm2.dueDate ? new Date(sm2.dueDate).getTime() : 0;
+        if (dueTime <= endOfToday) dueToday++;
+      }
+
+      const masteryPercent = totalCards === 0 ? 0 : Math.round((matureCards / totalCards) * 100);
 
       return {
         id: deck.id,
         name: deck.title,
         totalCards,
-        dueToday: totalCards,
+        dueToday,
         masteryPercent,
       };
     });
+  } catch (err) {
+    console.error("Error fetching decks with stats:", err);
+    return INITIAL_DECKS.map((d) => ({
+      id: d.id,
+      name: d.title,
+      totalCards: d.cards.length,
+      dueToday: d.cards.length,
+      masteryPercent: 0,
+    }));
   }
-
-  const user = await getAuthUser();
-
-  const decks = await prisma.deck.findMany({
-    where: { userId: user.id },
-    orderBy: { updatedAt: "desc" },
-    include: { cards: true },
-  });
-
-  const endOfToday = getEndOfToday();
-
-  return (decks || []).map((deck) => {
-    const totalCards = deck.cards.length;
-    const dueToday = deck.cards.filter((c) => c.dueDate <= endOfToday).length;
-    const matureCards = deck.cards.filter((c) => c.interval >= 21).length;
-    const masteryPercent =
-      totalCards === 0 ? 0 : Math.round((matureCards / totalCards) * 100);
-
-    return {
-      id: deck.id,
-      name: deck.name,
-      totalCards,
-      dueToday,
-      masteryPercent,
-    };
-  });
 }
 
 export async function getDeckNames(): Promise<{ id: string; name: string }[]> {
-  if (!hasDatabaseUrl) {
+  try {
+    const decks = await query<{ id: string; title: string }>(
+      "SELECT id, title FROM public.decks ORDER BY title ASC"
+    );
+    if (decks.length === 0) {
+      return INITIAL_DECKS.map((d) => ({ id: d.id, name: d.title }));
+    }
+    return decks.map((d) => ({ id: d.id, name: d.title }));
+  } catch (err) {
+    console.error("Error fetching deck names:", err);
     return INITIAL_DECKS.map((d) => ({ id: d.id, name: d.title }));
   }
-
-  const user = await getAuthUser();
-
-  const decks = await prisma.deck.findMany({
-    where: { userId: user.id },
-    select: { id: true, name: true },
-    orderBy: { name: "asc" },
-  });
-
-  return decks || [];
 }
 
 export async function createDeck(name: string) {
-  const user = await getAuthUser();
   const trimmed = name.trim();
-
   if (!trimmed) {
     throw new Error("Deck name is required");
   }
 
-  const deck = await prisma.deck.create({
-    data: { name: trimmed, userId: user.id },
-  });
+  const id = `deck-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  await query(`
+    INSERT INTO public.decks (id, title, description, category, icon, color, tags, updated_at)
+    VALUES ($1, $2, '', 'Clinical Nutrition', '🥑', '#7FA98B', '[]'::jsonb, NOW())
+  `, [id, trimmed]);
 
   revalidatePath("/dashboard");
   revalidatePath("/decks");
   revalidatePath("/create");
 
-  return deck;
+  return { id, name: trimmed };
 }
 
 export async function renameDeck(id: string, name: string) {
-  const user = await getAuthUser();
   const trimmed = name.trim();
-
   if (!trimmed) {
     throw new Error("Deck name is required");
   }
 
-  const deck = await prisma.deck.findFirst({
-    where: { id, userId: user.id },
-  });
-
-  if (!deck) {
-    throw new Error("Deck not found");
-  }
-
-  await prisma.deck.update({
-    where: { id },
-    data: { name: trimmed },
-  });
+  await query(`
+    UPDATE public.decks SET title = $1, updated_at = NOW() WHERE id = $2
+  `, [trimmed, id]);
 
   revalidatePath("/dashboard");
   revalidatePath("/decks");
 }
 
 export async function deleteDeck(id: string) {
-  const user = await getAuthUser();
-
-  const deck = await prisma.deck.findFirst({
-    where: { id, userId: user.id },
+  await withTransaction(async (client) => {
+    await client.query("DELETE FROM public.flashcards WHERE deck_id = $1", [id]);
+    await client.query("DELETE FROM public.decks WHERE id = $1", [id]);
   });
-
-  if (!deck) {
-    throw new Error("Deck not found");
-  }
-
-  await prisma.deck.delete({ where: { id } });
 
   revalidatePath("/dashboard");
   revalidatePath("/decks");
@@ -172,6 +192,5 @@ export async function deleteDeck(id: string) {
 }
 
 export async function getDeckStats(id: string): Promise<DeckWithStats | null> {
-  const user = await getAuthUser();
-  return computeDeckStats(id, user.id);
+  return computeDeckStats(id);
 }

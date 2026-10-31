@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { getServerSupabaseClient } from "@/lib/supabase/serverClient";
+import { query, queryOne } from "@/lib/db";
 
 const reframedStemCache = new Map<string, string>();
 
@@ -93,23 +93,19 @@ export async function reframeQuestionForCBLE(originalStem: string): Promise<stri
     return reframedStemCache.get(cleanOriginal)!;
   }
 
-  // 2. Check Supabase database cache
-  const supabase = getServerSupabaseClient();
-  if (supabase) {
-    try {
-      const { data } = await supabase
-        .from("cble_question_reframes")
-        .select("reframed_stem")
-        .eq("original_stem", cleanOriginal)
-        .maybeSingle();
+  // 2. Check PostgreSQL database cache
+  try {
+    const row = await queryOne<{ reframed_stem: string }>(
+      "SELECT reframed_stem FROM public.cble_question_reframes WHERE original_stem = $1",
+      [cleanOriginal]
+    );
 
-      if (data?.reframed_stem) {
-        reframedStemCache.set(cleanOriginal, data.reframed_stem);
-        return data.reframed_stem;
-      }
-    } catch {
-      // Table may not exist yet
+    if (row?.reframed_stem) {
+      reframedStemCache.set(cleanOriginal, row.reframed_stem);
+      return row.reframed_stem;
     }
+  } catch {
+    // Non-fatal if table not yet created
   }
 
   // 3. Apply high-precision heuristic normalization first
@@ -149,17 +145,15 @@ Question Stem:
       if (aiReframed && aiReframed.length > 10) {
         reframedStemCache.set(cleanOriginal, aiReframed);
 
-        // Persist to Supabase if configured
-        if (supabase) {
-          try {
-            await supabase.from("cble_question_reframes").upsert({
-              original_stem: cleanOriginal,
-              reframed_stem: aiReframed,
-              updated_at: new Date().toISOString(),
-            }, { onConflict: "original_stem" });
-          } catch {
-            // Ignore if table not present
-          }
+        // Persist to PostgreSQL
+        try {
+          await query(`
+            INSERT INTO public.cble_question_reframes (original_stem, reframed_stem, updated_at)
+            VALUES ($1, $2, NOW())
+            ON CONFLICT (original_stem) DO UPDATE SET reframed_stem = EXCLUDED.reframed_stem, updated_at = NOW()
+          `, [cleanOriginal, aiReframed]);
+        } catch {
+          // Ignore if table not present
         }
 
         return aiReframed;
