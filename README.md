@@ -1,4 +1,4 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+This is a [Next.js](https://nextjs.org) project bootstrapped with ...[`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started
 
@@ -7,7 +7,8 @@ First, run the development server:
 ```bash
 npm run dev
 # or
-yarn dev
+yarn devhj
+
 # or
 pnpm dev
 # or
@@ -19,6 +20,14 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+
+## Database
+
+The main flashcard app reads and writes decks and cards through Neon using the server-side `DATABASE_URL` environment variable. Configure it in Vercel for Production and in `.env.local` for local development; never commit the connection string.
+
+The Neon database must already contain the `public.decks` and `public.flashcards` tables and the columns used by `supabase/schema.sql`. The app does not run schema changes on startup. Do not run `prisma db push` against an existing database unless you have reviewed the generated changes and backed up the data.
+
+Supabase remains in use for authentication and auxiliary data such as playlists, study progress, and CBLE exam results.
 
 ## Learn More
 

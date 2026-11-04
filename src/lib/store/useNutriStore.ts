@@ -7,7 +7,8 @@ import {
   ThemeType, 
   UserPreferences, 
   StudySessionState, 
-  CardReviewResult, 
+  StudyLogEntry,
+  CardReviewResult,
   DeckPlaylist, 
   CardSortOption, 
   CardFilterOption, 
@@ -15,7 +16,6 @@ import {
   CardGroupFilterConfig,
   CardGroupFilterItem,
   DEFAULT_CARD_GROUP_FILTERS,
-  StudyLogEntry
 } from '@/types';
 import { deckService } from '@/lib/services/deckService';
 import { soundEffects } from '@/lib/soundEffects';
@@ -341,7 +341,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
   initAuth: async () => {
     const supabase = getSupabaseClient();
     if (!supabase) {
-      set({ syncStatus: 'offline' });
+      await get().syncWithCloud();
       return;
     }
 
@@ -536,17 +536,9 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
         }
 
         await deckService.setAllDecks(mergedDecks);
+
         if (cloudData.playlists) {
           await deckService.setAllPlaylists(cloudData.playlists);
-        }
-
-        // Auto-upload any local decks that were missing from the cloud
-        if (unsyncedLocalDecks.length > 0) {
-          for (const unsynced of unsyncedLocalDecks) {
-            syncService.pushDeckToCloud(unsynced).catch((err) =>
-              console.warn('[Sync] Auto-uploading local deck to cloud failed:', err)
-            );
-          }
         }
 
         // Sync preferences
@@ -678,10 +670,11 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
           isLoadingDecks: false,
           syncStatus: 'idle',
         });
+
       }
     } catch (err) {
       console.error('Failed to sync with cloud:', err);
-      set({ syncStatus: 'error' });
+      set({ syncStatus: 'error', isLoadingDecks: false });
     } finally {
       isSyncInProgress = false;
     }

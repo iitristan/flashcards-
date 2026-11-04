@@ -34,18 +34,84 @@ export class SyncService {
   }
 
   async getCurrentUser(): Promise<CloudUser | null> {
+    if (this.cachedUser) {
+      return this.cachedUser;
+    }
+    this.cachedUser = {
+      id: SyncService.SHARED_WORKSPACE_UUID,
+      email: 'student@nutrianki.local',
+    };
     return this.cachedUser;
   }
 
   /**
-   * Pulls all decks, cards, playlists, preferences, and sessions from local PostgreSQL.
+   * Pulls all decks, cards, playlists, preferences, and sessions from PostgreSQL.
    */
   async pullFromCloud(): Promise<{ decks: Deck[]; playlists: DeckPlaylist[]; isEmpty: boolean } | null> {
     try {
       const res = await fetch('/api/sync?action=pullAll', { cache: 'no-store' });
       if (!res.ok) {
-        console.error('Failed to pull from PostgreSQL API:', res.statusText);
-        return null;
+        console.warn('Failed to pull from /api/sync, trying /api/neon/decks:', res.statusText);
+        const neonRes = await fetch('/api/neon/decks', { cache: 'no-store' });
+        if (!neonRes.ok) {
+          console.error('Failed to pull from PostgreSQL API:', neonRes.statusText);
+          return null;
+        }
+        const neonData = await neonRes.json();
+        const rawDecks = neonData.decks || [];
+        const rawCards = neonData.cards || [];
+        const cardsByDeck = new Map<string, Flashcard[]>();
+        for (const raw of rawCards) {
+          if (!raw.front?.trim() && !raw.back?.trim()) continue;
+          const card: Flashcard = {
+            id: raw.id,
+            deckId: raw.deck_id,
+            front: raw.front,
+            back: raw.back,
+            rationale: raw.rationale || '',
+            options: Array.isArray(raw.options) ? raw.options : undefined,
+            tags: Array.isArray(raw.tags) ? raw.tags : [],
+            ndleSubject: raw.ndle_subject || undefined,
+            difficulty: raw.difficulty || undefined,
+            leitnerBox: raw.leitner_box || 1,
+            userNotes: raw.user_notes || '',
+            sm2: raw.sm2 || {
+              interval: 0,
+              easeFactor: 2.5,
+              repetitions: 0,
+              dueDate: new Date().toISOString(),
+            },
+            lastReviewedAt: raw.last_reviewed_at || null,
+            createdAt: raw.created_at,
+            updatedAt: raw.updated_at,
+          };
+          const list = cardsByDeck.get(raw.deck_id) || [];
+          list.push(card);
+          cardsByDeck.set(raw.deck_id, list);
+        }
+
+        const decks: Deck[] = rawDecks.map((raw: any) => {
+          const cards = cardsByDeck.get(raw.id) || [];
+          return {
+            id: raw.id,
+            title: raw.title,
+            description: raw.description || '',
+            category: raw.category || 'Clinical Nutrition',
+            icon: raw.icon || '🥑',
+            color: raw.color || '#7FA98B',
+            tags: Array.isArray(raw.tags) ? raw.tags : [],
+            cards,
+            stats: computeDeckStats(cards),
+            createdAt: raw.created_at,
+            updatedAt: raw.updated_at,
+          };
+        });
+
+        return {
+          decks,
+          playlists: [],
+          isEmpty: decks.length === 0,
+        };
       }
 
       const json = await res.json();
@@ -137,9 +203,20 @@ export class SyncService {
   }
 
   /**
-   * Pushes a single deck (and its cards) to local PostgreSQL.
+   * Pushes a single deck (and its cards) to PostgreSQL.
    */
   async pushDeckToCloud(deck: Deck): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const res = await fetch('/api/neon/decks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(deck),
+      });
+      if (res.ok) {
+        return { ok: true };
+      }
+    } catch {}
+
     try {
       const res = await fetch('/api/sync', {
         method: 'POST',
@@ -161,6 +238,15 @@ export class SyncService {
    */
   async syncCardReview(deckId: string, card: Flashcard): Promise<boolean> {
     try {
+      const res = await fetch('/api/neon/decks', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deckId, card }),
+      });
+      if (res.ok) return true;
+    } catch {}
+
+    try {
       const res = await fetch('/api/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -177,9 +263,16 @@ export class SyncService {
   }
 
   /**
-   * Deletes a deck from local PostgreSQL.
+   * Deletes a deck from PostgreSQL.
    */
   async deleteDeckFromCloud(deckId: string): Promise<boolean> {
+    try {
+      const res = await fetch(`/api/neon/decks?id=${encodeURIComponent(deckId)}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) return true;
+    } catch {}
+
     try {
       const res = await fetch(`/api/sync?action=deleteDeck&id=${encodeURIComponent(deckId)}`, {
         method: 'DELETE',
@@ -192,7 +285,7 @@ export class SyncService {
   }
 
   /**
-   * Pushes all playlists to local PostgreSQL.
+   * Pushes all playlists to PostgreSQL.
    */
   async pushPlaylistsToCloud(playlists: DeckPlaylist[]): Promise<boolean> {
     try {
@@ -212,7 +305,7 @@ export class SyncService {
   }
 
   /**
-   * Deletes a playlist from local PostgreSQL.
+   * Deletes a playlist from PostgreSQL.
    */
   async deletePlaylistFromCloud(playlistId: string): Promise<boolean> {
     try {
@@ -227,7 +320,7 @@ export class SyncService {
   }
 
   /**
-   * Pulls user preferences from local PostgreSQL.
+   * Pulls user preferences from PostgreSQL.
    */
   async pullPreferences(): Promise<UserPreferences | null> {
     try {
@@ -241,7 +334,7 @@ export class SyncService {
   }
 
   /**
-   * Pushes user preferences to local PostgreSQL.
+   * Pushes user preferences to PostgreSQL.
    */
   async pushPreferences(preferences: UserPreferences): Promise<boolean> {
     try {
@@ -281,7 +374,7 @@ export class SyncService {
   }
 
   /**
-   * Fetches active study session from local PostgreSQL.
+   * Fetches active study session from PostgreSQL.
    */
   async fetchActiveSession(): Promise<StudySessionState | null> {
     try {
@@ -329,7 +422,7 @@ export class SyncService {
   }
 
   /**
-   * Pushes a batch of study logs to local PostgreSQL.
+   * Pushes a batch of study logs to PostgreSQL.
    */
   async pushStudyLogs(logs: StudyLogEntry[]): Promise<boolean> {
     if (!logs || logs.length === 0) return true;
@@ -372,7 +465,7 @@ export class SyncService {
   }
 
   /**
-   * Pulls study logs from local PostgreSQL.
+   * Pulls study logs from PostgreSQL.
    */
   async pullStudyLogs(since?: string): Promise<StudyLogEntry[]> {
     try {

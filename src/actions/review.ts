@@ -1,156 +1,139 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { query, queryOne } from "@/lib/db";
-import { applyReview, getEndOfToday } from "@/lib/sm2";
+import { getNeonPool, hasNeonDatabaseUrl } from "@/lib/neon";
+import { applyReview } from "@/lib/sm2";
 import { INITIAL_DECKS } from "@/lib/data/sampleDecks";
-import type { ReviewCard, ReviewRating } from "@/types";
+import type { ReviewCard, ReviewRating, Sm2Data } from "@/types";
+
+function parseSm2(value: unknown): Sm2Data {
+  if (typeof value === "string") {
+    try {
+      return parseSm2(JSON.parse(value));
+    } catch {
+      return { interval: 0, easeFactor: 2.5, repetitions: 0, dueDate: new Date().toISOString() };
+    }
+  }
+  if (value && typeof value === "object") {
+    const data = value as Partial<Sm2Data>;
+    if (typeof data.dueDate === "string" && !Number.isNaN(Date.parse(data.dueDate))) {
+      return {
+        interval: Number(data.interval) || 0,
+        easeFactor: Number(data.easeFactor) || 2.5,
+        repetitions: Number(data.repetitions) || 0,
+        dueDate: data.dueDate,
+      };
+    }
+  }
+  return { interval: 0, easeFactor: 2.5, repetitions: 0, dueDate: new Date().toISOString() };
+}
 
 export async function getDueCards(deckId?: string): Promise<ReviewCard[]> {
-  try {
-    let sql = `
-      SELECT f.id, f.front, f.back, f.deck_id, f.sm2, d.title as deck_name
-      FROM public.flashcards f
-      JOIN public.decks d ON f.deck_id = d.id
-    `;
-    const params: any[] = [];
-
-    if (deckId) {
-      sql += " WHERE f.deck_id = $1";
-      params.push(deckId);
-    }
-
-    const cards = await query<{
-      id: string;
-      front: string;
-      back: string;
-      deck_id: string;
-      deck_name: string;
-      sm2: { interval?: number; easeFactor?: number; repetitions?: number; dueDate?: string } | null;
-    }>(sql, params);
-
-    const endOfToday = getEndOfToday().getTime();
-
-    const dueCards: ReviewCard[] = [];
-    for (const c of cards) {
-      const sm2 = c.sm2 || {};
-      const dueTime = sm2.dueDate ? new Date(sm2.dueDate).getTime() : 0;
-      if (dueTime <= endOfToday || !sm2.dueDate) {
-        dueCards.push({
-          id: c.id,
-          front: c.front,
-          back: c.back,
-          deckId: c.deck_id,
-          deckName: c.deck_name,
-          interval: sm2.interval || 1,
-          easeFactor: sm2.easeFactor || 2.5,
-          repetitions: sm2.repetitions || 0,
-        });
-      }
-    }
-
-    if (dueCards.length === 0 && cards.length === 0) {
-      const decks = deckId ? INITIAL_DECKS.filter((d) => d.id === deckId) : INITIAL_DECKS;
-      for (const d of decks) {
-        for (const c of d.cards) {
-          dueCards.push({
-            id: c.id,
-            front: c.front,
-            back: c.back,
-            deckId: d.id,
-            deckName: d.title,
-            interval: c.sm2?.interval || 1,
-            easeFactor: c.sm2?.easeFactor || 2.5,
-            repetitions: c.sm2?.repetitions || 0,
-          });
-        }
-      }
-    }
-
-    return dueCards;
-  } catch (err) {
-    console.error("Error fetching due cards:", err);
-    return [];
+  if (!hasNeonDatabaseUrl) {
+    const decks = deckId
+      ? INITIAL_DECKS.filter((deck) => deck.id === deckId)
+      : INITIAL_DECKS;
+    return decks.flatMap((deck) =>
+      deck.cards.map((card) => ({
+        id: card.id,
+        front: card.front,
+        back: card.back,
+        deckId: deck.id,
+        deckName: deck.title,
+        interval: card.sm2?.interval || 1,
+        easeFactor: card.sm2?.easeFactor || 2.5,
+        repetitions: card.sm2?.repetitions || 0,
+      })),
+    );
   }
+
+  const { rows } = await getNeonPool().query<{
+    id: string;
+    front: string;
+    back: string;
+    deck_id: string;
+    deck_name: string;
+    sm2: unknown;
+  }>(
+    `SELECT f.id, f.front, f.back, f.deck_id, d.title AS deck_name, f.sm2
+     FROM public.flashcards f
+     JOIN public.decks d ON d.id = f.deck_id
+     WHERE ($1::text IS NULL OR f.deck_id = $1)
+     ORDER BY f.created_at ASC`,
+    [deckId ?? null],
+  );
+  const now = Date.now();
+
+  return rows.flatMap((card) => {
+    const sm2 = parseSm2(card.sm2);
+    if (new Date(sm2.dueDate).getTime() > now) return [];
+    return [{
+      id: card.id,
+      front: card.front,
+      back: card.back,
+      deckId: card.deck_id,
+      deckName: card.deck_name,
+      interval: sm2.interval,
+      easeFactor: sm2.easeFactor,
+      repetitions: sm2.repetitions,
+    }];
+  });
 }
 
 export async function getDueCountByDeck(): Promise<
   { id: string; name: string; dueCount: number }[]
 > {
-  try {
-    const decks = await query<{ id: string; title: string }>(
-      "SELECT id, title FROM public.decks ORDER BY title ASC"
-    );
-
-    const allCards = await query<{
-      id: string;
-      deck_id: string;
-      sm2: { dueDate?: string } | null;
-    }>("SELECT id, deck_id, sm2 FROM public.flashcards");
-
-    const endOfToday = getEndOfToday().getTime();
-    const countByDeck = new Map<string, number>();
-
-    for (const c of allCards) {
-      const dueTime = c.sm2?.dueDate ? new Date(c.sm2.dueDate).getTime() : 0;
-      if (dueTime <= endOfToday || !c.sm2?.dueDate) {
-        countByDeck.set(c.deck_id, (countByDeck.get(c.deck_id) || 0) + 1);
-      }
-    }
-
-    return decks.map((deck) => ({
+  if (!hasNeonDatabaseUrl) {
+    return INITIAL_DECKS.map((deck) => ({
       id: deck.id,
       name: deck.title,
-      dueCount: countByDeck.get(deck.id) || 0,
+      dueCount: deck.cards.length,
     }));
-  } catch (err) {
-    console.error("Error fetching due count by deck from PostgreSQL:", err);
-    return [];
   }
+
+  const { rows } = await getNeonPool().query<{
+    id: string;
+    name: string;
+    sm2: unknown;
+  }>(
+    `SELECT d.id, d.title AS name, f.sm2
+     FROM public.decks d
+     LEFT JOIN public.flashcards f ON f.deck_id = d.id
+     ORDER BY d.title ASC`,
+  );
+  const dueCounts = new Map<string, { id: string; name: string; dueCount: number }>();
+  const now = Date.now();
+
+  for (const row of rows) {
+    const deck = dueCounts.get(row.id) || { id: row.id, name: row.name, dueCount: 0 };
+    if (row.sm2 && new Date(parseSm2(row.sm2).dueDate).getTime() <= now) {
+      deck.dueCount++;
+    }
+    dueCounts.set(row.id, deck);
+  }
+
+  return Array.from(dueCounts.values());
 }
 
 export async function submitReview(cardId: string, rating: ReviewRating) {
-  const card = await queryOne<{
-    id: string;
-    leitner_box: number;
-    sm2: { interval: number; easeFactor: number; repetitions: number; dueDate: string } | null;
-  }>("SELECT id, leitner_box, sm2 FROM public.flashcards WHERE id = $1", [cardId]);
-
-  if (!card) {
-    throw new Error("Card not found");
-  }
-
-  const currentSm2 = card.sm2 || {
-    interval: 0,
-    easeFactor: 2.5,
-    repetitions: 0,
-    dueDate: new Date().toISOString(),
-  };
-
-  const updated = applyReview(
-    {
-      interval: currentSm2.interval || 0,
-      easeFactor: currentSm2.easeFactor || 2.5,
-      repetitions: currentSm2.repetitions || 0,
-      dueDate: new Date(currentSm2.dueDate || new Date().toISOString()),
-    },
-    rating
+  const { rows } = await getNeonPool().query<{ sm2: unknown }>(
+    "SELECT sm2 FROM public.flashcards WHERE id = $1",
+    [cardId],
   );
+  if (!rows[0]) throw new Error("Card not found");
 
-  const newLeitner = rating === "again" ? 1 : Math.min(5, (card.leitner_box || 1) + 1);
-
-  await query(`
-    UPDATE public.flashcards
-    SET sm2 = $1,
-        leitner_box = $2,
-        last_reviewed_at = NOW(),
-        updated_at = NOW()
-    WHERE id = $3
-  `, [JSON.stringify(updated), newLeitner, cardId]);
+  const sm2 = parseSm2(rows[0].sm2);
+  const updated = applyReview({ ...sm2, dueDate: new Date(sm2.dueDate) }, rating);
+  const result = await getNeonPool().query(
+    `UPDATE public.flashcards
+     SET sm2 = $2::jsonb, updated_at = NOW()
+     WHERE id = $1`,
+    [cardId, JSON.stringify(updated)],
+  );
+  if (result.rowCount !== 1) throw new Error("Card not found");
 
   revalidatePath("/dashboard");
   revalidatePath("/decks");
   revalidatePath("/review");
-
   return updated;
 }

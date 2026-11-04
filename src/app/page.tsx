@@ -121,7 +121,6 @@ export default function NutriboardApp() {
   useEffect(() => {
     const store = useNutriStore.getState();
     store.initPreferences();
-    store.loadDecks().catch(() => {});
     store.initAuth().catch(() => {});
 
     // Optimization #8: Replace 30-second polling with visibility-based sync.
@@ -154,16 +153,11 @@ export default function NutriboardApp() {
     }
   }, [preferences.theme]);
 
-  // Filtered decks calculation: empty decks (no cards) are automatically excluded by default
+  // Filter decks by the selected search and category, but keep empty Neon decks visible.
   const filteredDecks = useMemo(() => {
     const q = (deferredSearchQuery || '').trim().toLowerCase();
 
     return decks.filter((deck) => {
-      // Exclude decks with no cards by default
-      if ((deck.cards?.length || 0) === 0) {
-        return false;
-      }
-
       const title = (deck.title || '').toLowerCase();
       const desc = (deck.description || '').toLowerCase();
       const tags = Array.isArray(deck.tags) ? deck.tags : [];
@@ -184,11 +178,9 @@ export default function NutriboardApp() {
   const categories = useMemo(() => {
     const set = new Set<string>(['All']);
     DECK_CATEGORIES.forEach((cat) => set.add(cat));
-    decks
-      .filter((d) => (d.cards?.length || 0) > 0)
-      .forEach((d) => {
-        if (d.category) set.add(d.category);
-      });
+    decks.forEach((deck) => {
+      if (deck.category) set.add(deck.category);
+    });
     return Array.from(set);
   }, [decks]);
 
@@ -1043,4 +1035,3 @@ export default function NutriboardApp() {
     </main>
   );
 }
-
