@@ -741,6 +741,14 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
         await deckService.setAllDecks(cloudData.decks);
         await deckService.setAllPlaylists(cloudData.playlists || []);
       }
+      try {
+        const remoteLogs = await syncService.pullStudyLogs();
+        if (remoteLogs && remoteLogs.length > 0) {
+          await deckService.saveReviewLogs(remoteLogs);
+        }
+      } catch (e) {
+        console.warn('Failed to pull review logs during cloud reset:', e);
+      }
       await get().loadDecks();
       await get().loadAnalytics();
       set({

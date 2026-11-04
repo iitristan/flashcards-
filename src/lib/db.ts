@@ -10,8 +10,17 @@ function parseDatabaseConfig(connectionString: string): pg.PoolConfig {
   try {
     const trimmed = connectionString.trim().replace(/^['"]|['"]$/g, '');
     const prefix = 'postgresql://';
+    const isSsl = trimmed.includes('sslmode=require') ||
+                  trimmed.includes('sslmode=verify') ||
+                  trimmed.includes('neon.tech') ||
+                  trimmed.includes('supabase.co') ||
+                  trimmed.includes('aws.neon.tech');
+
     if (!trimmed.startsWith(prefix)) {
-      return { connectionString: trimmed };
+      return {
+        connectionString: trimmed,
+        ssl: isSsl ? { rejectUnauthorized: false } : undefined,
+      };
     }
 
     const withoutPrefix = trimmed.slice(prefix.length);
@@ -35,14 +44,19 @@ function parseDatabaseConfig(connectionString: string): pg.PoolConfig {
         password,
         host: host || 'localhost',
         port: portStr ? parseInt(portStr, 10) : 5432,
-        database: database || 'nutriboards',
+        database: database || 'neondb',
         max: 20,
         idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 5000,
+        connectionTimeoutMillis: 10000,
+        ssl: isSsl ? { rejectUnauthorized: false } : undefined,
       };
     }
 
-    return { connectionString: trimmed, max: 20 };
+    return {
+      connectionString: trimmed,
+      max: 20,
+      ssl: isSsl ? { rejectUnauthorized: false } : undefined,
+    };
   } catch {
     return { connectionString, max: 20 };
   }
