@@ -7,10 +7,7 @@ import {
   Cloud, 
   CheckCircle2, 
   RefreshCw, 
-  UploadCloud, 
   DownloadCloud,
-  Smartphone,
-  Laptop,
   Heart,
   ShieldCheck,
   Zap,
@@ -23,7 +20,6 @@ interface AuthModalProps {
   syncStatus: 'idle' | 'syncing' | 'synced' | 'error' | 'offline';
   localDecksCount: number;
   onSyncNow: () => Promise<void>;
-  onApplyThisDeviceToCloud: () => Promise<{ success: boolean; decksUploaded: number; totalCards: number; error?: string }>;
   onResetLocalAndPullFromCloud: () => Promise<void>;
   onClose: () => void;
 }
@@ -32,23 +28,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   syncStatus,
   localDecksCount,
   onSyncNow,
-  onApplyThisDeviceToCloud,
   onResetLocalAndPullFromCloud,
   onClose,
 }) => {
   const [isBusy, setIsBusy] = useState(false);
   const [actionType, setActionType] = useState<string | null>(null);
 
-  const isConfigured = Boolean(
-    process.env.NEXT_PUBLIC_SUPABASE_URL &&
-    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)
-  );
-
   const handleSync = async () => {
-    if (!isConfigured) {
-      toast.error('Supabase keys are missing on this deployment. Please add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to your Vercel Environment Variables.');
-      return;
-    }
     setIsBusy(true);
     setActionType('sync');
     try {
@@ -64,40 +50,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  const handleApplyThisDevice = async () => {
-    if (!isConfigured) {
-      toast.error('Supabase keys are missing on this deployment. Please add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to your Vercel Environment Variables.');
-      return;
-    }
-    setIsBusy(true);
-    setActionType('apply');
-    try {
-      console.log('[AuthModal] Setting this device as master & pushing dataset to Cloud...');
-      const res = await onApplyThisDeviceToCloud();
-      console.log('[AuthModal] Push result:', res);
-      if (res.success) {
-        toast.success(
-          `Applied this device as master! ${res.decksUploaded} decks (${res.totalCards} cards) saved to Cloud.`
-        );
-      } else {
-        const errorMsg = res.error || 'Failed to apply data to cloud.';
-        console.error('[AuthModal] Push failed with reason:', errorMsg);
-        toast.error(errorMsg);
-      }
-    } catch (err) {
-      console.error('[AuthModal] Unexpected exception applying data to cloud:', err);
-      toast.error('Error applying data to cloud. Check developer console for details.');
-    } finally {
-      setIsBusy(false);
-      setActionType(null);
-    }
-  };
-
   const handleResetAndPull = async () => {
-    if (!isConfigured) {
-      toast.error('Supabase keys are missing on this deployment. Please add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to your Vercel Environment Variables.');
-      return;
-    }
     const confirmed = window.confirm(
       'This will remove any local-only decks on this device and replace them with the latest data from the Cloud. Continue?'
     );
@@ -123,7 +76,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         aria-modal="true"
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        className="w-full max-w-lg rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-color)] shadow-2xl overflow-hidden my-8"
+        className="w-full max-w-md rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-color)] shadow-2xl overflow-hidden my-8"
       >
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-[var(--border-subtle)] bg-[var(--bg-surface-subtle)]/50">
@@ -137,7 +90,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500" />
               </h2>
               <p className="text-xs text-[var(--text-muted)]">
-                Couple multi-device synchronization & real-time updates
+                Multi-device synchronization & real-time updates
               </p>
             </div>
           </div>
@@ -156,32 +109,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           {/* Status Tile */}
           <div className="p-3 sm:p-3.5 rounded-xl bg-[var(--bg-surface-subtle)] border border-[var(--border-subtle)] flex items-center justify-between gap-2.5">
             <div className="flex items-center gap-2.5 min-w-0 flex-1">
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold flex-shrink-0 ${
-                isConfigured 
-                  ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300' 
-                  : 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
-              }`}>
-                {isConfigured ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center font-bold flex-shrink-0 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
+                <CheckCircle2 className="w-4 h-4" />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="text-[10px] text-[var(--text-subtle)] font-bold uppercase tracking-wider flex items-center gap-1.5 flex-wrap">
                   <span>Cloud Status</span>
-                  {isConfigured ? (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold whitespace-nowrap">
-                      <Zap className="w-2.5 h-2.5" /> Realtime Active
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-amber-500/15 text-amber-700 dark:text-amber-300 font-semibold whitespace-nowrap">
-                      <AlertCircle className="w-2.5 h-2.5" /> Keys Missing
-                    </span>
-                  )}
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold whitespace-nowrap">
+                    <Zap className="w-2.5 h-2.5" /> Realtime Active
+                  </span>
                 </div>
                 <div className="text-xs font-semibold text-[var(--text-main)] truncate mt-0.5">
-                  {!isConfigured 
-                    ? 'Cloud sync unconfigured (local-only mode)'
-                    : syncStatus === 'syncing' 
-                      ? 'Synchronizing with cloud...' 
-                      : 'Connected • Single Source of Truth'}
+                  {syncStatus === 'syncing' 
+                    ? 'Synchronizing with cloud...' 
+                    : 'Connected • Single Source of Truth'}
                 </div>
               </div>
             </div>
@@ -192,55 +133,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           </div>
 
-          {/* Devices diagram */}
-          <div className="flex items-center justify-center gap-3 py-1 text-xs font-medium text-[var(--text-muted)]">
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-surface-subtle)] border border-[var(--border-subtle)]">
-              <Laptop className="w-3.5 h-3.5 text-[var(--primary)]" />
-              <span>Device A (e.g. Laptop)</span>
-            </div>
-            <span className="text-[var(--primary)] font-bold text-sm">↔</span>
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-surface-subtle)] border border-[var(--border-subtle)]">
-              <Smartphone className="w-3.5 h-3.5 text-[var(--primary)]" />
-              <span>Device B (e.g. Phone)</span>
-            </div>
-          </div>
-
-          {/* Master Push Action Box */}
-          <div className="p-4 rounded-xl border-2 border-[var(--primary)]/30 bg-[var(--primary)]/5 space-y-2.5">
-            <div className="flex items-start gap-2.5">
-              <div className="p-1.5 rounded-lg bg-[var(--primary)] text-white mt-0.5">
-                <UploadCloud className="w-4 h-4" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-xs font-bold text-[var(--text-main)]">
-                  Apply This Device&apos;s Data to All Devices
-                </h3>
-                <p className="text-[11px] text-[var(--text-muted)] leading-relaxed mt-0.5">
-                  Overwrites the cloud database with all decks, flashcards, playlists, and study history from <strong>this device</strong>. Other devices will immediately sync to this exact dataset.
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleApplyThisDevice}
-              disabled={isBusy}
-              className="w-full py-2.5 px-4 rounded-lg bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-sm transition-all disabled:opacity-50 cursor-pointer"
-            >
-              <UploadCloud className={`w-4 h-4 ${actionType === 'apply' ? 'animate-bounce' : ''}`} />
-              <span>
-                {actionType === 'apply' ? 'Pushing All Data to Cloud...' : 'Set This Device as Master & Overwrite Cloud'}
-              </span>
-            </button>
-          </div>
-
-          {/* Secondary Actions */}
+          {/* Sync Actions */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
             <button
               type="button"
               onClick={handleSync}
               disabled={isBusy || syncStatus === 'syncing'}
-              className="py-2 px-3 rounded-lg bg-[var(--bg-surface-subtle)] hover:bg-[var(--border-color)] text-[var(--text-main)] font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer border border-[var(--border-subtle)] disabled:opacity-50"
+              className="py-2.5 px-3 rounded-lg bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs disabled:opacity-50"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${syncStatus === 'syncing' || actionType === 'sync' ? 'animate-spin' : ''}`} />
               <span>{actionType === 'sync' ? 'Syncing...' : 'Sync with Cloud'}</span>
@@ -250,7 +149,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               type="button"
               onClick={handleResetAndPull}
               disabled={isBusy}
-              className="py-2 px-3 rounded-lg bg-[var(--bg-surface-subtle)] hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-400 text-[var(--text-main)] font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer border border-[var(--border-subtle)] disabled:opacity-50"
+              className="py-2.5 px-3 rounded-lg bg-[var(--bg-surface-subtle)] hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-400 text-[var(--text-main)] font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer border border-[var(--border-subtle)] disabled:opacity-50"
               title="Clears local cache and downloads fresh cloud copy"
             >
               <DownloadCloud className="w-3.5 h-3.5" />
@@ -260,11 +159,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
           <div className="pt-2 text-[11px] text-center text-[var(--text-muted)] flex items-center justify-center gap-1.5">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
-            <span>Zero-configuration couple sync • Changes reflect automatically in real-time.</span>
+            <span>Zero-configuration sync • Changes reflect automatically in real-time.</span>
           </div>
         </div>
       </motion.div>
     </div>
   );
 };
-

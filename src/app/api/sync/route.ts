@@ -23,34 +23,122 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const action = searchParams.get('action') || 'pullAll';
 
+    // 1. Lightweight Preferences Pull (< 1 KB)
+    if (action === 'pullPreferences') {
+      const prefRow = await queryOne(`
+        SELECT preferences FROM public.user_preferences LIMIT 1
+      `).catch(() => null);
+      return NextResponse.json({
+        ok: true,
+        preferences: prefRow ? prefRow.preferences : null,
+      });
+    }
+
+    // 2. Lightweight Active Session Pull (< 1 KB)
+    if (action === 'pullActiveSession') {
+      const activeSession = await queryOne(`
+        SELECT id, deck_id, deck_title, mode, current_index, is_completed,
+               timer_duration_seconds, cards_queue, results, start_time, updated_at
+        FROM public.study_sessions
+        WHERE is_completed = false
+        ORDER BY updated_at DESC
+        LIMIT 1
+      `).catch(() => null);
+      return NextResponse.json({
+        ok: true,
+        activeSession,
+      });
+    }
+
+    // 3. Decks Metadata Only (< 15 KB)
+    if (action === 'pullDecksOnly') {
+      const decks = await query(`
+        SELECT id, title, description, category, icon, color, tags, created_at, updated_at
+        FROM public.decks
+        ORDER BY updated_at DESC
+      `);
+      return NextResponse.json({ ok: true, decks });
+    }
+
+    // 4. Main Pull (with Delta / Incremental Timestamp Check)
     if (action === 'pullAll') {
-      // 1. Fetch all decks
+      const since = searchParams.get('since');
+
+      // Check database latest timestamps
+      const statsRow = await queryOne(`
+        SELECT 
+          (SELECT MAX(updated_at) FROM public.flashcards) as max_card_updated,
+          (SELECT COUNT(*) FROM public.flashcards) as card_count,
+          (SELECT MAX(updated_at) FROM public.decks) as max_deck_updated,
+          (SELECT COUNT(*) FROM public.decks) as deck_count
+      `).catch(() => null);
+
+      const maxCardUpdated = statsRow?.max_card_updated ? new Date(statsRow.max_card_updated).toISOString() : null;
+      const maxDeckUpdated = statsRow?.max_deck_updated ? new Date(statsRow.max_deck_updated).toISOString() : null;
+      const latestDbTimestamp = maxCardUpdated && maxDeckUpdated 
+        ? (maxCardUpdated > maxDeckUpdated ? maxCardUpdated : maxDeckUpdated) 
+        : (maxCardUpdated || maxDeckUpdated);
+
+      // Fast-path: Client is already up to date! (< 200 bytes instead of 35 MB)
+      if (since && latestDbTimestamp && new Date(since).getTime() >= new Date(latestDbTimestamp).getTime()) {
+        const prefRow = await queryOne(`
+          SELECT preferences FROM public.user_preferences LIMIT 1
+        `).catch(() => null);
+
+        const activeSession = await queryOne(`
+          SELECT id, deck_id, deck_title, mode, current_index, is_completed,
+                 timer_duration_seconds, cards_queue, results, start_time, updated_at
+          FROM public.study_sessions
+          WHERE is_completed = false
+          ORDER BY updated_at DESC
+          LIMIT 1
+        `).catch(() => null);
+
+        return NextResponse.json({
+          ok: true,
+          upToDate: true,
+          latestTimestamp: latestDbTimestamp,
+          totalCards: Number(statsRow?.card_count || 0),
+          totalDecks: Number(statsRow?.deck_count || 0),
+          data: {
+            decks: null,
+            cards: null,
+            playlists: null,
+            preferences: prefRow ? prefRow.preferences : null,
+            activeSession,
+            logs: [],
+          },
+        }, {
+          headers: {
+            'Cache-Control': 'private, no-cache',
+            'ETag': `W/"nutri-${latestDbTimestamp}"`
+          }
+        });
+      }
+
+      // Full-pull path: Fetch decks, cards, playlists, preferences, activeSession, logs
       const decks = await query(`
         SELECT id, title, description, category, icon, color, tags, created_at, updated_at
         FROM public.decks
         ORDER BY updated_at DESC
       `);
 
-      // 2. Fetch all flashcards
       const cards = await query(`
         SELECT id, deck_id, front, back, rationale, options, tags, ndle_subject,
                difficulty, leitner_box, user_notes, sm2, last_reviewed_at, created_at, updated_at
         FROM public.flashcards
       `);
 
-      // 3. Fetch playlists
       const playlists = await query(`
         SELECT id, title, description, deck_ids, color, icon, created_at, updated_at
         FROM public.playlists
         ORDER BY updated_at DESC
       `).catch(() => []);
 
-      // 4. Fetch preferences
       const prefRow = await queryOne(`
         SELECT preferences FROM public.user_preferences LIMIT 1
       `).catch(() => null);
 
-      // 5. Fetch active study session
       const activeSession = await queryOne(`
         SELECT id, deck_id, deck_title, mode, current_index, is_completed,
                timer_duration_seconds, cards_queue, results, start_time, updated_at
@@ -60,7 +148,6 @@ export async function GET(req: NextRequest) {
         LIMIT 1
       `).catch(() => null);
 
-      // 6. Fetch recent study logs
       const logs = await query(`
         SELECT id, card_id, deck_id, mode, rating, user_answer, is_correct,
                time_spent_seconds, verdict, created_at
@@ -71,6 +158,10 @@ export async function GET(req: NextRequest) {
 
       return NextResponse.json({
         ok: true,
+        upToDate: false,
+        latestTimestamp: latestDbTimestamp || new Date().toISOString(),
+        totalCards: cards.length,
+        totalDecks: decks.length,
         data: {
           decks,
           cards,
@@ -79,6 +170,11 @@ export async function GET(req: NextRequest) {
           activeSession,
           logs,
         },
+      }, {
+        headers: {
+          'Cache-Control': 'private, no-cache',
+          'ETag': `W/"nutri-${latestDbTimestamp || Date.now()}"`
+        }
       });
     }
 
@@ -298,6 +394,9 @@ export async function POST(req: NextRequest) {
             timer_duration_seconds, cards_queue, results, start_time, updated_at
           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
           ON CONFLICT (id) DO UPDATE SET
+            deck_id = EXCLUDED.deck_id,
+            deck_title = EXCLUDED.deck_title,
+            mode = EXCLUDED.mode,
             current_index = EXCLUDED.current_index,
             is_completed = EXCLUDED.is_completed,
             timer_duration_seconds = EXCLUDED.timer_duration_seconds,
@@ -376,4 +475,3 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ ok: false, error: err.message }, { status: 500 });
   }
 }
-

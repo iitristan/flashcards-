@@ -19,7 +19,8 @@ import {
   Clock,
   X,
   RotateCcw,
-  SlidersHorizontal
+  SlidersHorizontal,
+  RefreshCw
 } from 'lucide-react';
 
 import { useNutriStore } from '@/lib/store/useNutriStore';
@@ -57,7 +58,6 @@ export default function NutriboardApp() {
     isAuthModalOpen,
     setIsAuthModalOpen,
     syncWithCloud,
-    applyThisDeviceToCloudAndAllDevices,
     resetLocalAndPullFromCloud,
     loadDecks,
     startStudySession,
@@ -131,7 +131,7 @@ export default function NutriboardApp() {
         lastVisibleAt = Date.now();
       } else if (document.visibilityState === 'visible') {
         const awaySeconds = (Date.now() - lastVisibleAt) / 1000;
-        if (awaySeconds >= 10) {
+        if (awaySeconds >= 120) {
           useNutriStore.getState().syncWithCloud().catch(() => {});
         }
       }
@@ -413,28 +413,37 @@ export default function NutriboardApp() {
 
           {/* Right Action Icons & Buttons */}
           <div className="flex items-center gap-2 sm:gap-2.5">
-            {/* Live Auto-Sync Status Indicator & Modal Opener */}
+            {/* One-Click Direct Cloud Sync with Live Loading State */}
             <button
-              onClick={() => setIsAuthModalOpen(true)}
-              aria-label="Open cloud synchronization settings"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface-subtle)] hover:bg-[var(--border-color)] text-xs font-medium text-[var(--text-muted)] transition-all cursor-pointer shadow-xs active:scale-95"
-              title="Click to manage multi-device sync & push master data"
+              onClick={async () => {
+                if (syncStatus === 'syncing') return;
+                try {
+                  await syncWithCloud();
+                  toast.success('Successfully synchronized with shared cloud!');
+                } catch {
+                  toast.error('Sync failed. Please check network connection.');
+                }
+              }}
+              disabled={syncStatus === 'syncing'}
+              aria-label="Synchronize with shared cloud"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface-subtle)] hover:bg-[var(--border-color)] text-xs font-medium text-[var(--text-muted)] transition-all cursor-pointer shadow-xs active:scale-95 disabled:opacity-60"
+              title="Click to synchronize instantly with shared cloud"
             >
-              <span
-                className={`w-2 h-2 rounded-full flex-shrink-0 transition-colors ${
+              <RefreshCw
+                className={`w-3.5 h-3.5 flex-shrink-0 transition-all ${
                   syncStatus === 'syncing'
-                    ? 'bg-amber-400 animate-pulse'
+                    ? 'animate-spin text-amber-500'
                     : syncStatus === 'error'
-                    ? 'bg-rose-500'
-                    : 'bg-emerald-500'
+                    ? 'text-rose-500'
+                    : 'text-emerald-500'
                 }`}
               />
               <span className="text-[11px] font-semibold text-[var(--text-subtle)] hidden sm:inline">
                 {syncStatus === 'syncing'
-                  ? 'Auto-Syncing...'
+                  ? 'Syncing with Cloud...'
                   : syncStatus === 'error'
-                  ? 'Sync error'
-                  : 'Auto-Synced'}
+                  ? 'Sync error (retry)'
+                  : 'Sync with Cloud'}
               </span>
             </button>
 
@@ -917,7 +926,6 @@ export default function NutriboardApp() {
           syncStatus={syncStatus}
           localDecksCount={decks.length}
           onSyncNow={syncWithCloud}
-          onApplyThisDeviceToCloud={applyThisDeviceToCloudAndAllDevices}
           onResetLocalAndPullFromCloud={resetLocalAndPullFromCloud}
           onClose={() => setIsAuthModalOpen(false)}
         />

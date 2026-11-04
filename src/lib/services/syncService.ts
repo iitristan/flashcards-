@@ -45,11 +45,21 @@ export class SyncService {
   }
 
   /**
-   * Pulls all decks, cards, playlists, preferences, and sessions from PostgreSQL.
+   * Pulls decks, cards, playlists, preferences, and sessions from PostgreSQL.
+   * Supports delta/incremental fetching via `since` timestamp to slash egress.
    */
-  async pullFromCloud(): Promise<{ decks: Deck[]; playlists: DeckPlaylist[]; isEmpty: boolean } | null> {
+  async pullFromCloud(since?: string): Promise<{
+    decks: Deck[];
+    playlists: DeckPlaylist[];
+    preferences?: UserPreferences | null;
+    activeSession?: StudySessionState | null;
+    upToDate?: boolean;
+    latestTimestamp?: string;
+    isEmpty: boolean;
+  } | null> {
     try {
-      const res = await fetch('/api/sync?action=pullAll', { cache: 'no-store' });
+      const url = `/api/sync?action=pullAll${since ? `&since=${encodeURIComponent(since)}` : ''}`;
+      const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) {
         console.warn('Failed to pull from /api/sync, trying /api/neon/decks:', res.statusText);
         const neonRes = await fetch('/api/neon/decks', { cache: 'no-store' });
@@ -115,7 +125,37 @@ export class SyncService {
       }
 
       const json = await res.json();
-      if (!json.ok || !json.data) {
+      if (!json.ok) {
+        return null;
+      }
+
+      // Fast-path: client is already up-to-date! (< 200 bytes transferred)
+      if (json.upToDate) {
+        const rawSession = json.data?.activeSession;
+        return {
+          decks: [],
+          playlists: [],
+          preferences: json.data?.preferences || null,
+          activeSession: rawSession ? {
+            id: rawSession.id,
+            deckId: rawSession.deck_id,
+            deckTitle: rawSession.deck_title,
+            mode: rawSession.mode,
+            currentIndex: rawSession.current_index,
+            isCompleted: rawSession.is_completed,
+            timerDurationSeconds: rawSession.timer_duration_seconds,
+            cardsQueue: Array.isArray(rawSession.cards_queue) ? rawSession.cards_queue : [],
+            results: Array.isArray(rawSession.results) ? rawSession.results : [],
+            startTime: Number(rawSession.start_time) || Date.now(),
+            updatedAt: rawSession.updated_at,
+          } : null,
+          upToDate: true,
+          latestTimestamp: json.latestTimestamp,
+          isEmpty: false,
+        };
+      }
+
+      if (!json.data) {
         return null;
       }
 
@@ -191,9 +231,26 @@ export class SyncService {
         updatedAt: raw.updated_at,
       }));
 
+      const rawSession = json.data.activeSession;
       return {
         decks,
         playlists,
+        preferences: json.data.preferences || null,
+        activeSession: rawSession ? {
+          id: rawSession.id,
+          deckId: rawSession.deck_id,
+          deckTitle: rawSession.deck_title,
+          mode: rawSession.mode,
+          currentIndex: rawSession.current_index,
+          isCompleted: rawSession.is_completed,
+          timerDurationSeconds: rawSession.timer_duration_seconds,
+          cardsQueue: Array.isArray(rawSession.cards_queue) ? rawSession.cards_queue : [],
+          results: Array.isArray(rawSession.results) ? rawSession.results : [],
+          startTime: Number(rawSession.start_time) || Date.now(),
+          updatedAt: rawSession.updated_at,
+        } : null,
+        upToDate: false,
+        latestTimestamp: json.latestTimestamp,
         isEmpty: decks.length === 0,
       };
     } catch (err) {
@@ -243,7 +300,9 @@ export class SyncService {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ deckId, card }),
       });
-      if (res.ok) return true;
+      if (res.ok) {
+        return true;
+      }
     } catch {}
 
     try {
@@ -253,6 +312,26 @@ export class SyncService {
         body: JSON.stringify({
           action: 'syncCardReview',
           payload: { deckId, card },
+        }),
+      });
+      const data = await res.json();
+      return Boolean(data.ok);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Pushes playlist updates to PostgreSQL.
+   */
+  async pushPlaylistsToCloud(playlists: DeckPlaylist[]): Promise<boolean> {
+    try {
+      const res = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'pushPlaylists',
+          payload: { playlists },
         }),
       });
       const data = await res.json();
@@ -285,26 +364,6 @@ export class SyncService {
   }
 
   /**
-   * Pushes all playlists to PostgreSQL.
-   */
-  async pushPlaylistsToCloud(playlists: DeckPlaylist[]): Promise<boolean> {
-    try {
-      const res = await fetch('/api/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'pushPlaylists',
-          payload: { playlists },
-        }),
-      });
-      const data = await res.json();
-      return Boolean(data.ok);
-    } catch {
-      return false;
-    }
-  }
-
-  /**
    * Deletes a playlist from PostgreSQL.
    */
   async deletePlaylistFromCloud(playlistId: string): Promise<boolean> {
@@ -321,13 +380,14 @@ export class SyncService {
 
   /**
    * Pulls user preferences from PostgreSQL.
+   * Uses lightweight < 1 KB dedicated query.
    */
   async pullPreferences(): Promise<UserPreferences | null> {
     try {
-      const res = await fetch('/api/sync?action=pullAll', { cache: 'no-store' });
+      const res = await fetch('/api/sync?action=pullPreferences', { cache: 'no-store' });
       if (!res.ok) return null;
       const json = await res.json();
-      return json?.data?.preferences || null;
+      return json?.preferences || null;
     } catch {
       return null;
     }
@@ -375,13 +435,14 @@ export class SyncService {
 
   /**
    * Fetches active study session from PostgreSQL.
+   * Uses lightweight < 1 KB dedicated query.
    */
   async fetchActiveSession(): Promise<StudySessionState | null> {
     try {
-      const res = await fetch('/api/sync?action=pullAll', { cache: 'no-store' });
+      const res = await fetch('/api/sync?action=pullActiveSession', { cache: 'no-store' });
       if (!res.ok) return null;
       const json = await res.json();
-      const raw = json?.data?.activeSession;
+      const raw = json?.activeSession;
       if (!raw) return null;
 
       return {
@@ -395,6 +456,7 @@ export class SyncService {
         cardsQueue: Array.isArray(raw.cards_queue) ? raw.cards_queue : [],
         results: Array.isArray(raw.results) ? raw.results : [],
         startTime: Number(raw.start_time) || Date.now(),
+        updatedAt: raw.updated_at,
       };
     } catch {
       return null;
@@ -454,7 +516,7 @@ export class SyncService {
     await this.pushStudyLogs(toFlush);
   }
 
-  async pushStudyLog(log: StudyLogEntry): Promise<boolean> {
+  queueStudyLog(log: StudyLogEntry): boolean {
     this.pendingStudyLogs.push(log);
     if (!this.logFlushTimeout) {
       this.logFlushTimeout = setTimeout(() => {
@@ -462,6 +524,25 @@ export class SyncService {
       }, 2000);
     }
     return true;
+  }
+
+  async pushStudyLog(log: StudyLogEntry): Promise<boolean> {
+    return this.queueStudyLog(log);
+  }
+
+  async migrateLocalToCloud(
+    decks: Deck[],
+    playlists: DeckPlaylist[]
+  ): Promise<{ success: boolean; decksUploaded: number }> {
+    let uploaded = 0;
+    for (const deck of decks) {
+      const res = await this.pushDeckToCloud(deck);
+      if (res.ok) uploaded++;
+    }
+    if (playlists.length > 0) {
+      await this.pushPlaylistsToCloud(playlists);
+    }
+    return { success: true, decksUploaded: uploaded };
   }
 
   /**
@@ -489,52 +570,6 @@ export class SyncService {
       }));
     } catch {
       return [];
-    }
-  }
-
-  async migrateLocalToCloud(
-    decks: Deck[],
-    playlists: DeckPlaylist[]
-  ): Promise<{ success: boolean; decksUploaded: number }> {
-    let uploaded = 0;
-    for (const deck of decks) {
-      const res = await this.pushDeckToCloud(deck);
-      if (res.ok) uploaded++;
-    }
-    if (playlists.length > 0) {
-      await this.pushPlaylistsToCloud(playlists);
-    }
-    return { success: true, decksUploaded: uploaded };
-  }
-
-  async overwriteCloudWithLocalData(
-    decks: Deck[],
-    playlists: DeckPlaylist[],
-    preferences?: UserPreferences,
-    logs?: StudyLogEntry[]
-  ): Promise<{ success: boolean; decksUploaded: number; totalCards: number; error?: string }> {
-    try {
-      let uploaded = 0;
-      let totalCards = 0;
-      for (const deck of decks) {
-        const res = await this.pushDeckToCloud(deck);
-        if (res.ok) {
-          uploaded++;
-          totalCards += deck.cards.length;
-        }
-      }
-      if (playlists.length > 0) {
-        await this.pushPlaylistsToCloud(playlists);
-      }
-      if (preferences) {
-        await this.pushPreferences(preferences);
-      }
-      if (logs && logs.length > 0) {
-        await this.pushStudyLogs(logs);
-      }
-      return { success: true, decksUploaded: uploaded, totalCards };
-    } catch (err: any) {
-      return { success: false, decksUploaded: 0, totalCards: 0, error: err.message };
     }
   }
 }

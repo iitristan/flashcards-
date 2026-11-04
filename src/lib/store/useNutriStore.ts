@@ -59,6 +59,7 @@ let isRealtimeSubscribed = false;
 
 // Optimization: Debounce & dedup syncWithCloud to prevent rapid successive full-pulls
 let syncDebounceGlobal: ReturnType<typeof setTimeout> | null = null;
+let lastCloudSyncTimestamp: string | undefined = undefined;
 let isSyncInProgress = false;
 
 // Optimization: Self-echo guard — suppress realtime-triggered re-pulls while we're actively pushing
@@ -99,8 +100,6 @@ interface NutriStore {
   setIsAuthModalOpen: (open: boolean) => void;
   initAuth: () => Promise<void>;
   syncWithCloud: () => Promise<void>;
-  uploadLocalDecksToCloud: () => Promise<void>;
-  applyThisDeviceToCloudAndAllDevices: () => Promise<{ success: boolean; decksUploaded: number; totalCards: number; error?: string }>;
   resetLocalAndPullFromCloud: () => Promise<void>;
 
   // Session & Progress Actions
@@ -458,7 +457,49 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     isSyncInProgress = true;
     set({ syncStatus: 'syncing' });
     try {
-      const cloudData = await syncService.pullFromCloud();
+      const cloudData = await syncService.pullFromCloud(lastCloudSyncTimestamp);
+      if (cloudData && cloudData.upToDate) {
+        // Fast-path: Local database is already completely up to date! (< 200 bytes transferred)
+        if (cloudData.preferences) {
+          const mergedPrefs: UserPreferences = { ...get().preferences, ...cloudData.preferences };
+          set({ preferences: mergedPrefs });
+        }
+        if (cloudData.activeSession) {
+          set({ resumeAvailableSession: cloudData.activeSession });
+        }
+        // Conditionally pull only recent review logs
+        try {
+          const localLogs = await deckService.getReviewLogs();
+          let latestTimestamp: string | undefined = undefined;
+          if (localLogs && localLogs.length > 0) {
+            for (const l of localLogs) {
+              const ts = l.timestamp || l.createdAt;
+              if (ts && (!latestTimestamp || ts > latestTimestamp)) latestTimestamp = ts;
+            }
+          }
+          const remoteLogs = await syncService.pullStudyLogs(latestTimestamp);
+          if (remoteLogs && remoteLogs.length > 0) {
+            const logMap = new Map();
+            for (const l of localLogs) logMap.set(l.id || `${l.cardId}_${l.timestamp || l.createdAt}`, l);
+            for (const r of remoteLogs) {
+              const key = r.id || `${r.cardId}_${r.createdAt || r.timestamp}`;
+              if (!logMap.has(key)) logMap.set(key, r);
+            }
+            await deckService.saveReviewLogs(Array.from(logMap.values()));
+            await get().loadAnalytics();
+          }
+        } catch {}
+
+        set({
+          syncStatus: 'synced',
+          lastSyncedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        });
+        return;
+      }
+
+      if (cloudData && cloudData.latestTimestamp) {
+        lastCloudSyncTimestamp = cloudData.latestTimestamp;
+      }
       if (cloudData && cloudData.decks) {
         const localDecks = await deckService.getDecks();
         const cloudDeckMap = new Map(cloudData.decks.map((d) => [d.id, d]));
@@ -542,7 +583,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
         }
 
         // Sync preferences
-        const cloudPrefs = await syncService.pullPreferences();
+        const cloudPrefs = cloudData.preferences || (await syncService.pullPreferences());
         if (cloudPrefs) {
           const mergedPrefs: UserPreferences = {
             ...get().preferences,
@@ -568,7 +609,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
 
         // Check for cloud active session checkpoint with timestamp & progress guard
         try {
-          const remoteSession = await syncService.fetchActiveSession();
+          const remoteSession = cloudData.activeSession || (await syncService.fetchActiveSession());
           if (remoteSession && !remoteSession.isCompleted && remoteSession.cardsQueue && remoteSession.cardsQueue.length > 0 && remoteSession.currentIndex < remoteSession.cardsQueue.length && (remoteSession.currentIndex > 0 || remoteSession.results.length > 0)) {
             const currentLocal = get().activeSession || get().resumeAvailableSession;
             if (!currentLocal) {
@@ -680,57 +721,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     }
   },
 
-  uploadLocalDecksToCloud: async () => {
-    set({ syncStatus: 'syncing' });
-    try {
-      const localDecks = await deckService.getDecks();
-      const localPlaylists = await deckService.getPlaylists();
-      const res = await syncService.migrateLocalToCloud(localDecks, localPlaylists);
-      if (res.success) {
-        set({
-          syncStatus: 'synced',
-          lastSyncedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        });
-      } else {
-        set({ syncStatus: 'error' });
-      }
-    } catch (err) {
-      console.error('Failed to upload local decks to cloud:', err);
-      set({ syncStatus: 'error' });
-    }
-  },
-
-  applyThisDeviceToCloudAndAllDevices: async () => {
-    set({ syncStatus: 'syncing' });
-    try {
-      console.log('[Store] Loading local decks, playlists, and study logs for master overwrite...');
-      const localDecks = await deckService.getDecks();
-      const localPlaylists = await deckService.getPlaylists();
-      const localLogs = await deckService.getReviewLogs();
-      const prefs = get().preferences;
-      console.log(`[Store] Local data ready: ${localDecks.length} decks, ${localPlaylists.length} playlists, ${localLogs.length} logs`);
-
-      const res = await syncService.overwriteCloudWithLocalData(localDecks, localPlaylists, prefs, localLogs);
-      console.log('[Store] overwriteCloudWithLocalData response:', res);
-
-      if (res.success) {
-        set({
-          syncStatus: 'synced',
-          lastSyncedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        });
-        await get().loadDecks();
-        return res;
-      } else {
-        set({ syncStatus: 'error' });
-        return res;
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error('[Store] Failed to apply this device to cloud:', err);
-      set({ syncStatus: 'error' });
-      return { success: false, decksUploaded: 0, totalCards: 0, error: msg };
-    }
-  },
+  
 
   resetLocalAndPullFromCloud: async () => {
     set({ syncStatus: 'syncing' });
