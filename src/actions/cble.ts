@@ -1,9 +1,9 @@
 "use server";
 
-import { prisma, hasDatabaseUrl } from "@/lib/prisma";
 import { INITIAL_DECKS } from "@/lib/data/sampleDecks";
 import { QUIZLET_FOOD_SERVICE_DECK } from "@/lib/data/quizletFoodServiceDeck";
 import { CBLEQuestion, MOCK_CBLE_QUESTIONS } from "@/data/cble-mock-data";
+import { getNeonPool, hasNeonDatabaseUrl } from "@/lib/neon";
 import {
   normalizeQuestionStemHeuristics,
   reframeQuestionForCBLE,
@@ -33,100 +33,77 @@ export async function getCBLEExamQuestions(itemCount: number = 100): Promise<CBL
       category?: string;
     }[] = [];
 
-    // 1. Try to fetch questions from Supabase if configured
-    const supabase = getServerSupabaseClient();
-
-    if (supabase) {
+    // Load the exam bank and flashcards from Neon when configured.
+    if (hasNeonDatabaseUrl) {
       try {
-        // 1A. Fetch from dedicated cble_questions table if populated
-        try {
-          const { data: cbleDbQuestions } = await supabase
-            .from("cble_questions")
-            .select("id, question, options, correct_answer, explanation, category, subject")
-            .limit(100);
+        const { rows: cbleDbQuestions } = await getNeonPool().query<{
+          id: string;
+          question: string;
+          options: unknown;
+          correct_answer: string;
+          explanation: string | null;
+          category: string;
+          subject: string;
+        }>(
+          `SELECT id, question, options, correct_answer, explanation, category, subject
+           FROM public.cble_questions
+           LIMIT 100`,
+        );
 
-          if (cbleDbQuestions && cbleDbQuestions.length > 0) {
-            for (const q of cbleDbQuestions) {
-              const optList: string[] = Array.isArray(q.options)
-                ? q.options.map((o: unknown) =>
-                    typeof o === "string" ? o : (o as { text?: string })?.text || ""
-                  )
-                : [];
-
-              rawCards.push({
-                id: `supa-cble-${q.id}`,
-                front: q.question,
-                back: q.correct_answer || (optList[0] ?? ""),
-                rationale: q.explanation || "",
-                options: optList,
-                category: q.category || q.subject || "Board Exam Review",
-              });
-            }
-          }
-        } catch {
-          // cble_questions table might not exist yet, continue silently
-        }
-
-        // 1B. Fetch from flashcards table
-        try {
-          const { data: supaFlashcards } = await supabase
-            .from("flashcards")
-            .select("id, front, back, rationale, options, decks(title, category)")
-            .limit(150);
-
-          if (supaFlashcards && supaFlashcards.length > 0) {
-            for (const fc of supaFlashcards) {
-              const deckInfo = Array.isArray(fc.decks) ? fc.decks[0] : fc.decks;
-              const optList: string[] = Array.isArray(fc.options)
-                ? (fc.options as string[])
-                : [];
-
-              rawCards.push({
-                id: `supa-card-${fc.id}`,
-                front: fc.front,
-                back: fc.back,
-                rationale: fc.rationale || "",
-                options: optList,
-                category: deckInfo?.title || deckInfo?.category || "Clinical Nutrition",
-              });
-            }
-          }
-        } catch {
-          // ignore error if flashcards table schema differs
+        for (const question of cbleDbQuestions) {
+          const optionList: string[] = Array.isArray(question.options)
+            ? question.options.map((option: unknown) =>
+                typeof option === "string"
+                  ? option
+                  : (option as { text?: string })?.text || "",
+              )
+            : [];
+          rawCards.push({
+            id: `neon-cble-${question.id}`,
+            front: question.question,
+            back: question.correct_answer || (optionList[0] ?? ""),
+            rationale: question.explanation || "",
+            options: optionList,
+            category: question.category || question.subject || "Board Exam Review",
+          });
         }
       } catch (err) {
-        console.warn("Could not query Supabase database for CBLE questions:", err);
+        console.warn("Could not query the Neon CBLE question bank:", err);
       }
-    }
 
-    // 2. Try to fetch cards from Prisma Database if configured
-    if (hasDatabaseUrl) {
       try {
-        const dbCards = await prisma.flashcard.findMany({
-          select: {
-            id: true,
-            front: true,
-            back: true,
-            deck: {
-              select: {
-                name: true,
-              },
-            },
-          },
-        });
+        const { rows: dbCards } = await getNeonPool().query<{
+          id: string;
+          front: string;
+          back: string;
+          rationale: string | null;
+          options: unknown;
+          title: string;
+          category: string;
+        }>(
+          `SELECT f.id, f.front, f.back, f.rationale, f.options,
+                  d.title, d.category
+           FROM public.flashcards f
+           JOIN public.decks d ON d.id = f.deck_id`,
+        );
 
         if (dbCards && dbCards.length > 0) {
           for (const c of dbCards) {
+            const options: string[] = Array.isArray(c.options)
+              ? c.options.filter((option): option is string => typeof option === "string")
+              : [];
             rawCards.push({
               id: c.id,
               front: c.front,
               back: c.back,
-              category: c.deck?.name || "General Nutrition",
+              rationale: c.rationale || "",
+              options,
+              category: c.title || c.category || "General Nutrition",
             });
           }
         }
       } catch (err) {
-        console.warn("Could not query flashcards from Prisma database:", err);
+        console.warn("Could not query flashcards from Neon:", err);
       }
     }
 
@@ -333,4 +310,3 @@ export async function saveCBLEExamResult(payload: SaveCBLEExamResultPayload) {
 export async function reframeQuestionStemAction(stem: string): Promise<string> {
   return reframeQuestionForCBLE(stem);
 }
-

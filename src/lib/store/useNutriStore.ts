@@ -7,7 +7,8 @@ import {
   ThemeType, 
   UserPreferences, 
   StudySessionState, 
-  CardReviewResult, 
+  StudyLogEntry,
+  CardReviewResult,
   DeckPlaylist, 
   CardSortOption, 
   CardFilterOption, 
@@ -18,7 +19,7 @@ import {
 } from '@/types';
 import { deckService } from '@/lib/services/deckService';
 import { soundEffects } from '@/lib/soundEffects';
-import { shuffleArray, computeDeckStats } from '@/lib/services/flashcardService';
+import { shuffleArray } from '@/lib/services/flashcardService';
 import { syncService } from '@/lib/services/syncService';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { resolveCardSubject, getSubjectCards, getSubjectMissedCards } from '@/lib/services/boardReadinessService';
@@ -340,7 +341,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
   initAuth: async () => {
     const supabase = getSupabaseClient();
     if (!supabase) {
-      set({ syncStatus: 'offline' });
+      await get().syncWithCloud();
       return;
     }
 
@@ -459,88 +460,9 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     try {
       const cloudData = await syncService.pullFromCloud();
       if (cloudData && cloudData.decks) {
-        const localDecks = await deckService.getDecks();
-        const cloudDeckMap = new Map(cloudData.decks.map((d) => [d.id, d]));
-        const mergedDecks: Deck[] = [];
-        const unsyncedLocalDecks: Deck[] = [];
-
-        for (const localDeck of localDecks) {
-          const cloudDeck = cloudDeckMap.get(localDeck.id);
-          if (!cloudDeck) {
-            // New local deck created on this device not yet in cloud: PRESERVE IT!
-            mergedDecks.push(localDeck);
-            unsyncedLocalDecks.push(localDeck);
-          } else {
-            // Exists in both: do a SMART CARD-LEVEL MERGE so no card review is ever lost!
-            const cloudCardsMap = new Map((cloudDeck.cards || []).map((c) => [c.id, c]));
-            const localCardsMap = new Map((localDeck.cards || []).map((c) => [c.id, c]));
-            const mergedCards: Flashcard[] = [];
-
-            for (const localCard of localDeck.cards || []) {
-              const cloudCard = cloudCardsMap.get(localCard.id);
-              if (!cloudCard) {
-                mergedCards.push(localCard);
-              } else {
-                const localReviewed = new Date(localCard.lastReviewedAt || 0).getTime();
-                const cloudReviewed = new Date(cloudCard.lastReviewedAt || 0).getTime();
-                const localRepetitions = localCard.sm2?.repetitions || 0;
-                const cloudRepetitions = cloudCard.sm2?.repetitions || 0;
-
-                if (localReviewed > cloudReviewed || localRepetitions > cloudRepetitions) {
-                  mergedCards.push(localCard);
-                } else if (cloudReviewed > localReviewed || cloudRepetitions > localRepetitions) {
-                  mergedCards.push(cloudCard);
-                } else {
-                  const localUpdated = new Date(localCard.updatedAt || localCard.createdAt || 0).getTime();
-                  const cloudUpdated = new Date(cloudCard.updatedAt || cloudCard.createdAt || 0).getTime();
-                  mergedCards.push(localUpdated >= cloudUpdated ? localCard : cloudCard);
-                }
-              }
-            }
-
-            for (const cloudCard of cloudDeck.cards || []) {
-              if (!localCardsMap.has(cloudCard.id)) {
-                mergedCards.push(cloudCard);
-              }
-            }
-
-            const updatedDeck: Deck = {
-              ...cloudDeck,
-              ...localDeck,
-              cards: mergedCards,
-              stats: computeDeckStats(mergedCards),
-              updatedAt: new Date(
-                Math.max(
-                  new Date(localDeck.updatedAt || localDeck.createdAt || 0).getTime(),
-                  new Date(cloudDeck.updatedAt || cloudDeck.createdAt || 0).getTime(),
-                  Date.now()
-                )
-              ).toISOString()
-            };
-            mergedDecks.push(updatedDeck);
-          }
-        }
-
-        // Include any cloud decks not present locally
-        const localDeckIdSet = new Set(localDecks.map((d) => d.id));
-        for (const cloudDeck of cloudData.decks) {
-          if (!localDeckIdSet.has(cloudDeck.id)) {
-            mergedDecks.push(cloudDeck);
-          }
-        }
-
-        await deckService.setAllDecks(mergedDecks);
+        await deckService.setAllDecks(cloudData.decks);
         if (cloudData.playlists) {
           await deckService.setAllPlaylists(cloudData.playlists);
-        }
-
-        // Auto-upload any local decks that were missing from the cloud
-        if (unsyncedLocalDecks.length > 0) {
-          for (const unsynced of unsyncedLocalDecks) {
-            syncService.pushDeckToCloud(unsynced).catch((err) =>
-              console.warn('[Sync] Auto-uploading local deck to cloud failed:', err)
-            );
-          }
         }
 
         // Sync preferences
@@ -632,23 +554,11 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
           lastSyncedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         });
       } else {
-        // Cloud is currently empty. If this device has local decks, upload them as the initial seed!
-        const localDecks = await deckService.getDecks();
-        const localPlaylists = await deckService.getPlaylists();
-        if (localDecks.length > 0) {
-          await syncService.migrateLocalToCloud(localDecks, localPlaylists);
-        }
-        if (get().preferences) {
-          await syncService.pushPreferences(get().preferences);
-        }
-        set({
-          syncStatus: 'synced',
-          lastSyncedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        });
+        throw new Error('Neon sync returned no deck data.');
       }
     } catch (err) {
       console.error('Failed to sync with cloud:', err);
-      set({ syncStatus: 'error' });
+      set({ syncStatus: 'error', isLoadingDecks: false });
     } finally {
       isSyncInProgress = false;
     }
@@ -1566,7 +1476,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
 
     // Handle Missed / Wrong answers filter
     if (options?.missedOnly || filter === 'wrong') {
-      let logs: any[] = [];
+      let logs: StudyLogEntry[] = [];
       try {
         logs = await deckService.getReviewLogs();
       } catch {}

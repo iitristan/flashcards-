@@ -39,20 +39,16 @@ export class SyncService {
     }
 
     const supabase = getSupabaseClient();
-    if (!supabase) {
-      console.warn('[SyncService] Supabase client is not available. Please verify NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel or .env.local');
-      return null;
-    }
-
-    try {
-      // 1. Check active session stored locally (fast, avoids unnecessary network roundtrips)
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        this.cachedUser = { id: session.user.id, email: session.user.email };
-        return this.cachedUser;
+    if (supabase) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          this.cachedUser = { id: session.user.id, email: session.user.email };
+          return this.cachedUser;
+        }
+      } catch (e) {
+        console.warn('[SyncService] Supabase Auth check skipped:', e);
       }
-    } catch (e) {
-      console.warn('[SyncService] Supabase Auth check skipped:', e);
     }
 
     // 2. Zero-login Shared Workspace Profile (Always active, no login required)
@@ -61,93 +57,44 @@ export class SyncService {
   }
 
   /**
-   * Pulls all decks, cards, and playlists from Supabase for the current user.
+   * Loads decks and cards from Neon; playlists remain in Supabase when configured.
    */
   async pullFromCloud(): Promise<{ decks: Deck[]; playlists: DeckPlaylist[]; isEmpty: boolean } | null> {
     const supabase = getSupabaseClient();
-    if (!supabase) return null;
 
     const user = await this.getCurrentUser();
     if (!user) return null;
 
     try {
-      // 1. Fetch decks (paginated) — always fetch full deck registry so we never falsely think decks are missing
-      const cloudDecks: Record<string, any>[] = [];
-      let deckPage = 0;
-      const deckColumns = 'id,title,description,category,icon,color,tags,created_at,updated_at';
-      while (true) {
-        const { data: chunk, error: chunkErr } = await supabase
-          .from('decks')
-          .select(deckColumns)
-          .order('updated_at', { ascending: false })
-          .range(deckPage * 1000, (deckPage + 1) * 1000 - 1);
-
-        if (chunkErr) {
-          console.error('Error fetching cloud decks:', chunkErr);
-          break;
-        }
-        if (!chunk || chunk.length === 0) break;
-        cloudDecks.push(...chunk);
-        if (chunk.length < 1000) break;
-        deckPage++;
+      const neonResponse = await fetch('/api/neon/decks', { cache: 'no-store' });
+      if (!neonResponse.ok) {
+        throw new Error(`Neon deck request failed (${neonResponse.status}).`);
       }
+      const neonData: { decks: Record<string, any>[]; cards: Record<string, any>[] } =
+        await neonResponse.json();
+      const cloudDecks = neonData.decks;
+      const cloudCards = neonData.cards;
 
-      // 2. Fetch all cards with pagination — explicit columns to reduce payload
-      const cloudCards: Record<string, any>[] = [];
-      let cardPage = 0;
-      const cardColumns = 'id,deck_id,front,back,rationale,options,tags,ndle_subject,difficulty,leitner_box,user_notes,sm2,last_reviewed_at,created_at,updated_at';
-      const fallbackCardColumns = 'id,deck_id,front,back,rationale,options,tags,difficulty,leitner_box,user_notes,sm2,last_reviewed_at,created_at,updated_at';
-      let useFallbackColumns = false;
-
-      while (true) {
-        const cols = useFallbackColumns ? fallbackCardColumns : cardColumns;
-        const res: { data: any[] | null; error: any } = await supabase
-          .from('flashcards')
-          .select(cols as any)
-          .range(cardPage * 1000, (cardPage + 1) * 1000 - 1);
-        let chunk = res.data;
-        let cardsErr = res.error;
-
-        if (cardsErr && (cardsErr.message?.includes('ndle_subject') || cardsErr.message?.includes('column'))) {
-          useFallbackColumns = true;
-          const retry: { data: any[] | null; error: any } = await supabase
-            .from('flashcards')
-            .select(fallbackCardColumns as any)
-            .range(cardPage * 1000, (cardPage + 1) * 1000 - 1);
-          chunk = retry.data;
-          cardsErr = retry.error;
-        }
-
-        if (cardsErr) {
-          console.error(`Error fetching cloud cards chunk at page ${cardPage}:`, cardsErr);
-          break;
-        }
-
-        if (!chunk || chunk.length === 0) break;
-        cloudCards.push(...chunk);
-        if (chunk.length < 1000) break;
-        cardPage++;
-      }
-
-      // 3. Fetch playlists (paginated) — explicit columns
       const cloudPlaylists: Record<string, any>[] = [];
-      let playlistPage = 0;
-      const playlistColumns = 'id,title,description,deck_ids,color,icon,created_at,updated_at';
-      while (true) {
-        const { data: chunk, error: playlistsErr } = await supabase
-          .from('playlists')
-          .select(playlistColumns)
-          .order('updated_at', { ascending: false })
-          .range(playlistPage * 1000, (playlistPage + 1) * 1000 - 1);
+      if (supabase) {
+        let playlistPage = 0;
+        const playlistColumns = 'id,title,description,deck_ids,color,icon,created_at,updated_at';
+        while (true) {
+          const { data: chunk, error: playlistsErr } = await supabase
+            .from('playlists')
+            .select(playlistColumns)
+            .order('updated_at', { ascending: false })
+            .range(playlistPage * 1000, (playlistPage + 1) * 1000 - 1);
 
-        if (playlistsErr) {
-          console.error('Error fetching cloud playlists:', playlistsErr);
-          break;
+          if (playlistsErr) {
+            console.error('Error fetching cloud playlists:', playlistsErr);
+            break;
+          }
+          if (!chunk || chunk.length === 0) break;
+          cloudPlaylists.push(...chunk);
+          if (chunk.length < 1000) break;
+          playlistPage++;
         }
-        if (!chunk || chunk.length === 0) break;
-        cloudPlaylists.push(...chunk);
-        if (chunk.length < 1000) break;
-        playlistPage++;
       }
 
       // Group cards by deckId
@@ -223,240 +170,55 @@ export class SyncService {
       return { decks, playlists, isEmpty: decks.length === 0 && playlists.length === 0 };
     } catch (err) {
       console.error('Failed to pull from cloud:', err);
-      return null;
+      throw err;
     }
   }
 
-  /**
-   * Pushes a single deck (and its flashcards) to Supabase.
-   */
   async pushDeckToCloud(deck: Deck): Promise<{ ok: boolean; error?: string }> {
-    const supabase = getSupabaseClient();
-    if (!supabase) {
-      const msg = 'Supabase client is not configured. Please add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to your Vercel Environment Variables.';
-      console.warn('[SyncService]', msg);
-      return { ok: false, error: msg };
-    }
-
-    const user = await this.getCurrentUser();
-    const dbUserId = this.getDbUserId(user);
-
     try {
-      console.log(`[SyncService] Upserting deck "${deck.title}" (${deck.id}) to Cloud...`);
-
-      // 1. Upsert deck with auto-fallback if user_id schema constraint occurs
-      const deckPayload: Record<string, any> = {
-        id: deck.id,
-        title: deck.title,
-        description: deck.description || '',
-        category: deck.category || 'Clinical Nutrition',
-        icon: deck.icon || '🥑',
-        color: deck.color || '#7FA98B',
-        tags: deck.tags || [],
-        updated_at: deck.updatedAt || new Date().toISOString(),
-      };
-      if (dbUserId) {
-        deckPayload.user_id = dbUserId;
-      } else {
-        deckPayload.user_id = null;
+      const response = await fetch('/api/neon/decks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(deck),
+      });
+      if (!response.ok) {
+        const result: { error?: string } = await response.json().catch(() => ({}));
+        throw new Error(result.error || `Neon deck save failed (${response.status}).`);
       }
-
-      let { error: deckErr } = await supabase.from('decks').upsert(deckPayload, { onConflict: 'id' });
-
-      if (deckErr && (deckErr.message.includes('user_id') || deckErr.code === '23502' || deckErr.code === '23503')) {
-        console.warn('[SyncService] Retrying deck upsert without user_id column...');
-        delete deckPayload.user_id;
-        const retry = await supabase.from('decks').upsert(deckPayload, { onConflict: 'id' });
-        deckErr = retry.error;
-      }
-
-      if (deckErr) {
-        const errorDetail = `[Deck Upsert Error]: ${deckErr.message} (${deckErr.code || 'unknown code'}). Hint: ${deckErr.hint || 'Check if supabase/schema.sql was run in Supabase SQL editor.'}`;
-        console.error('[SyncService] Failed to upsert deck:', errorDetail, deckErr);
-        return { ok: false, error: errorDetail };
-      }
-
-      // 2. Delete any existing cards for this deck that are not in the new deck.cards list
-      // SAFETY: Only delete remote cards if the local deck actually contains cards.
-      // If deck.cards is empty, do NOT wipe out existing remote cards!
-      const currentCardIds = new Set((deck.cards || []).map((c) => c.id));
-      if (deck.cards && deck.cards.length > 0) {
-        const { data: remoteCards, error: fetchCardsErr } = await supabase
-          .from('flashcards')
-          .select('id')
-          .eq('deck_id', deck.id);
-
-        if (fetchCardsErr) {
-          console.warn('[SyncService] Could not check remote cards:', fetchCardsErr.message);
-        }
-
-        if (remoteCards && remoteCards.length > 0) {
-          const toDelete = remoteCards.filter((r) => !currentCardIds.has(r.id)).map((r) => r.id);
-          if (toDelete.length > 0) {
-            await supabase.from('flashcards').delete().in('id', toDelete);
-          }
-        }
-      }
-
-      // 3. Upsert cards if any
-      if (deck.cards && deck.cards.length > 0) {
-        const rows = deck.cards.map((c) => {
-          const cardPayload: Record<string, any> = {
-            id: c.id,
-            deck_id: deck.id,
-            front: c.front || '',
-            back: c.back || '',
-            rationale: c.rationale || '',
-            options: c.options || [],
-            tags: c.tags || [],
-            ndle_subject: c.ndleSubject || null,
-            difficulty: c.difficulty || null,
-            leitner_box: c.leitnerBox || 1,
-            user_notes: c.userNotes || '',
-            sm2: c.sm2 || { interval: 0, easeFactor: 2.5, repetitions: 0, dueDate: new Date().toISOString() },
-            last_reviewed_at: c.lastReviewedAt || null,
-            updated_at: c.updatedAt || new Date().toISOString(),
-          };
-          if (dbUserId) {
-            cardPayload.user_id = dbUserId;
-          } else {
-            cardPayload.user_id = null;
-          }
-          return cardPayload;
-        });
-
-        // Batch in chunks of 100 to avoid payload size limit
-        for (let i = 0; i < rows.length; i += 100) {
-          const chunk = rows.slice(i, i + 100);
-          let { error: cardsErr } = await supabase
-            .from('flashcards')
-            .upsert(chunk, { onConflict: 'id' });
-
-          if (cardsErr && (cardsErr.message?.includes('ndle_subject') || cardsErr.message?.includes('schema cache'))) {
-            console.warn('[SyncService] Retrying cards chunk upsert without ndle_subject column...');
-            const retryChunk = chunk.map((r) => {
-              const copy = { ...r };
-              delete copy.ndle_subject;
-              return copy;
-            });
-            const retry = await supabase.from('flashcards').upsert(retryChunk, { onConflict: 'id' });
-            cardsErr = retry.error;
-          }
-
-          if (cardsErr && (cardsErr.message?.includes('user_id') || cardsErr.code === '23502' || cardsErr.code === '23503')) {
-            console.warn('[SyncService] Retrying cards chunk upsert without user_id column...');
-            const retryChunk = chunk.map((r) => {
-              const copy = { ...r };
-              delete copy.user_id;
-              return copy;
-            });
-            const retry = await supabase.from('flashcards').upsert(retryChunk, { onConflict: 'id' });
-            cardsErr = retry.error;
-          }
-
-          if (cardsErr) {
-            const errorDetail = `[Cards Upsert Error in "${deck.title}"]: ${cardsErr.message} (${cardsErr.code || ''})`;
-            console.error('[SyncService] Failed to upsert cards chunk:', errorDetail, cardsErr);
-            return { ok: false, error: errorDetail };
-          }
-        }
-      }
-
-      console.log(`[SyncService] Successfully saved deck "${deck.title}" (${deck.cards?.length || 0} cards) to Cloud.`);
       return { ok: true };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error('[SyncService] Error pushing deck to cloud:', msg, err);
+      console.error('[SyncService] Error pushing deck to Neon:', msg, err);
       return { ok: false, error: msg };
     }
   }
 
-  /**
-   * Pushes a single card's updated review state to Supabase.
-   * Optimization #9: Only sends review-relevant fields (not full card content).
-   */
   async syncCardReview(deckId: string, card: Flashcard): Promise<boolean> {
-    const supabase = getSupabaseClient();
-    if (!supabase) return false;
-
     try {
-      // Only update review-relevant columns — front, back, rationale, options, tags are immutable during review
-      const reviewPayload = {
-        leitner_box: card.leitnerBox || 1,
-        user_notes: card.userNotes || '',
-        sm2: card.sm2 || { interval: 0, easeFactor: 2.5, repetitions: 0, dueDate: new Date().toISOString() },
-        difficulty: card.difficulty || null,
-        last_reviewed_at: card.lastReviewedAt || new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-
-      const { error } = await supabase
-        .from('flashcards')
-        .update(reviewPayload)
-        .eq('id', card.id);
-
-      // Touch parent deck updated_at in cloud
-      void Promise.resolve(supabase.from('decks').update({ updated_at: reviewPayload.updated_at }).eq('id', deckId)).catch(() => {});
-
-      // If UPDATE affected 0 rows (card doesn't exist in cloud yet), fall back to a full upsert
-      if (error && (error.code === 'PGRST116' || error.message?.includes('0 rows'))) {
-        const user = await this.getCurrentUser();
-        const isRealAuthUser = user && user.id !== SyncService.SHARED_WORKSPACE_UUID;
-        const fullPayload: Record<string, any> = {
-          id: card.id,
-          deck_id: deckId,
-          front: card.front || '',
-          back: card.back || '',
-          rationale: card.rationale || '',
-          options: card.options || [],
-          tags: card.tags || [],
-          ndle_subject: card.ndleSubject || null,
-          ...reviewPayload,
-        };
-        if (isRealAuthUser) fullPayload.user_id = user.id;
-
-        const { error: upsertErr } = await supabase.from('flashcards').upsert(fullPayload, { onConflict: 'id' });
-        if (upsertErr) {
-          console.warn('[SyncService] Card review full upsert fallback failed:', upsertErr.message);
-          return false;
-        }
-      } else if (error) {
-        console.warn('[SyncService] Card review cloud sync deferred:', error.message || error.code || 'Unspecified error');
+      const response = await fetch('/api/neon/decks', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deckId, card }),
+      });
+      if (!response.ok) {
+        console.warn(`[SyncService] Neon card review sync failed (${response.status}).`);
         return false;
       }
       return true;
     } catch (err) {
-      console.warn('[SyncService] Background card review sync error:', err);
+      console.warn('[SyncService] Background Neon card review sync error:', err);
       return false;
     }
   }
 
-  /**
-   * Deletes a deck from Supabase (cascades to flashcards).
-   */
   async deleteDeckFromCloud(deckId: string): Promise<boolean> {
-    const supabase = getSupabaseClient();
-    if (!supabase) return false;
-
-    const user = await this.getCurrentUser();
-    const dbUserId = this.getDbUserId(user);
-
     try {
-      await supabase.from('flashcards').delete().eq('deck_id', deckId);
-
-      let query = supabase.from('decks').delete().eq('id', deckId);
-      if (dbUserId) {
-        query = query.eq('user_id', dbUserId);
-      }
-      const { error } = await query;
-
-      if (error) {
-        console.error('Failed to delete cloud deck:', error);
-        return false;
-      }
-      return true;
+      const response = await fetch(`/api/neon/decks?id=${encodeURIComponent(deckId)}`, {
+        method: 'DELETE',
+      });
+      return response.ok;
     } catch (err) {
-      console.error('Error deleting cloud deck:', err);
+      console.error('Error deleting Neon deck:', err);
       return false;
     }
   }
@@ -866,12 +628,6 @@ export class SyncService {
     logs?: StudyLogEntry[]
   ): Promise<{ success: boolean; decksUploaded: number; totalCards: number; error?: string }> {
     const supabase = getSupabaseClient();
-    if (!supabase) {
-      const msg = 'Supabase client is not configured. Please add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to your Vercel Environment Variables.';
-      console.error('[SyncService]', msg);
-      return { success: false, decksUploaded: 0, totalCards: 0, error: msg };
-    }
-
     const user = await this.getCurrentUser();
     const dbUserId = this.getDbUserId(user);
 
@@ -883,56 +639,43 @@ export class SyncService {
     });
 
     try {
-      // 1. Delete any cloud decks not present on this device
+      // 1. Delete Neon decks not present on this device
       const localDeckIds = new Set(decks.map((d) => d.id));
-      let decksQuery = supabase.from('decks').select('id');
-      if (dbUserId) {
-        decksQuery = decksQuery.eq('user_id', dbUserId);
-      }
-      const { data: cloudDecks, error: fetchDecksErr } = await decksQuery;
-
-      if (fetchDecksErr) {
-        console.warn('[SyncService] Could not query existing cloud decks:', fetchDecksErr);
-      }
-
-      if (cloudDecks && cloudDecks.length > 0) {
-        const decksToDelete = cloudDecks
-          .filter((d) => !localDeckIds.has(d.id))
-          .map((d) => d.id);
-
-        if (decksToDelete.length > 0) {
-          console.log(`[SyncService] Cleaning out ${decksToDelete.length} obsolete cloud decks:`, decksToDelete);
-          // Delete child flashcards first to avoid foreign key constraints
-          await supabase.from('flashcards').delete().in('deck_id', decksToDelete);
-          const { error: delDecksErr } = await supabase.from('decks').delete().in('id', decksToDelete);
-          if (delDecksErr) {
-            console.error('[SyncService] Failed to delete obsolete decks:', delDecksErr);
-          }
+      const cloudData = await this.pullFromCloud();
+      const decksToDelete = (cloudData?.decks || [])
+        .filter((deck) => !localDeckIds.has(deck.id))
+        .map((deck) => deck.id);
+      for (const deckId of decksToDelete) {
+        const deleted = await this.deleteDeckFromCloud(deckId);
+        if (!deleted) {
+          throw new Error(`Failed to delete Neon deck ${deckId}.`);
         }
       }
 
       // 2. Delete any cloud playlists not present on this device
-      const localPlaylistIds = new Set(playlists.map((p) => p.id));
-      let plQuery = supabase.from('playlists').select('id');
-      if (dbUserId) {
-        plQuery = plQuery.eq('user_id', dbUserId);
-      }
-      const { data: cloudPlaylists, error: fetchPlErr } = await plQuery;
+      if (supabase) {
+        const localPlaylistIds = new Set(playlists.map((p) => p.id));
+        let plQuery = supabase.from('playlists').select('id');
+        if (dbUserId) {
+          plQuery = plQuery.eq('user_id', dbUserId);
+        }
+        const { data: cloudPlaylists, error: fetchPlErr } = await plQuery;
 
-      if (fetchPlErr) {
-        console.warn('[SyncService] Could not query existing cloud playlists:', fetchPlErr);
-      }
+        if (fetchPlErr) {
+          console.warn('[SyncService] Could not query existing cloud playlists:', fetchPlErr);
+        }
 
-      if (cloudPlaylists && cloudPlaylists.length > 0) {
-        const playlistsToDelete = cloudPlaylists
-          .filter((p) => !localPlaylistIds.has(p.id))
-          .map((p) => p.id);
+        if (cloudPlaylists && cloudPlaylists.length > 0) {
+          const playlistsToDelete = cloudPlaylists
+            .filter((p) => !localPlaylistIds.has(p.id))
+            .map((p) => p.id);
 
-        if (playlistsToDelete.length > 0) {
-          console.log(`[SyncService] Cleaning out ${playlistsToDelete.length} obsolete playlists:`, playlistsToDelete);
-          const { error: delPlErr } = await supabase.from('playlists').delete().in('id', playlistsToDelete);
-          if (delPlErr) {
-            console.error('[SyncService] Failed to delete obsolete playlists:', delPlErr);
+          if (playlistsToDelete.length > 0) {
+            console.log(`[SyncService] Cleaning out ${playlistsToDelete.length} obsolete playlists:`, playlistsToDelete);
+            const { error: delPlErr } = await supabase.from('playlists').delete().in('id', playlistsToDelete);
+            if (delPlErr) {
+              console.error('[SyncService] Failed to delete obsolete playlists:', delPlErr);
+            }
           }
         }
       }
@@ -954,23 +697,23 @@ export class SyncService {
       }
 
       if (decks.length > 0 && decksUploaded === 0) {
-        const errorMsg = firstError || 'Failed to push any decks to Cloud database. Please check Supabase tables and RLS permissions.';
+        const errorMsg = firstError || 'Failed to push any decks to the Neon database.';
         console.error('[SyncService] Master overwrite failed:', errorMsg);
         return { success: false, decksUploaded: 0, totalCards: 0, error: errorMsg };
       }
 
       // 4. Upsert playlists
-      if (playlists.length > 0) {
+      if (supabase && playlists.length > 0) {
         await this.pushPlaylistsToCloud(playlists);
       }
 
       // 5. Upsert preferences
-      if (preferences) {
+      if (supabase && preferences) {
         await this.pushPreferences(preferences);
       }
 
       // 6. Upsert logs in chunks if present
-      if (logs && logs.length > 0) {
+      if (supabase && logs && logs.length > 0) {
         const logRows = logs.map((l) => ({
           id: l.id || `log-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
           user_id: dbUserId,

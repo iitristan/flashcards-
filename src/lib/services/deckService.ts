@@ -60,21 +60,11 @@ class IndexedDbDeckService implements IDeckService {
           stats: computeDeckStats(deck.cards || [])
         }));
       } else {
-        const { INITIAL_DECKS } = await import('@/lib/data/sampleDecks');
-        const defaultDecks = INITIAL_DECKS.map(deck => ({
-          ...deck,
-          stats: computeDeckStats(deck.cards || [])
-        }));
-        this.cachedDecks = defaultDecks;
-        await this.saveStoredDecks(defaultDecks);
+        this.cachedDecks = [];
       }
     } catch (err) {
       console.error('Failed to load decks from IndexedDB storage:', err);
-      const { INITIAL_DECKS } = await import('@/lib/data/sampleDecks');
-      this.cachedDecks = INITIAL_DECKS.map(deck => ({
-        ...deck,
-        stats: computeDeckStats(deck.cards || [])
-      }));
+      this.cachedDecks = [];
     }
 
     return this.cachedDecks;
