@@ -5,6 +5,9 @@ import React, { useEffect, useState, useMemo, useRef, useDeferredValue } from 'r
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Plus, 
+  ArrowUpDown,
+  ChevronLeft,
+  ChevronRight,
   Settings, 
   UploadCloud, 
   Search, 
@@ -154,6 +157,12 @@ export default function NutriboardApp() {
     }
   }, [preferences.theme]);
 
+  // Deck sorting options
+  type DeckSortOption = 'newest-deck' | 'newest-card' | 'recently-updated' | 'title-asc' | 'cards-desc';
+  const [deckSort, setDeckSort] = useState<DeckSortOption>('newest-deck');
+  const [deckPage, setDeckPage] = useState<number>(1);
+  const [deckPageSize, setDeckPageSize] = useState<number>(12);
+
   // Filter decks by the selected search and category, but keep empty Neon decks visible.
   const filteredDecks = useMemo(() => {
     const q = (deferredSearchQuery || '').trim().toLowerCase();
@@ -174,6 +183,71 @@ export default function NutriboardApp() {
       return matchesSearch && matchesCategory;
     });
   }, [decks, deferredSearchQuery, selectedCategory]);
+
+  // Reset page to 1 whenever search query, category, sorting, or page size changes
+  useEffect(() => {
+    setDeckPage(1);
+  }, [deferredSearchQuery, selectedCategory, deckSort, deckPageSize]);
+
+  // Sort filtered decks
+  const sortedDecks = useMemo(() => {
+    const list = [...filteredDecks];
+
+    if (deckSort === 'newest-deck') {
+      list.sort((a, b) => {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        if (timeB !== timeA) return timeB - timeA;
+        return (b.id || '').localeCompare(a.id || '');
+      });
+    } else if (deckSort === 'newest-card') {
+      const getNewestCardTime = (d: Deck) => {
+        if (!d.cards || d.cards.length === 0) return 0;
+        let maxTime = 0;
+        for (const card of d.cards) {
+          const t = card.createdAt ? new Date(card.createdAt).getTime() : 0;
+          if (t > maxTime) maxTime = t;
+        }
+        return maxTime;
+      };
+      list.sort((a, b) => {
+        const maxA = getNewestCardTime(a);
+        const maxB = getNewestCardTime(b);
+        if (maxB !== maxA) return maxB - maxA;
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return timeB - timeA;
+      });
+    } else if (deckSort === 'recently-updated') {
+      list.sort((a, b) => {
+        const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+        const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+        return timeB - timeA;
+      });
+    } else if (deckSort === 'title-asc') {
+      list.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+    } else if (deckSort === 'cards-desc') {
+      list.sort((a, b) => (b.cards?.length || 0) - (a.cards?.length || 0));
+    }
+
+    return list;
+  }, [filteredDecks, deckSort]);
+
+  // Pagination calculations
+  const totalDeckPages = useMemo(() => {
+    if (deckPageSize <= 0) return 1;
+    return Math.max(1, Math.ceil(sortedDecks.length / deckPageSize));
+  }, [sortedDecks.length, deckPageSize]);
+
+  const safeDeckPage = useMemo(() => {
+    return Math.min(Math.max(1, deckPage), totalDeckPages);
+  }, [deckPage, totalDeckPages]);
+
+  const paginatedDecks = useMemo(() => {
+    if (deckPageSize <= 0) return sortedDecks;
+    const startIndex = (safeDeckPage - 1) * deckPageSize;
+    return sortedDecks.slice(startIndex, startIndex + deckPageSize);
+  }, [sortedDecks, safeDeckPage, deckPageSize]);
 
   // Canonical categories list (includes All, all standard PRC NDLE categories, and any custom user categories)
   const categories = useMemo(() => {
@@ -772,22 +846,149 @@ export default function NutriboardApp() {
                   Loading clinical review decks...
                 </p>
               </div>
-            ) : filteredDecks.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {filteredDecks.map((deck) => (
-                  <DeckCard
-                    key={deck.id}
-                    deck={deck}
-                    onStudy={handleStartStudy}
-                    onEdit={(d) => {
-                      setEditingDeck(d);
-                      setIsCreatingDeck(true);
-                    }}
-                    onDelete={handleDeleteDeck}
-                    onExport={handleExportDeck}
-                    onUpdateCategory={handleUpdateDeckCategory}
-                  />
-                ))}
+            ) : sortedDecks.length > 0 ? (
+              <div className="space-y-4">
+                {/* Decks Filter & Sort Toolbar */}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-2.5 sm:px-4 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)]">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-[var(--text-muted)]">
+                    <span>
+                      Showing <span className="font-bold text-[var(--text-main)]">{deckPageSize <= 0 ? 1 : (safeDeckPage - 1) * deckPageSize + 1}–{deckPageSize <= 0 ? sortedDecks.length : Math.min(safeDeckPage * deckPageSize, sortedDecks.length)}</span> of{' '}
+                      <span className="font-bold text-[var(--text-main)]">{sortedDecks.length}</span> decks
+                    </span>
+                    {selectedCategory !== 'All' && (
+                      <span className="hidden md:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-[var(--primary)]/10 text-[var(--primary)] border border-[var(--primary)]/20">
+                        {selectedCategory}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
+                    {/* Sort Selector Dropdown */}
+                    <div className="relative flex-1 sm:flex-initial">
+                      <select
+                        value={deckSort}
+                        onChange={(e) => setDeckSort(e.target.value as DeckSortOption)}
+                        aria-label="Sort decks"
+                        className="w-full sm:w-auto pl-7 pr-7 py-1.5 rounded-lg bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-xs font-bold text-[var(--text-main)] outline-none cursor-pointer focus:border-[var(--primary)] appearance-none shadow-2xs"
+                      >
+                        <option value="newest-deck">Newest Added Deck</option>
+                        <option value="newest-card">Newest Added Card</option>
+                        <option value="recently-updated">Recently Updated</option>
+                        <option value="title-asc">Alphabetical (A–Z)</option>
+                        <option value="cards-desc">Most Flashcards</option>
+                      </select>
+                      <ArrowUpDown className="w-3 h-3 text-[var(--primary)] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <span className="text-[10px] text-[var(--text-subtle)] absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none">▼</span>
+                    </div>
+
+                    {/* Page Size Selector */}
+                    <div className="relative">
+                      <select
+                        value={deckPageSize}
+                        onChange={(e) => setDeckPageSize(Number(e.target.value))}
+                        aria-label="Decks per page"
+                        className="pl-2.5 pr-6 py-1.5 rounded-lg bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-xs font-bold text-[var(--text-main)] outline-none cursor-pointer focus:border-[var(--primary)] appearance-none shadow-2xs"
+                      >
+                        <option value={12}>12 / page</option>
+                        <option value={24}>24 / page</option>
+                        <option value={48}>48 / page</option>
+                        <option value={0}>All decks</option>
+                      </select>
+                      <span className="text-[10px] text-[var(--text-subtle)] absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">▼</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Paginated Decks Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {paginatedDecks.map((deck) => (
+                    <DeckCard
+                      key={deck.id}
+                      deck={deck}
+                      onStudy={handleStartStudy}
+                      onEdit={(d) => {
+                        setEditingDeck(d);
+                        setIsCreatingDeck(true);
+                      }}
+                      onDelete={handleDeleteDeck}
+                      onExport={handleExportDeck}
+                      onUpdateCategory={handleUpdateDeckCategory}
+                    />
+                  ))}
+                </div>
+
+                {/* Deck Pagination Navigation */}
+                {totalDeckPages > 1 && (
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 pb-2 border-t border-[var(--border-subtle)]">
+                    <div className="text-xs font-medium text-[var(--text-muted)] order-2 sm:order-1">
+                      Page <span className="font-bold text-[var(--text-main)]">{safeDeckPage}</span> of{' '}
+                      <span className="font-bold text-[var(--text-main)]">{totalDeckPages}</span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 order-1 sm:order-2">
+                      <button
+                        type="button"
+                        onClick={() => setDeckPage((prev) => Math.max(1, prev - 1))}
+                        disabled={safeDeckPage <= 1}
+                        aria-label="Previous page"
+                        className="p-1.5 rounded-lg border border-[var(--border-color)] text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)] disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+
+                      {/* Dynamic Page Buttons */}
+                      {(() => {
+                        const pages: (number | string)[] = [];
+                        if (totalDeckPages <= 7) {
+                          for (let i = 1; i <= totalDeckPages; i++) pages.push(i);
+                        } else {
+                          pages.push(1);
+                          if (safeDeckPage > 3) pages.push('...');
+                          const start = Math.max(2, safeDeckPage - 1);
+                          const end = Math.min(totalDeckPages - 1, safeDeckPage + 1);
+                          for (let i = start; i <= end; i++) pages.push(i);
+                          if (safeDeckPage < totalDeckPages - 2) pages.push('...');
+                          pages.push(totalDeckPages);
+                        }
+
+                        return pages.map((p, idx) => {
+                          if (typeof p === 'string') {
+                            return (
+                              <span key={`dots-${idx}`} className="px-2 py-1 text-xs text-[var(--text-subtle)] font-bold">
+                                …
+                              </span>
+                            );
+                          }
+                          const isActive = p === safeDeckPage;
+                          return (
+                            <button
+                              key={`page-${p}`}
+                              type="button"
+                              onClick={() => setDeckPage(p)}
+                              className={`min-w-[32px] h-8 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                isActive
+                                  ? 'bg-[var(--primary)] text-white shadow-xs'
+                                  : 'border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)]'
+                              }`}
+                            >
+                              {p}
+                            </button>
+                          );
+                        });
+                      })()}
+
+                      <button
+                        type="button"
+                        onClick={() => setDeckPage((prev) => Math.min(totalDeckPages, prev + 1))}
+                        disabled={safeDeckPage >= totalDeckPages}
+                        aria-label="Next page"
+                        className="p-1.5 rounded-lg border border-[var(--border-color)] text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)] disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="p-12 text-center rounded-2xl bg-[var(--bg-surface)] border border-dashed border-[var(--border-color)] space-y-3.5">

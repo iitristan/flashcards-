@@ -354,6 +354,7 @@ export const StudyHeader: React.FC<StudyHeaderProps> = ({
                 className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-xs font-semibold text-[var(--text-main)] outline-none cursor-pointer"
               >
                 <option value="default">Default / Shuffled</option>
+                <option value="newest">Newest Added Card</option>
                 <option value="progress-asc">Unseen / Learning First</option>
                 <option value="progress-desc">Mastered First</option>
                 <option value="difficulty">By Difficulty (Hard First)</option>

@@ -1546,7 +1546,9 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     }
 
     // Sort cards
-    if (options?.sort === 'progress-asc') {
+    if (options?.sort === 'newest') {
+      cards.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+    } else if (options?.sort === 'progress-asc') {
       cards.sort((a, b) => (a.sm2?.repetitions || 0) - (b.sm2?.repetitions || 0));
     } else if (options?.sort === 'progress-desc') {
       cards.sort((a, b) => (b.sm2?.repetitions || 0) - (a.sm2?.repetitions || 0));
@@ -1806,7 +1808,9 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     }
 
     // Apply sorting
-    if (sort === 'progress-asc') {
+    if (sort === 'newest') {
+      subjectCards.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+    } else if (sort === 'progress-asc') {
       subjectCards.sort((a, b) => (a.sm2?.repetitions || 0) - (b.sm2?.repetitions || 0));
     } else if (sort === 'progress-desc') {
       subjectCards.sort((a, b) => (b.sm2?.repetitions || 0) - (a.sm2?.repetitions || 0));
@@ -1936,7 +1940,9 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       if (wrong.length > 0) filteredCards = wrong;
     }
 
-    if (effectiveSort === 'progress-asc') {
+    if (effectiveSort === 'newest') {
+      filteredCards.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+    } else if (effectiveSort === 'progress-asc') {
       filteredCards.sort((a, b) => (a.sm2?.repetitions || 0) - (b.sm2?.repetitions || 0));
     } else if (effectiveSort === 'progress-desc') {
       filteredCards.sort((a, b) => (b.sm2?.repetitions || 0) - (a.sm2?.repetitions || 0));

@@ -160,7 +160,7 @@ export type SparkleStyle = 'clinical' | 'vibrant' | 'cosmic' | 'minimal';
 
 export type CardDesign = 'modern' | 'compact' | 'classic';
 
-export type CardSortOption = 'default' | 'progress-asc' | 'progress-desc' | 'difficulty' | 'alphabetical' | 'most-reviewed';
+export type CardSortOption = 'default' | 'newest' | 'progress-asc' | 'progress-desc' | 'difficulty' | 'alphabetical' | 'most-reviewed';
 
 export type CardFilterOption = 'all' | 'unseen' | 'learning' | 'developing' | 'mastered' | 'due' | 'wrong';
 

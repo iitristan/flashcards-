@@ -291,7 +291,9 @@ export const CardFilterManager: React.FC = () => {
 
     // Sort according to activeSort
     const sort = activeGroup.activeSort;
-    if (sort === 'progress-asc') {
+    if (sort === 'newest') {
+      result.sort((a, b) => new Date(b.card.createdAt || 0).getTime() - new Date(a.card.createdAt || 0).getTime());
+    } else if (sort === 'progress-asc') {
       result.sort((a, b) => (a.card.sm2?.repetitions || 0) - (b.card.sm2?.repetitions || 0));
     } else if (sort === 'progress-desc') {
       result.sort((a, b) => (b.card.sm2?.repetitions || 0) - (a.card.sm2?.repetitions || 0));
@@ -1199,6 +1201,7 @@ export const CardFilterManager: React.FC = () => {
                 className="w-full px-3 py-2 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] text-xs font-semibold text-[var(--text-main)] focus:border-[var(--primary)] outline-none cursor-pointer"
               >
                 <option value="default">Default Exam Order (Shuffled)</option>
+                <option value="newest">Newest Added Card First</option>
                 <option value="progress-asc">Unseen & In Learning First</option>
                 <option value="progress-desc">Mastered First (Highest Reps)</option>
                 <option value="difficulty">By Difficulty (Hard First)</option>

@@ -84,7 +84,7 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
   const [isAddingNewCard, setIsAddingNewCard] = useState(false);
   const [cardSearchQuery, setCardSearchQuery] = useState('');
   type CardFilterType = 'all' | 'missing-rationale' | 'has-rationale' | 'new' | 'learning' | 'developing' | 'mastered' | 'due';
-  type CardSortType = 'default' | 'stage' | 'mastered-first' | 'alpha';
+  type CardSortType = 'default' | 'newest' | 'stage' | 'mastered-first' | 'alpha';
   const [cardFilter, setCardFilter] = useState<CardFilterType>('all');
   const [cardSort, setCardSort] = useState<CardSortType>('default');
 
@@ -547,6 +547,7 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
                             className="w-full sm:w-auto pl-7 pr-7 py-2 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] text-xs font-bold text-[var(--text-main)] outline-none cursor-pointer focus:border-[var(--primary)] shadow-2xs appearance-none"
                           >
                             <option value="default">Default Order</option>
+                            <option value="newest">Newest Added Card</option>
                             <option value="stage">Unseen First</option>
                             <option value="mastered-first">Mastered First</option>
                             <option value="alpha">Alphabetical (A–Z)</option>
@@ -633,7 +634,9 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
                     }
 
                     // Step 3: Sort
-                    if (cardSort === 'stage') {
+                    if (cardSort === 'newest') {
+                      processed.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+                    } else if (cardSort === 'stage') {
                       const stageRank = { new: 0, learning: 1, developing: 2, mastered: 3 };
                       processed.sort((a, b) => {
                         const sA = stageRank[getCardProgressInfo(a).stage];
