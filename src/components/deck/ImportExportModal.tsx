@@ -21,10 +21,13 @@ import {
   FolderUp,
   Layers,
   Award,
-  Globe
+  Globe,
+  GraduationCap,
+  BookOpenCheck
 } from 'lucide-react';
 import { Deck, DeckCategory } from '@/types';
 import { deckService } from '@/lib/services/deckService';
+import { OFFICIAL_PRC_EXAMS } from '@/lib/data/prc-exams';
 import { useNutriStore } from '@/lib/store/useNutriStore';
 import { ankiImporter, AnkiDeckPreview } from '@/lib/importers/anki';
 import { pdfImporter } from '@/lib/importers/pdf/pdfImporter';
@@ -44,7 +47,7 @@ interface ImportExportModalProps {
   onClose: () => void;
 }
 
-type ImportTabMode = 'bulk' | 'anki' | 'pdf' | 'html' | 'csv_json' | 'ndle_review';
+type ImportTabMode = 'prc_exams' | 'bulk' | 'anki' | 'pdf' | 'html' | 'csv_json' | 'ndle_review';
 
 export interface QueuedImportFile {
   id: string;
@@ -707,6 +710,41 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
     }
   };
 
+  const [importingPrcId, setImportingPrcId] = useState<string | null>(null);
+
+  const handleImportPrcExam = async (examId: string) => {
+    setIsProcessing(true);
+    setImportingPrcId(examId);
+    try {
+      const deck = await deckService.importOfficialPrcDeck(examId);
+      toast.success(`Imported "${deck.title}" with ${deck.cards.length} official board questions! 🎉`);
+      onImportSuccess();
+      onClose();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to import PRC exam deck');
+    } finally {
+      setIsProcessing(false);
+      setImportingPrcId(null);
+    }
+  };
+
+  const handleImportAllPrcExams = async () => {
+    setIsProcessing(true);
+    setImportingPrcId('all');
+    try {
+      const decks = await deckService.importAllOfficialPrcDecks();
+      const total = decks.reduce((sum, d) => sum + d.cards.length, 0);
+      toast.success(`Imported all 3 PRC official exam decks (${total} questions total)! 🏆`);
+      onImportSuccess();
+      onClose();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to import PRC exams');
+    } finally {
+      setIsProcessing(false);
+      setImportingPrcId(null);
+    }
+  };
+
   const handleLoadFoodServiceDeck = async () => {
     setIsProcessing(true);
     try {
@@ -1330,7 +1368,22 @@ SELECT
           {activeTab === 'import' ? (
             <div className="space-y-4">
               {/* Import Type Selector Pills */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setImportType('prc_exams')}
+                  className={`py-2 px-2.5 rounded-2xl text-xs font-bold border-2 transition-all flex items-center justify-center gap-1.5 cursor-pointer relative ${
+                    importType === 'prc_exams'
+                      ? 'border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary)] shadow-xs'
+                      : 'border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-muted)] hover:bg-[var(--bg-surface-subtle)]'
+                  }`}
+                >
+                  <GraduationCap className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+                  <span className="truncate">PRC Exams</span>
+                  <span className="ml-1 px-1.5 py-0.2 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px] rounded-full font-bold">
+                    600 Qs
+                  </span>
+                </button>
                 <button
                   type="button"
                   onClick={() => setImportType('bulk')}
@@ -1416,6 +1469,100 @@ SELECT
               </div>
 
               {/* ----------------------------------------------------------- */}
+              {/* ----------------------------------------------------------- */}
+              {/* TAB 0: OFFICIAL PRC BOARD EXAM QUESTION BANKS               */}
+              {/* ----------------------------------------------------------- */}
+              {importType === 'prc_exams' && (
+                <div className="space-y-4">
+                  <div className="p-4 rounded-3xl bg-gradient-to-r from-amber-500/10 via-emerald-500/10 to-blue-500/10 border border-[var(--border-color)] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                          Official PRC Question Banks
+                        </span>
+                        <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                          600 Verified Questions
+                        </span>
+                      </div>
+                      <h3 className="font-extrabold text-sm text-[var(--text-main)]">
+                        Philippine NDLE Licensure Examination Sets (2021 & 2019)
+                      </h3>
+                      <p className="text-xs text-[var(--text-muted)] max-w-xl">
+                        Pre-transcribed from official PRC board exam booklets. Zero OCR delay, complete with options A–D, verified answers, clinical rationales, and margin calculations.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleImportAllPrcExams}
+                      disabled={isProcessing}
+                      className="px-4 py-2.5 rounded-2xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white text-xs font-bold shadow-sm transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer active:scale-95 disabled:opacity-50"
+                    >
+                      {isProcessing && importingPrcId === 'all' ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-4 h-4 text-amber-300" />
+                      )}
+                      <span>Import All 3 Decks (600 Qs)</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {OFFICIAL_PRC_EXAMS.map((exam) => (
+                      <div
+                        key={exam.id}
+                        className="p-4 rounded-3xl bg-[var(--bg-surface)] border border-[var(--border-color)] hover:border-[var(--primary)]/50 transition-all flex flex-col justify-between space-y-4"
+                      >
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="px-2 py-0.5 rounded-lg text-[10px] font-extrabold uppercase bg-[var(--primary-light)] text-[var(--primary)]">
+                              {exam.year} • {exam.setLetter}
+                            </span>
+                            <span className="text-[11px] font-bold text-[var(--text-muted)]">
+                              {exam.totalCards} MCQs
+                            </span>
+                          </div>
+
+                          <h4 className="font-bold text-xs text-[var(--text-main)] leading-snug">
+                            {exam.title}
+                          </h4>
+
+                          <p className="text-[11px] text-[var(--text-muted)] line-clamp-3 leading-relaxed">
+                            {exam.description}
+                          </p>
+                        </div>
+
+                        <div className="pt-2 border-t border-[var(--border-color)] flex items-center justify-between">
+                          <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" /> 100% Verified
+                          </span>
+
+                          <button
+                            type="button"
+                            onClick={() => handleImportPrcExam(exam.id)}
+                            disabled={isProcessing}
+                            className="px-3 py-1.5 rounded-xl bg-[var(--bg-surface-subtle)] hover:bg-[var(--primary)] hover:text-white border border-[var(--border-color)] text-xs font-bold text-[var(--text-main)] transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            {isProcessing && importingPrcId === exam.id ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <GraduationCap className="w-3 h-3" />
+                            )}
+                            <span>Import Deck</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="p-3 rounded-2xl bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-[11px] text-[var(--text-muted)] flex items-center justify-between">
+                    <span>
+                      📖 Looking for the raw text reviewer? Full human-readable Markdown docs are located in <code className="text-[var(--primary)] font-mono">docs/prc-board-exams/</code>.
+                    </span>
+                  </div>
+                </div>
+              )}
+
               {/* TAB 1: BULK MULTI-FORMAT UPLOAD                             */}
               {/* ----------------------------------------------------------- */}
               {importType === 'bulk' && (

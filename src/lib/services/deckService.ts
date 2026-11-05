@@ -41,6 +41,8 @@ export interface IDeckService {
   setAllPlaylists(playlists: DeckPlaylist[]): Promise<void>;
   clearLocalData(): Promise<void>;
   importQuizletFoodServiceDeck(): Promise<Deck>;
+  importOfficialPrcDeck(deckId: string): Promise<Deck>;
+  importAllOfficialPrcDecks(): Promise<Deck[]>;
 }
 
 
@@ -671,6 +673,33 @@ class IndexedDbDeckService implements IDeckService {
     currentDecks.unshift(QUIZLET_FOOD_SERVICE_DECK);
     await this.saveStoredDecks(currentDecks);
     return QUIZLET_FOOD_SERVICE_DECK;
+  }
+
+  public async importOfficialPrcDeck(deckId: string): Promise<Deck> {
+    const { getOfficialPrcDeckById } = await import('@/lib/data/prc-exams');
+    const target = getOfficialPrcDeckById(deckId);
+    if (!target) {
+      throw new Error("Official PRC exam deck not found: " + deckId);
+    }
+    const currentDecks = await this.loadStoredDecks();
+    const existingIndex = currentDecks.findIndex(d => d.id === target.id || d.title === target.title);
+    if (existingIndex >= 0) {
+      currentDecks[existingIndex] = target;
+    } else {
+      currentDecks.unshift(target);
+    }
+    await this.saveStoredDecks(currentDecks);
+    return target;
+  }
+
+  public async importAllOfficialPrcDecks(): Promise<Deck[]> {
+    const { OFFICIAL_PRC_EXAMS } = await import('@/lib/data/prc-exams');
+    const imported = [];
+    for (const exam of OFFICIAL_PRC_EXAMS) {
+      const deck = await this.importOfficialPrcDeck(exam.id);
+      imported.push(deck);
+    }
+    return imported;
   }
 
   // --- Playlist Operations ---
