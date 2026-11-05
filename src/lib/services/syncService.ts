@@ -54,6 +54,7 @@ export class SyncService {
     preferences?: UserPreferences | null;
     activeSession?: StudySessionState | null;
     upToDate?: boolean;
+    isDelta?: boolean;
     latestTimestamp?: string;
     isEmpty: boolean;
   } | null> {

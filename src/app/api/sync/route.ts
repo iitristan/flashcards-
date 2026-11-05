@@ -79,21 +79,21 @@ export async function GET(req: NextRequest) {
         ? (maxCardUpdated > maxDeckUpdated ? maxCardUpdated : maxDeckUpdated) 
         : (maxCardUpdated || maxDeckUpdated);
 
-      // Fast-path: Client is already up to date! (< 200 bytes instead of 35 MB)
+      const prefRow = await queryOne(`
+        SELECT preferences FROM public.user_preferences LIMIT 1
+      `).catch(() => null);
+
+      const activeSession = await queryOne(`
+        SELECT id, deck_id, deck_title, mode, current_index, is_completed,
+               timer_duration_seconds, cards_queue, results, start_time, updated_at
+        FROM public.study_sessions
+        WHERE is_completed = false
+        ORDER BY updated_at DESC
+        LIMIT 1
+      `).catch(() => null);
+
+      // Fast-path: Client is already up to date! (< 200 bytes transferred)
       if (since && latestDbTimestamp && new Date(since).getTime() >= new Date(latestDbTimestamp).getTime()) {
-        const prefRow = await queryOne(`
-          SELECT preferences FROM public.user_preferences LIMIT 1
-        `).catch(() => null);
-
-        const activeSession = await queryOne(`
-          SELECT id, deck_id, deck_title, mode, current_index, is_completed,
-                 timer_duration_seconds, cards_queue, results, start_time, updated_at
-          FROM public.study_sessions
-          WHERE is_completed = false
-          ORDER BY updated_at DESC
-          LIMIT 1
-        `).catch(() => null);
-
         return NextResponse.json({
           ok: true,
           upToDate: true,
@@ -116,7 +116,86 @@ export async function GET(req: NextRequest) {
         });
       }
 
-      // Full-pull path: Fetch decks, cards, playlists, preferences, activeSession, logs
+      // Delta path: If `since` is provided, query ONLY records modified AFTER `since` (99.9% egress reduction)
+      if (since) {
+        const modifiedCards = await query(`
+          SELECT id, deck_id, front, back, rationale, options, tags, ndle_subject,
+                 difficulty, leitner_box, user_notes, sm2, last_reviewed_at, created_at, updated_at
+          FROM public.flashcards
+          WHERE updated_at > $1
+          ORDER BY updated_at ASC
+        `, [since]);
+
+        const modifiedDecks = await query(`
+          SELECT id, title, description, category, icon, color, tags, created_at, updated_at
+          FROM public.decks
+          WHERE updated_at > $1
+          ORDER BY updated_at ASC
+        `, [since]);
+
+        const modifiedPlaylists = await query(`
+          SELECT id, title, description, deck_ids, color, icon, created_at, updated_at
+          FROM public.playlists
+          WHERE updated_at > $1
+          ORDER BY updated_at ASC
+        `, [since]).catch(() => []);
+
+        const deltaLogs = await query(`
+          SELECT id, card_id, deck_id, mode, rating, user_answer, is_correct,
+                 time_spent_seconds, verdict, created_at
+          FROM public.study_logs
+          WHERE created_at > $1
+          ORDER BY created_at ASC
+          LIMIT 1000
+        `, [since]).catch(() => []);
+
+        if (modifiedCards.length === 0 && modifiedDecks.length === 0 && modifiedPlaylists.length === 0) {
+          return NextResponse.json({
+            ok: true,
+            upToDate: true,
+            latestTimestamp: latestDbTimestamp,
+            totalCards: Number(statsRow?.card_count || 0),
+            totalDecks: Number(statsRow?.deck_count || 0),
+            data: {
+              decks: null,
+              cards: null,
+              playlists: null,
+              preferences: prefRow ? prefRow.preferences : null,
+              activeSession,
+              logs: deltaLogs,
+            },
+          }, {
+            headers: {
+              'Cache-Control': 'private, no-cache',
+              'ETag': `W/"nutri-${latestDbTimestamp}"`
+            }
+          });
+        }
+
+        return NextResponse.json({
+          ok: true,
+          upToDate: false,
+          isDelta: true,
+          latestTimestamp: latestDbTimestamp || new Date().toISOString(),
+          totalCards: modifiedCards.length,
+          totalDecks: modifiedDecks.length,
+          data: {
+            decks: modifiedDecks,
+            cards: modifiedCards,
+            playlists: modifiedPlaylists,
+            preferences: prefRow ? prefRow.preferences : null,
+            activeSession,
+            logs: deltaLogs,
+          },
+        }, {
+          headers: {
+            'Cache-Control': 'private, no-cache',
+            'ETag': `W/"nutri-${latestDbTimestamp || Date.now()}"`
+          }
+        });
+      }
+
+      // Cold-start full pull (only when client has no existing cache)
       const decks = await query(`
         SELECT id, title, description, category, icon, color, tags, created_at, updated_at
         FROM public.decks
@@ -135,25 +214,12 @@ export async function GET(req: NextRequest) {
         ORDER BY updated_at DESC
       `).catch(() => []);
 
-      const prefRow = await queryOne(`
-        SELECT preferences FROM public.user_preferences LIMIT 1
-      `).catch(() => null);
-
-      const activeSession = await queryOne(`
-        SELECT id, deck_id, deck_title, mode, current_index, is_completed,
-               timer_duration_seconds, cards_queue, results, start_time, updated_at
-        FROM public.study_sessions
-        WHERE is_completed = false
-        ORDER BY updated_at DESC
-        LIMIT 1
-      `).catch(() => null);
-
       const logs = await query(`
         SELECT id, card_id, deck_id, mode, rating, user_answer, is_correct,
                time_spent_seconds, verdict, created_at
         FROM public.study_logs
         ORDER BY created_at DESC
-        LIMIT 10000
+        LIMIT 2000
       `).catch(() => []);
 
       return NextResponse.json({

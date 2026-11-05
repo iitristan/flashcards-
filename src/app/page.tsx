@@ -120,6 +120,7 @@ export default function NutriboardApp() {
   // Initialize on mount; sync only when user returns to tab (not polling)
   useEffect(() => {
     const store = useNutriStore.getState();
+    store.loadDecks().catch(() => {});
     store.initPreferences();
     store.initAuth().catch(() => {});
 
