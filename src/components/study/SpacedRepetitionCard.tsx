@@ -370,7 +370,7 @@ export const SpacedRepetitionCard: React.FC<SpacedRepetitionCardProps> = ({
               </div>
 
               {/* Clinical / Exam Rationale */}
-              {card.rationale && (
+              {card.rationale && card.rationale.trim() ? (
                 <div className="p-4 rounded-xl bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] space-y-1.5 text-left">
                   <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--text-main)]">
                     <BookOpen className="w-3.5 h-3.5 text-[var(--primary)]" />
@@ -379,6 +379,13 @@ export const SpacedRepetitionCard: React.FC<SpacedRepetitionCardProps> = ({
                   <div className="text-xs sm:text-sm text-[var(--text-muted)] leading-relaxed">
                     <FormattedCardText content={card.rationale} />
                   </div>
+                </div>
+              ) : !aiExplanation && (
+                <div className="p-3.5 rounded-xl bg-[var(--bg-surface-subtle)]/60 border border-dashed border-[var(--border-subtle)] text-left">
+                  <p className="text-[11px] text-[var(--text-subtle)] italic flex items-center gap-1.5">
+                    <BookOpen className="w-3.5 h-3.5 text-amber-500/70" />
+                    <span>No pre-written author rationale attached to this flashcard.</span>
+                  </p>
                 </div>
               )}
             </div>

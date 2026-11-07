@@ -443,7 +443,7 @@ export const IdentificationView: React.FC<IdentificationViewProps> = ({
               </div>
 
               {/* Scientific Rationale */}
-              {card.rationale && (
+              {card.rationale && card.rationale.trim() ? (
                 <div className="pt-3 border-t border-[var(--border-subtle)] space-y-1">
                   <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--text-main)]">
                     <BookOpen className="w-3.5 h-3.5 text-[var(--primary)]" />
@@ -452,6 +452,12 @@ export const IdentificationView: React.FC<IdentificationViewProps> = ({
                   <div className="text-xs text-[var(--text-muted)] leading-relaxed">
                     <FormattedCardText content={card.rationale} />
                   </div>
+                </div>
+              ) : !aiExplanation && (
+                <div className="pt-3 border-t border-[var(--border-subtle)]">
+                  <p className="text-[11px] text-[var(--text-subtle)] italic">
+                    No pre-written author rationale attached to this item. Use the Clinical AI Breakdown below for explanations.
+                  </p>
                 </div>
               )}
             </div>

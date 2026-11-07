@@ -414,7 +414,7 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
             className="w-full space-y-4 pt-2"
           >
             {/* Standard Clinical / Board Exam Rationale */}
-            {card.rationale && (
+            {card.rationale && card.rationale.trim() ? (
               <div className="p-5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] space-y-2 shadow-xs">
                 <div className="flex items-center gap-2 text-xs font-bold text-[var(--primary)] uppercase tracking-wider">
                   <BookOpen className="w-4 h-4" />
@@ -423,6 +423,30 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
                 <div className="text-xs sm:text-sm text-[var(--text-main)] leading-relaxed pl-6 font-medium">
                   <FormattedCardText content={card.rationale} />
                 </div>
+              </div>
+            ) : !aiExplanation && (
+              <div className="p-4 rounded-xl bg-[var(--bg-surface-subtle)] border border-dashed border-[var(--border-color)] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left">
+                <div className="flex items-start gap-2.5 min-w-0">
+                  <BookOpen className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <p className="text-xs font-bold text-[var(--text-main)]">
+                      Author Rationale Not Attached
+                    </p>
+                    <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
+                      This item does not have a pre-written textbook rationale yet. Click below for an on-demand Clinical AI Breakdown.
+                    </p>
+                  </div>
+                </div>
+                {!isLoadingAi && (
+                  <button
+                    type="button"
+                    onClick={() => fetchAiExplanation(selectedOption || card.back)}
+                    className="px-3.5 py-1.5 rounded-lg bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white text-xs font-bold shadow-xs shrink-0 cursor-pointer transition-all active:scale-95 flex items-center justify-center gap-1.5 self-start sm:self-center"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Generate AI Breakdown</span>
+                  </button>
+                )}
               </div>
             )}
 
