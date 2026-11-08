@@ -453,13 +453,7 @@ export const IdentificationView: React.FC<IdentificationViewProps> = ({
                     <FormattedCardText content={card.rationale} />
                   </div>
                 </div>
-              ) : !aiExplanation && (
-                <div className="pt-3 border-t border-[var(--border-subtle)]">
-                  <p className="text-[11px] text-[var(--text-subtle)] italic">
-                    No pre-written author rationale attached to this item. Use the Clinical AI Breakdown below for explanations.
-                  </p>
-                </div>
-              )}
+              ) : null}
             </div>
 
             {/* On-Demand AI Overview Button (Save Tokens - Only Fetches When Clicked) */}

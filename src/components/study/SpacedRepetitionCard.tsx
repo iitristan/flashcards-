@@ -380,14 +380,7 @@ export const SpacedRepetitionCard: React.FC<SpacedRepetitionCardProps> = ({
                     <FormattedCardText content={card.rationale} />
                   </div>
                 </div>
-              ) : !aiExplanation && (
-                <div className="p-3.5 rounded-xl bg-[var(--bg-surface-subtle)]/60 border border-dashed border-[var(--border-subtle)] text-left">
-                  <p className="text-[11px] text-[var(--text-subtle)] italic flex items-center gap-1.5">
-                    <BookOpen className="w-3.5 h-3.5 text-amber-500/70" />
-                    <span>No pre-written author rationale attached to this flashcard.</span>
-                  </p>
-                </div>
-              )}
+              ) : null}
             </div>
 
             {/* Bottom rating reminder */}
