@@ -99,6 +99,42 @@ function markSelfPushEnd() {
   }, 3000);
 }
 
+// Tombstone tracking: Prevents sync from resurrecting decks deleted locally
+const TOMBSTONE_STORAGE_KEY = 'nutrianki_deleted_deck_tombstones_v1';
+
+export function getDeletedDeckTombstones(): Set<string> {
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(TOMBSTONE_STORAGE_KEY) : null;
+    if (raw) return new Set(JSON.parse(raw));
+  } catch {}
+  return new Set();
+}
+
+export function addDeletedDeckTombstone(id: string) {
+  try {
+    if (typeof window === 'undefined') return;
+    const set = getDeletedDeckTombstones();
+    set.add(id);
+    const arr = Array.from(set).slice(-500);
+    localStorage.setItem(TOMBSTONE_STORAGE_KEY, JSON.stringify(arr));
+  } catch {}
+}
+
+export function removeDeletedDeckTombstone(id: string) {
+  try {
+    if (typeof window === 'undefined') return;
+    const set = getDeletedDeckTombstones();
+    if (set.has(id)) {
+      set.delete(id);
+      localStorage.setItem(TOMBSTONE_STORAGE_KEY, JSON.stringify(Array.from(set)));
+    }
+  } catch {}
+}
+
+export function isDeckTombstoned(id: string): boolean {
+  return getDeletedDeckTombstones().has(id);
+}
+
 
 interface NutriStore {
   // State
@@ -546,6 +582,9 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
 
         const localDeckMap = new Map(localDecks.map((d) => [d.id, d]));
         for (const incDeck of cloudData.decks) {
+          if (isDeckTombstoned(incDeck.id)) {
+            continue;
+          }
           const existing = localDeckMap.get(incDeck.id);
           if (existing) {
             existing.title = incDeck.title;
@@ -660,9 +699,12 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
           }
         }
 
-        // Include any cloud decks not present locally
+        // Include any cloud decks not present locally (respecting tombstones)
         const localDeckIdSet = new Set(localDecks.map((d) => d.id));
         for (const cloudDeck of cloudData.decks) {
+          if (isDeckTombstoned(cloudDeck.id)) {
+            continue;
+          }
           if (!localDeckIdSet.has(cloudDeck.id)) {
             mergedDecks.push(cloudDeck);
           }
@@ -1322,6 +1364,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
 
   createDeck: async (deckData, initialCards) => {
     const created = await deckService.createDeck(deckData, initialCards);
+    removeDeletedDeckTombstone(created.id);
     await get().loadDecks();
     markSelfPushStart();
     syncService.pushDeckToCloud(created).catch((err) => console.error('Sync createDeck error:', err)).finally(markSelfPushEnd);
@@ -1339,13 +1382,43 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
   },
 
   deleteDeck: async (id) => {
-    await deckService.deleteDeck(id);
-    await get().loadDecks();
+    // 1. Instant optimistic UI deletion from memory (< 16ms)
+    const prevDecks = get().decks;
+    const remainingDecks = prevDecks.filter((d) => d.id !== id);
+
+    const updates: Partial<NutriStore> = {
+      decks: remainingDecks,
+    };
     if (get().activeDeckId === id) {
-      set({ activeDeckId: null });
+      updates.activeDeckId = null;
     }
+    if (get().activeSession?.deckId === id) {
+      updates.activeSession = null;
+      updates.resumeAvailableSession = null;
+    }
+    if (get().playlists) {
+      updates.playlists = get().playlists.map((p) => ({
+        ...p,
+        deckIds: (p.deckIds || []).filter((did) => did !== id),
+      }));
+    }
+    set(updates);
+
+    // 2. Add to local tombstones so sync pulls NEVER resurrect it
+    addDeletedDeckTombstone(id);
+
+    // 3. Persist local IndexedDB deletion
+    await deckService.deleteDeck(id);
+
+    // 4. Await cloud deletion with guard
     markSelfPushStart();
-    syncService.deleteDeckFromCloud(id).catch((err) => console.error('Sync deleteDeck error:', err)).finally(markSelfPushEnd);
+    try {
+      await syncService.deleteDeckFromCloud(id);
+    } catch (err) {
+      console.error('Sync deleteDeck error:', err);
+    } finally {
+      markSelfPushEnd();
+    }
   },
 
   resetDecks: async () => {
@@ -1358,6 +1431,9 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
   },
 
   importMultipleDecks: async (newDecks) => {
+    for (const d of newDecks) {
+      removeDeletedDeckTombstone(d.id);
+    }
     await deckService.importMultipleDecks(newDecks);
     await get().loadDecks();
     markSelfPushStart();

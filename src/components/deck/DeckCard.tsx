@@ -22,7 +22,8 @@ import {
   Heart,
   Apple,
   RotateCcw,
-  X
+  X,
+  Loader2
 } from 'lucide-react';
 
 import { useNutriStore } from '@/lib/store/useNutriStore';
@@ -30,6 +31,7 @@ import { Deck, StudyMode, DeckCategory, DECK_CATEGORIES, CATEGORY_CONFIG } from 
 
 interface DeckCardProps {
   deck: Deck;
+  isDeleting?: boolean;
   onStudy: (deckId: string, mode: StudyMode, resume?: boolean) => void;
   onEdit: (deck: Deck) => void;
   onDelete: (deckId: string) => void;
@@ -61,6 +63,7 @@ const getModeLabel = (mode: StudyMode) => {
 
 export const DeckCard: React.FC<DeckCardProps> = ({
   deck,
+  isDeleting = false,
   onStudy,
   onEdit,
   onDelete,
@@ -109,8 +112,20 @@ export const DeckCard: React.FC<DeckCardProps> = ({
       layout
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
-      className="rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] p-5 shadow-xs hover:shadow-sm hover:border-[var(--border-color-strong)] transition-all flex flex-col justify-between group relative"
+      className={`rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] p-5 shadow-xs hover:shadow-sm hover:border-[var(--border-color-strong)] transition-all flex flex-col justify-between group relative ${
+        isDeleting ? 'opacity-40 pointer-events-none scale-[0.98]' : ''
+      }`}
     >
+      {/* Deleting overlay */}
+      {isDeleting && (
+        <div className="absolute inset-0 bg-white/70 dark:bg-black/70 backdrop-blur-xs rounded-xl flex items-center justify-center z-20">
+          <div className="flex items-center gap-2 text-xs font-semibold text-rose-600 bg-white dark:bg-zinc-900 px-3 py-1.5 rounded-full shadow-sm border border-rose-200 dark:border-rose-900">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            <span>Deleting deck...</span>
+          </div>
+        </div>
+      )}
+
       {/* Top Bar: Icon, Category & Actions */}
       <div>
         <div className="flex items-start justify-between gap-3 mb-3">
@@ -206,11 +221,12 @@ export const DeckCard: React.FC<DeckCardProps> = ({
 
                   <div className="pt-1 mt-1 border-t border-[var(--border-subtle)]">
                     <button
+                      disabled={isDeleting}
                       onClick={() => {
                         setShowMenu(false);
                         onDelete(deck.id);
                       }}
-                      className="w-full px-3 py-2 rounded-xl text-left flex items-center gap-2 hover:bg-rose-50 dark:hover:bg-rose-950 text-rose-600 dark:text-rose-400 cursor-pointer"
+                      className="w-full px-3 py-2 rounded-xl text-left flex items-center gap-2 hover:bg-rose-50 dark:hover:bg-rose-950 text-rose-600 dark:text-rose-400 cursor-pointer disabled:opacity-50"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                       <span>Delete Deck</span>

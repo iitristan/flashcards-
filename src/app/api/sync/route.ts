@@ -524,6 +524,7 @@ export async function DELETE(req: NextRequest) {
 
     if (action === 'deleteDeck') {
       await withTransaction(async (client) => {
+        await client.query('DELETE FROM public.study_sessions WHERE deck_id = $1', [id]);
         await client.query('DELETE FROM public.flashcards WHERE deck_id = $1', [id]);
         await client.query('DELETE FROM public.decks WHERE id = $1', [id]);
       });

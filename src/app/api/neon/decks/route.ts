@@ -257,6 +257,7 @@ export async function DELETE(request: Request) {
 
   try {
     const result = await withTransaction(async (client) => {
+      await client.query("DELETE FROM public.study_sessions WHERE deck_id = $1", [id]);
       await client.query("DELETE FROM public.flashcards WHERE deck_id = $1", [id]);
       return client.query("DELETE FROM public.decks WHERE id = $1", [id]);
     });

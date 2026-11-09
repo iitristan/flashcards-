@@ -132,6 +132,7 @@ export async function deleteDeck(id: string) {
   const client = await getNeonPool().connect();
   try {
     await client.query("BEGIN");
+    await client.query("DELETE FROM public.study_sessions WHERE deck_id = $1", [id]);
     await client.query("DELETE FROM public.flashcards WHERE deck_id = $1", [id]);
     const result = await client.query("DELETE FROM public.decks WHERE id = $1", [id]);
     if (result.rowCount !== 1) throw new Error("Deck not found");

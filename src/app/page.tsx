@@ -91,6 +91,7 @@ export default function NutriboardApp() {
   const [isTimerExpired, setIsTimerExpired] = useState(false);
   const [isConfirmCBLEOpen, setIsConfirmCBLEOpen] = useState(false);
   const [cbleItemCount, setCbleItemCount] = useState<100 | 200>(100);
+  const [deletingDeckId, setDeletingDeckId] = useState<string | null>(null);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const deferredSearchQuery = useDeferredValue(searchQuery);
@@ -311,9 +312,17 @@ export default function NutriboardApp() {
   };
 
   const handleDeleteDeck = async (deckId: string) => {
+    if (deletingDeckId) return;
     if (window.confirm('Are you sure you want to delete this deck? This action cannot be undone.')) {
-      await deleteDeck(deckId);
-      toast.success('Deck deleted successfully');
+      setDeletingDeckId(deckId);
+      try {
+        await deleteDeck(deckId);
+        toast.success('Deck deleted successfully');
+      } catch (err: any) {
+        toast.error(err?.message || 'Failed to delete deck');
+      } finally {
+        setDeletingDeckId(null);
+      }
     }
   };
 
@@ -905,6 +914,7 @@ export default function NutriboardApp() {
                     <DeckCard
                       key={deck.id}
                       deck={deck}
+                      isDeleting={deletingDeckId === deck.id}
                       onStudy={handleStartStudy}
                       onEdit={(d) => {
                         setEditingDeck(d);

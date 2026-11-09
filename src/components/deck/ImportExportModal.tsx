@@ -293,6 +293,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   // Bulk Import Execution
   // ---------------------------------------------------------------------------
   const handleExecuteBulkImport = async () => {
+    if (isProcessing) return;
     const toImport = queuedFiles.filter((item) => item.selected && item.status !== 'error');
     if (toImport.length === 0) {
       toast.error('No valid files selected for import');
@@ -429,6 +430,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   };
 
   const handleImportAnki = async () => {
+    if (isProcessing) return;
     if (!ankiFile) {
       toast.error('Please select an Anki .colpkg or .apkg file');
       return;
@@ -501,6 +503,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   };
 
   const handleImportPdf = async () => {
+    if (isProcessing) return;
     if (!pdfFile) {
       toast.error('Please select a PDF file first');
       return;
@@ -569,6 +572,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   };
 
   const handleImportCsv = async () => {
+    if (isProcessing) return;
     if (!csvFile) {
       toast.error('Please select a CSV or JSON file first');
       return;
@@ -670,6 +674,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   };
 
   const handleImportHtml = async () => {
+    if (isProcessing) return;
     if (htmlInputMode === 'file' && !htmlFile) {
       toast.error('Please select an HTML file first');
       return;
@@ -713,6 +718,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   const [importingPrcId, setImportingPrcId] = useState<string | null>(null);
 
   const handleImportPrcExam = async (examId: string) => {
+    if (isProcessing) return;
     setIsProcessing(true);
     setImportingPrcId(examId);
     try {
@@ -729,6 +735,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   };
 
   const handleImportAllPrcExams = async () => {
+    if (isProcessing) return;
     setIsProcessing(true);
     setImportingPrcId('all');
     try {
@@ -840,6 +847,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   };
 
   const handleImportNdleCards = async () => {
+    if (isProcessing) return;
     if (ndleParsedCards.length === 0) {
       toast.error('No classified cards to import');
       return;

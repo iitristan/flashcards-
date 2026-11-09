@@ -643,7 +643,10 @@ class IndexedDbDeckService implements IDeckService {
     if (!newDecks || newDecks.length === 0) return [];
     const currentDecks = await this.loadStoredDecks();
 
-    const merged = [...newDecks, ...currentDecks];
+    // Deduplicate: replace existing decks with matching id, preventing double upload duplicates
+    const incomingMap = new Map(newDecks.map(d => [d.id, d]));
+    const dedupedCurrent = currentDecks.filter(d => !incomingMap.has(d.id));
+    const merged = [...newDecks, ...dedupedCurrent];
     await this.saveStoredDecks(merged);
     return newDecks;
   }
