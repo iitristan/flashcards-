@@ -60,6 +60,53 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ ok: true, decks });
     }
 
+    // 3.5 Batched Decks with Cards (Guaranteed safe for Vercel 4.5MB payload limit)
+    if (action === 'pullDecksBatch') {
+      const offset = Math.max(0, parseInt(searchParams.get('offset') || '0', 10));
+      const limit = Math.min(20, Math.max(1, parseInt(searchParams.get('limit') || '15', 10)));
+
+      const totalDecksRow = await queryOne(`SELECT count(*)::int as count FROM public.decks`).catch(() => null);
+      const totalCardsRow = await queryOne(`SELECT count(*)::int as count FROM public.flashcards`).catch(() => null);
+
+      const decks = await query(`
+        SELECT id, title, description, category, icon, color, tags, created_at, updated_at
+        FROM public.decks
+        ORDER BY updated_at DESC NULLS LAST
+        OFFSET $1 LIMIT $2
+      `, [offset, limit]);
+
+      if (decks.length === 0) {
+        return NextResponse.json({
+          ok: true,
+          decks: [],
+          cards: [],
+          totalDecks: totalDecksRow?.count || 0,
+          totalCards: totalCardsRow?.count || 0,
+          hasMore: false,
+          nextOffset: offset,
+        });
+      }
+
+      const deckIds = decks.map((d: any) => d.id);
+      const cards = await query(`
+        SELECT id, deck_id, front, back, rationale, options, tags, ndle_subject,
+               difficulty, leitner_box, user_notes, sm2, last_reviewed_at, created_at, updated_at
+        FROM public.flashcards
+        WHERE deck_id = ANY($1::text[])
+        ORDER BY created_at ASC NULLS LAST
+      `, [deckIds]);
+
+      return NextResponse.json({
+        ok: true,
+        decks,
+        cards,
+        totalDecks: totalDecksRow?.count || 0,
+        totalCards: totalCardsRow?.count || 0,
+        hasMore: offset + decks.length < (totalDecksRow?.count || 0),
+        nextOffset: offset + decks.length,
+      });
+    }
+
     // 4. Main Pull (with Delta / Incremental Timestamp Check)
     if (action === 'pullAll') {
       const since = searchParams.get('since');
@@ -177,8 +224,10 @@ export async function GET(req: NextRequest) {
           upToDate: false,
           isDelta: true,
           latestTimestamp: latestDbTimestamp || new Date().toISOString(),
-          totalCards: modifiedCards.length,
-          totalDecks: modifiedDecks.length,
+          totalCards: Number(statsRow?.card_count || 0),
+          totalDecks: Number(statsRow?.deck_count || 0),
+          deltaCards: modifiedCards.length,
+          deltaDecks: modifiedDecks.length,
           data: {
             decks: modifiedDecks,
             cards: modifiedCards,

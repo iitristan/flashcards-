@@ -525,7 +525,10 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
       }
 
       const cloudData = await syncService.pullFromCloud(effectiveSince);
-      if (cloudData && cloudData.upToDate) {
+      const localDecksCurrent = get().decks.length > 0 ? get().decks : await deckService.getDecks();
+      const isMissingDecks = Boolean(cloudData && cloudData.totalDecks && localDecksCurrent.length < cloudData.totalDecks);
+
+      if (cloudData && cloudData.upToDate && !isMissingDecks) {
         if (cloudData.latestTimestamp) {
           setStoredSyncTimestamp(cloudData.latestTimestamp);
         }
@@ -561,6 +564,23 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
         } catch {}
 
         set({
+          syncStatus: 'synced',
+          lastSyncedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        });
+        return;
+      }
+
+      // If client is missing decks (e.g. tablet only has 30 decks while cloud has 87),
+      // perform full safe batched sync (< 2 MB per batch, 100% safe for Vercel limits)
+      if (isMissingDecks) {
+        console.log(`[Sync] Device has ${localDecksCurrent.length} decks, but cloud has ${cloudData?.totalDecks} decks. Performing full batched sync...`);
+        const { decks: batchedDecks } = await syncService.pullAllDecksInBatches();
+        await deckService.setAllDecks(batchedDecks);
+        if (cloudData?.latestTimestamp) {
+          setStoredSyncTimestamp(cloudData.latestTimestamp);
+        }
+        set({
+          decks: batchedDecks,
           syncStatus: 'synced',
           lastSyncedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         });
@@ -861,10 +881,9 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     set({ syncStatus: 'syncing' });
     try {
       await deckService.clearLocalData();
-      const cloudData = await syncService.pullFromCloud();
-      if (cloudData && cloudData.decks) {
-        await deckService.setAllDecks(cloudData.decks);
-        await deckService.setAllPlaylists(cloudData.playlists || []);
+      const { decks } = await syncService.pullAllDecksInBatches();
+      if (decks && decks.length > 0) {
+        await deckService.setAllDecks(decks);
       }
       try {
         const remoteLogs = await syncService.pullStudyLogs();

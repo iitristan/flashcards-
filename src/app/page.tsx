@@ -503,7 +503,9 @@ export default function NutriboardApp() {
                 if (syncStatus === 'syncing') return;
                 try {
                   await syncWithCloud();
-                  toast.success('Successfully synchronized with shared cloud!');
+                  const currentDecks = useNutriStore.getState().decks;
+                  const totalCards = currentDecks.reduce((sum, d) => sum + (d.cards?.length || 0), 0);
+                  toast.success(`Synchronized with cloud! (${currentDecks.length} decks, ${totalCards} cards)`);
                 } catch {
                   toast.error('Sync failed. Please check network connection.');
                 }

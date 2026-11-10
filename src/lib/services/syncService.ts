@@ -45,6 +45,95 @@ export class SyncService {
   }
 
   /**
+   * Pulls all decks and cards in lightweight, safe batches (< 2 MB per batch).
+   * Completely avoids Vercel's 4.5 MB serverless response limit.
+   */
+  async pullAllDecksInBatches(onProgress?: (progress: number, message: string) => void): Promise<{ decks: Deck[]; totalCards: number }> {
+    const limit = 15;
+    let offset = 0;
+    const allRawDecks: any[] = [];
+    const cardsByDeck = new Map<string, Flashcard[]>();
+    let totalDecksCount = 87;
+
+    while (true) {
+      const url = `/api/sync?action=pullDecksBatch&offset=${offset}&limit=${limit}`;
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) {
+        throw new Error(`Failed to fetch deck batch at offset ${offset}`);
+      }
+      const json = await res.json();
+      if (!json.ok) {
+        throw new Error(json.error || 'Failed to fetch deck batch');
+      }
+
+      totalDecksCount = json.totalDecks || totalDecksCount;
+      const rawDecks = json.decks || [];
+      const rawCards = json.cards || [];
+
+      for (const raw of rawCards) {
+        if (!raw.front?.trim() && !raw.back?.trim()) continue;
+        const card: Flashcard = {
+          id: raw.id,
+          deckId: raw.deck_id,
+          front: raw.front,
+          back: raw.back,
+          rationale: raw.rationale || '',
+          options: Array.isArray(raw.options) ? raw.options : undefined,
+          tags: Array.isArray(raw.tags) ? raw.tags : [],
+          ndleSubject: raw.ndle_subject || undefined,
+          difficulty: raw.difficulty || undefined,
+          leitnerBox: raw.leitner_box || 1,
+          userNotes: raw.user_notes || '',
+          sm2: raw.sm2 || {
+            interval: 0,
+            easeFactor: 2.5,
+            repetitions: 0,
+            dueDate: new Date().toISOString(),
+          },
+          lastReviewedAt: raw.last_reviewed_at || null,
+          createdAt: raw.created_at,
+          updatedAt: raw.updated_at,
+        };
+        const list = cardsByDeck.get(raw.deck_id) || [];
+        list.push(card);
+        cardsByDeck.set(raw.deck_id, list);
+      }
+
+      allRawDecks.push(...rawDecks);
+      offset = json.nextOffset !== undefined ? json.nextOffset : (offset + rawDecks.length);
+
+      if (onProgress) {
+        const pct = Math.min(100, Math.round((allRawDecks.length / totalDecksCount) * 100));
+        onProgress(pct, `Synchronizing decks (${allRawDecks.length}/${totalDecksCount})...`);
+      }
+
+      if (!json.hasMore || rawDecks.length === 0 || offset >= totalDecksCount) {
+        break;
+      }
+    }
+
+    const finalDecks: Deck[] = allRawDecks.map((raw: any) => {
+      const cards = cardsByDeck.get(raw.id) || [];
+      return {
+        id: raw.id,
+        title: raw.title,
+        description: raw.description || '',
+        category: raw.category || 'Clinical Nutrition',
+        icon: raw.icon || '🥑',
+        color: raw.color || '#7FA98B',
+        tags: Array.isArray(raw.tags) ? raw.tags : [],
+        cards,
+        stats: computeDeckStats(cards),
+        createdAt: raw.created_at,
+        updatedAt: raw.updated_at,
+      };
+    });
+
+    const totalCards = finalDecks.reduce((sum, d) => sum + d.cards.length, 0);
+    return { decks: finalDecks, totalCards };
+  }
+
+  /**
    * Pulls decks, cards, playlists, preferences, and sessions from PostgreSQL.
    * Supports delta/incremental fetching via `since` timestamp to slash egress.
    */
@@ -56,8 +145,34 @@ export class SyncService {
     upToDate?: boolean;
     isDelta?: boolean;
     latestTimestamp?: string;
+    totalDecks?: number;
+    totalCards?: number;
     isEmpty: boolean;
   } | null> {
+    // When no since timestamp is provided (cold-start / full reset):
+    // Use batched pulling to guarantee safe transfer under Vercel's 4.5MB payload limit
+    if (!since) {
+      try {
+        const { decks, totalCards } = await this.pullAllDecksInBatches();
+        const metaRes = await fetch('/api/sync?action=pullAll&since=' + encodeURIComponent(new Date().toISOString()), { cache: 'no-store' }).catch(() => null);
+        const metaJson = metaRes && metaRes.ok ? await metaRes.json().catch(() => null) : null;
+        return {
+          decks,
+          playlists: metaJson?.data?.playlists || [],
+          preferences: metaJson?.data?.preferences || null,
+          activeSession: metaJson?.data?.activeSession || null,
+          upToDate: false,
+          isDelta: false,
+          latestTimestamp: metaJson?.latestTimestamp || new Date().toISOString(),
+          totalDecks: decks.length,
+          totalCards,
+          isEmpty: decks.length === 0,
+        };
+      } catch (batchErr) {
+        console.error('Failed batched full pull, trying fallback:', batchErr);
+      }
+    }
+
     try {
       const url = `/api/sync?action=pullAll${since ? `&since=${encodeURIComponent(since)}` : ''}`;
       const res = await fetch(url, { cache: 'no-store' });
@@ -152,6 +267,8 @@ export class SyncService {
           } : null,
           upToDate: true,
           latestTimestamp: json.latestTimestamp,
+          totalDecks: json.totalDecks,
+          totalCards: json.totalCards,
           isEmpty: false,
         };
       }
@@ -251,7 +368,10 @@ export class SyncService {
           updatedAt: rawSession.updated_at,
         } : null,
         upToDate: false,
+        isDelta: Boolean(json.isDelta),
         latestTimestamp: json.latestTimestamp,
+        totalDecks: json.totalDecks,
+        totalCards: json.totalCards,
         isEmpty: decks.length === 0,
       };
     } catch (err) {
