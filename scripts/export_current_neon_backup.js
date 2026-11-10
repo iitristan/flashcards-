@@ -31,7 +31,7 @@ async function runBackup() {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   console.log('Connecting to Neon PostgreSQL...');
 
-  const timestamp = '2026-11-09';
+  const timestamp = new Date().toISOString().split('T')[0];
   const fullTimestamp = new Date().toISOString();
 
   // 1. Fetch all decks
@@ -105,7 +105,7 @@ async function runBackup() {
     aiCache
   };
 
-  const jsonFilePath = path.join(backupDir, `nutriboard_backup_${timestamp}_all_8392_cards.json`);
+  const jsonFilePath = path.join(backupDir, `nutriboard_backup_${timestamp}_all_${cards.length}_cards.json`);
   fs.writeFileSync(jsonFilePath, JSON.stringify(fullJsonBackup, null, 2), 'utf8');
   const jsonStat = fs.statSync(jsonFilePath);
   console.log(`✔ JSON backup written to: ${jsonFilePath} (${(jsonStat.size / (1024 * 1024)).toFixed(2)} MB)`);
@@ -176,7 +176,7 @@ async function runBackup() {
     ].join(','));
   }
 
-  const csvFilePath = path.join(backupDir, `nutriboard_backup_${timestamp}_all_8392_cards.csv`);
+  const csvFilePath = path.join(backupDir, `nutriboard_backup_${timestamp}_all_${cards.length}_cards.csv`);
   fs.writeFileSync(csvFilePath, csvRows.join('\n'), 'utf8');
   const csvStat = fs.statSync(csvFilePath);
   console.log(`✔ CSV backup written to: ${csvFilePath} (${(csvStat.size / (1024 * 1024)).toFixed(2)} MB)`);
@@ -346,7 +346,7 @@ async function runBackup() {
 
   sqlLines.push(`\nCOMMIT;\n`);
 
-  const sqlFilePath = path.join(backupDir, `nutriboard_database_backup_${timestamp}_full.sql`);
+  const sqlFilePath = path.join(backupDir, `nutriboard_database_backup_${timestamp}_all_${cards.length}_cards.sql`);
   fs.writeFileSync(sqlFilePath, sqlLines.join('\n'), 'utf8');
   const sqlStat = fs.statSync(sqlFilePath);
   console.log(`✔ SQL dump written to: ${sqlFilePath} (${(sqlStat.size / (1024 * 1024)).toFixed(2)} MB)`);
@@ -354,9 +354,9 @@ async function runBackup() {
   console.log(`\n========================================`);
   console.log(`COMPLETE BACKUP CREATED SUCCESSFULLY!`);
   console.log(`Files located in: exports/backups/`);
-  console.log(`1. JSON:  nutriboard_backup_${timestamp}_all_8392_cards.json (${(jsonStat.size / (1024 * 1024)).toFixed(2)} MB)`);
-  console.log(`2. CSV:   nutriboard_backup_${timestamp}_all_8392_cards.csv (${(csvStat.size / (1024 * 1024)).toFixed(2)} MB)`);
-  console.log(`3. SQL:   nutriboard_database_backup_${timestamp}_full.sql (${(sqlStat.size / (1024 * 1024)).toFixed(2)} MB)`);
+  console.log(`1. JSON:  nutriboard_backup_${timestamp}_all_${cards.length}_cards.json (${(jsonStat.size / (1024 * 1024)).toFixed(2)} MB)`);
+  console.log(`2. CSV:   nutriboard_backup_${timestamp}_all_${cards.length}_cards.csv (${(csvStat.size / (1024 * 1024)).toFixed(2)} MB)`);
+  console.log(`3. SQL:   nutriboard_database_backup_${timestamp}_all_${cards.length}_cards.sql (${(sqlStat.size / (1024 * 1024)).toFixed(2)} MB)`);
   console.log(`========================================`);
 }
 
