@@ -526,7 +526,12 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
 
       const cloudData = await syncService.pullFromCloud(effectiveSince);
       const localDecksCurrent = get().decks.length > 0 ? get().decks : await deckService.getDecks();
-      const isMissingDecks = Boolean(cloudData && cloudData.totalDecks && localDecksCurrent.length < cloudData.totalDecks);
+      const currentCardsCount = localDecksCurrent.reduce((s, d) => s + (d.cards?.length || 0), 0);
+      const isMissingDecks = Boolean(
+        cloudData && 
+        ((cloudData.totalDecks && localDecksCurrent.length < cloudData.totalDecks) ||
+         (cloudData.totalCards && currentCardsCount < cloudData.totalCards))
+      );
 
       if (cloudData && cloudData.upToDate && !isMissingDecks) {
         if (cloudData.latestTimestamp) {
@@ -658,14 +663,12 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
         const unsyncedLocalDecks: Deck[] = [];
 
         for (const localDeck of localDecks) {
+          if (isDeckTombstoned(localDeck.id)) {
+            continue;
+          }
           const cloudDeck = cloudDeckMap.get(localDeck.id);
           if (!cloudDeck) {
-            // If the database has a populated library, do NOT resurrect deleted/ghost decks
-            if (cloudData.decks.length >= 10) {
-              console.log(`[Sync] Pruning local ghost deck "${localDeck.title}" not present in database.`);
-              continue;
-            }
-            // Truly new offline deck created when cloud was empty: preserve it
+            // Preserve local deck
             mergedDecks.push(localDeck);
             unsyncedLocalDecks.push(localDeck);
           } else {
