@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Award,
@@ -25,8 +25,13 @@ interface RndCongratulationsBannerProps {
 export function RndCongratulationsBanner({ onSwitchToNmat, onStayInNdle }: RndCongratulationsBannerProps) {
   const { currentTrack, setExamTrack, dismissRndBanner, setDismissRndBanner, decks } = useNutriStore();
   const [isMinimized, setIsMinimized] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
-  if (dismissRndBanner) {
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted || dismissRndBanner) {
     return null;
   }
 

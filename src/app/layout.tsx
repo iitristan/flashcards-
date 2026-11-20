@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, Nunito } from "next/font/google";
+import Script from "next/script";
 import { Toaster } from "@/components/ui/sonner";
 import { BrowserExtensionNoiseFilter } from "@/components/common/BrowserExtensionNoiseFilter";
 import "./globals.css";
@@ -133,7 +134,11 @@ export default function RootLayout({
       className={`${plusJakarta.variable} ${nunito.variable} h-full antialiased`}
     >
       <head>
-        <script dangerouslySetInnerHTML={{ __html: NOISE_FILTER_SCRIPT }} />
+        <Script
+          id="noise-filter"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: NOISE_FILTER_SCRIPT }}
+        />
       </head>
       <body
         suppressHydrationWarning

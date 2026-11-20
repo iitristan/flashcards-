@@ -292,10 +292,10 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
   saveStatus: 'idle',
   resumeAvailableSession: null,
   deckCheckpoints: {},
-  cardGroupFilters: getInitialCardGroupFilters(),
+  cardGroupFilters: DEFAULT_CARD_GROUP_FILTERS,
 
-  // Exam Track & Licensure Milestone
-  currentTrack: getInitialExamTrack(),
+  // Exam Track & Licensure Milestone (SSR deterministic defaults to prevent hydration mismatch)
+  currentTrack: 'NDLE',
   setExamTrack: (track) => {
     try {
       if (typeof window !== 'undefined') {
@@ -304,7 +304,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
     } catch {}
     set({ currentTrack: track });
   },
-  dismissRndBanner: getInitialRndBannerDismissed(),
+  dismissRndBanner: false,
   setDismissRndBanner: (dismiss) => {
     try {
       if (typeof window !== 'undefined') {
@@ -1006,6 +1006,22 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
         groupFilters = (get().preferences as any).cardGroupFilters;
       }
       set({ cardGroupFilters: groupFilters });
+
+      // Rehydrate exam track and milestone banner
+      if (typeof window !== 'undefined') {
+        try {
+          const directTrack = localStorage.getItem(EXAM_TRACK_STORAGE_KEY) as import('@/types').ExamTrack;
+          if (directTrack === 'NMAT' || directTrack === 'NDLE') {
+            set({ currentTrack: directTrack });
+          } else if (get().preferences?.examTrack) {
+            set({ currentTrack: get().preferences.examTrack });
+          }
+          const savedDismiss = localStorage.getItem(RND_BANNER_STORAGE_KEY);
+          if (savedDismiss === 'true') {
+            set({ dismissRndBanner: true });
+          }
+        } catch {}
+      }
 
       // Check for in-progress session checkpoints and make them available for resumption
       const checkpoints: Record<string, StudySessionState> = {};

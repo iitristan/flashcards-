@@ -99,6 +99,11 @@ export default function NutriboardApp() {
   const [cbleItemCount, setCbleItemCount] = useState<100 | 200>(100);
   const [cbleInterface, setCbleInterface] = useState<'mettl' | 'cble'>('mettl');
   const [deletingDeckId, setDeletingDeckId] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const deferredSearchQuery = useDeferredValue(searchQuery);
@@ -542,37 +547,39 @@ export default function NutriboardApp() {
           </button>
 
           {/* Center: Exam Track Mode Switcher (NDLE vs NMAT) */}
-          <div className="flex items-center gap-1.5">
-            <div className="inline-flex rounded-xl bg-[var(--bg-surface-subtle)] p-0.5 sm:p-1 border border-[var(--border-color)] shadow-xs">
+          <div suppressHydrationWarning className="flex items-center gap-1.5">
+            <div suppressHydrationWarning className="inline-flex rounded-xl bg-[var(--bg-surface-subtle)] p-0.5 sm:p-1 border border-[var(--border-color)] shadow-xs">
               <button
                 type="button"
+                suppressHydrationWarning
                 onClick={() => setExamTrack('NDLE')}
                 className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
-                  currentTrack === 'NDLE'
+                  (mounted ? currentTrack : 'NDLE') === 'NDLE'
                     ? 'bg-emerald-600 text-white shadow-xs'
                     : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'
                 }`}
                 title="NDLE Nutritionist-Dietitian Licensure Examination Mode"
               >
                 <span>🥗 NDLE</span>
-                <span className="text-[10px] opacity-80 font-normal hidden sm:inline">({ndleDeckCount})</span>
+                <span className="text-[10px] opacity-80 font-normal hidden sm:inline">({mounted ? ndleDeckCount : 0})</span>
               </button>
               <button
                 type="button"
+                suppressHydrationWarning
                 onClick={() => setExamTrack('NMAT')}
                 className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
-                  currentTrack === 'NMAT'
+                  (mounted ? currentTrack : 'NDLE') === 'NMAT'
                     ? 'bg-sky-600 text-white shadow-xs'
                     : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'
                 }`}
                 title="NMAT National Medical Admission Test Mode"
               >
                 <span>🩺 NMAT</span>
-                <span className="text-[10px] opacity-80 font-normal hidden sm:inline">({nmatDeckCount})</span>
+                <span className="text-[10px] opacity-80 font-normal hidden sm:inline">({mounted ? nmatDeckCount : 0})</span>
               </button>
             </div>
 
-            {dismissRndBanner && (
+            {mounted && dismissRndBanner && (
               <button
                 type="button"
                 onClick={() => setDismissRndBanner(false)}
