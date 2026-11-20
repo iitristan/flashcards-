@@ -42,6 +42,8 @@ import { BoardReadinessView } from '@/components/study/BoardReadinessView';
 import { CardFilterManager } from '@/components/filter/CardFilterManager';
 import { StudySessionSummary } from '@/components/study/StudySessionSummary';
 import { AuthModal } from '@/components/auth/AuthModal';
+import { RndCongratulationsBanner } from '@/components/banner/RndCongratulationsBanner';
+import { NMAT_SUBJECT_LIST } from '@/types/nmat';
 import { toast } from 'sonner';
 
 
@@ -76,7 +78,11 @@ export default function NutriboardApp() {
     addCard,
     updateCard,
     deleteCard,
-    updatePreferences
+    updatePreferences,
+    currentTrack,
+    setExamTrack,
+    dismissRndBanner,
+    setDismissRndBanner,
   } = useNutriStore();
 
   // Local UI states
@@ -91,6 +97,7 @@ export default function NutriboardApp() {
   const [isTimerExpired, setIsTimerExpired] = useState(false);
   const [isConfirmCBLEOpen, setIsConfirmCBLEOpen] = useState(false);
   const [cbleItemCount, setCbleItemCount] = useState<100 | 200>(100);
+  const [cbleInterface, setCbleInterface] = useState<'mettl' | 'cble'>('mettl');
   const [deletingDeckId, setDeletingDeckId] = useState<string | null>(null);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -164,11 +171,17 @@ export default function NutriboardApp() {
   const [deckPage, setDeckPage] = useState<number>(1);
   const [deckPageSize, setDeckPageSize] = useState<number>(12);
 
-  // Filter decks by the selected search and category, but keep empty Neon decks visible.
+  // Filter decks by the selected search and category, strictly isolated by exam track (NDLE vs NMAT).
   const filteredDecks = useMemo(() => {
     const q = (deferredSearchQuery || '').trim().toLowerCase();
+    const isNmatTrack = currentTrack === 'NMAT';
 
     return decks.filter((deck) => {
+      // 1. Strict Exam Track separation: NDLE vs NMAT
+      const isDeckNmat = deck.track === 'NMAT' || (Array.isArray(deck.tags) && deck.tags.includes('track:nmat'));
+      if (isNmatTrack && !isDeckNmat) return false;
+      if (!isNmatTrack && isDeckNmat) return false;
+
       const title = (deck.title || '').toLowerCase();
       const desc = (deck.description || '').toLowerCase();
       const tags = Array.isArray(deck.tags) ? deck.tags : [];
@@ -183,12 +196,17 @@ export default function NutriboardApp() {
 
       return matchesSearch && matchesCategory;
     });
-  }, [decks, deferredSearchQuery, selectedCategory]);
+  }, [decks, deferredSearchQuery, selectedCategory, currentTrack]);
 
-  // Reset page to 1 whenever search query, category, sorting, or page size changes
+  // Reset page to 1 whenever search query, category, track, sorting, or page size changes
   useEffect(() => {
     setDeckPage(1);
-  }, [deferredSearchQuery, selectedCategory, deckSort, deckPageSize]);
+  }, [deferredSearchQuery, selectedCategory, deckSort, deckPageSize, currentTrack]);
+
+  // Reset selected category to 'All' when toggling between NDLE and NMAT
+  useEffect(() => {
+    setSelectedCategory('All');
+  }, [currentTrack]);
 
   // Sort filtered decks
   const sortedDecks = useMemo(() => {
@@ -250,15 +268,35 @@ export default function NutriboardApp() {
     return sortedDecks.slice(startIndex, startIndex + deckPageSize);
   }, [sortedDecks, safeDeckPage, deckPageSize]);
 
-  // Canonical categories list (includes All, all standard PRC NDLE categories, and any custom user categories)
+  // Canonical categories list (adapts dynamically to active exam track: NDLE vs NMAT)
   const categories = useMemo(() => {
     const set = new Set<string>(['All']);
-    DECK_CATEGORIES.forEach((cat) => set.add(cat));
-    decks.forEach((deck) => {
-      if (deck.category) set.add(deck.category);
-    });
+    if (currentTrack === 'NMAT') {
+      NMAT_SUBJECT_LIST.forEach((cat) => set.add(cat));
+      decks
+        .filter((d) => d.track === 'NMAT' || (Array.isArray(d.tags) && d.tags.includes('track:nmat')))
+        .forEach((deck) => {
+          if (deck.category) set.add(deck.category);
+        });
+    } else {
+      DECK_CATEGORIES.forEach((cat) => set.add(cat));
+      decks
+        .filter((d) => d.track !== 'NMAT' && !(Array.isArray(d.tags) && d.tags.includes('track:nmat')))
+        .forEach((deck) => {
+          if (deck.category) set.add(deck.category);
+        });
+    }
     return Array.from(set);
-  }, [decks]);
+  }, [decks, currentTrack]);
+
+  const ndleDeckCount = useMemo(
+    () => decks.filter((d) => d.track !== 'NMAT' && !(Array.isArray(d.tags) && d.tags.includes('track:nmat'))).length,
+    [decks]
+  );
+  const nmatDeckCount = useMemo(
+    () => decks.filter((d) => d.track === 'NMAT' || (Array.isArray(d.tags) && d.tags.includes('track:nmat'))).length,
+    [decks]
+  );
 
   // Quick move deck into category handler (for DeckCard menu)
   const handleUpdateDeckCategory = async (deckId: string, newCategory: DeckCategory) => {
@@ -279,18 +317,26 @@ export default function NutriboardApp() {
     }
   };
 
-  // Overview metrics
+  // Overview metrics (strictly scoped to the currently active exam track)
+  const activeTrackDecks = useMemo(() => {
+    const isNmatTrack = currentTrack === 'NMAT';
+    return decks.filter((d) => {
+      const isDeckNmat = d.track === 'NMAT' || (Array.isArray(d.tags) && d.tags.includes('track:nmat'));
+      return isNmatTrack ? isDeckNmat : !isDeckNmat;
+    });
+  }, [decks, currentTrack]);
+
   const totalCardsCount = useMemo(() => {
-    return decks.reduce((acc, deck) => acc + (deck.cards?.length || 0), 0);
-  }, [decks]);
+    return activeTrackDecks.reduce((acc, deck) => acc + (deck.cards?.length || 0), 0);
+  }, [activeTrackDecks]);
 
   const totalDueToday = useMemo(() => {
-    return decks.reduce((acc, deck) => acc + (deck.stats?.dueToday || 0), 0);
-  }, [decks]);
+    return activeTrackDecks.reduce((acc, deck) => acc + (deck.stats?.dueToday || 0), 0);
+  }, [activeTrackDecks]);
 
   const totalMastered = useMemo(() => {
-    return decks.reduce((acc, deck) => acc + (deck.stats?.masteredCards || 0), 0);
-  }, [decks]);
+    return activeTrackDecks.reduce((acc, deck) => acc + (deck.stats?.masteredCards || 0), 0);
+  }, [activeTrackDecks]);
 
   // Handlers
   const handleStartStudy = (deckId: string, mode: StudyMode, resume = false) => {
@@ -495,6 +541,49 @@ export default function NutriboardApp() {
             </p>
           </button>
 
+          {/* Center: Exam Track Mode Switcher (NDLE vs NMAT) */}
+          <div className="flex items-center gap-1.5">
+            <div className="inline-flex rounded-xl bg-[var(--bg-surface-subtle)] p-0.5 sm:p-1 border border-[var(--border-color)] shadow-xs">
+              <button
+                type="button"
+                onClick={() => setExamTrack('NDLE')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                  currentTrack === 'NDLE'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'
+                }`}
+                title="NDLE Nutritionist-Dietitian Licensure Examination Mode"
+              >
+                <span>🥗 NDLE</span>
+                <span className="text-[10px] opacity-80 font-normal hidden sm:inline">({ndleDeckCount})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setExamTrack('NMAT')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                  currentTrack === 'NMAT'
+                    ? 'bg-sky-600 text-white shadow-xs'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'
+                }`}
+                title="NMAT National Medical Admission Test Mode"
+              >
+                <span>🩺 NMAT</span>
+                <span className="text-[10px] opacity-80 font-normal hidden sm:inline">({nmatDeckCount})</span>
+              </button>
+            </div>
+
+            {dismissRndBanner && (
+              <button
+                type="button"
+                onClick={() => setDismissRndBanner(false)}
+                className="hidden md:inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 cursor-pointer"
+                title="View RND Licensure Congratulations Banner"
+              >
+                <span>🎓 RND Milestone</span>
+              </button>
+            )}
+          </div>
+
           {/* Right Action Icons & Buttons */}
           <div className="flex items-center gap-2 sm:gap-2.5">
             {/* One-Click Direct Cloud Sync with Live Loading State */}
@@ -574,13 +663,22 @@ export default function NutriboardApp() {
 
       {/* MAIN CONTAINER */}
       <div className="max-w-6xl mx-auto px-3.5 sm:px-6 pt-4 sm:pt-6 space-y-4 sm:space-y-5">
-        {/* RESUME IN-PROGRESS STUDY CHECKPOINT BANNER */}
+        {/* RND LICENSURE CONGRATULATIONS & NMAT SWITCHER BANNER */}
+        <RndCongratulationsBanner />
+
+        {/* RESUME IN-PROGRESS STUDY CHECKPOINT BANNER (strictly filtered by matching exam track) */}
         {resumeAvailableSession &&
           !activeSession &&
           !resumeAvailableSession.isCompleted &&
           resumeAvailableSession.cardsQueue &&
           resumeAvailableSession.cardsQueue.length > 0 &&
-          resumeAvailableSession.currentIndex < resumeAvailableSession.cardsQueue.length && (
+          resumeAvailableSession.currentIndex < resumeAvailableSession.cardsQueue.length &&
+          (() => {
+            const sessionDeck = decks.find((d) => d.id === resumeAvailableSession.deckId);
+            const isSessionNmat = sessionDeck?.track === 'NMAT' || (Array.isArray(sessionDeck?.tags) && sessionDeck.tags.includes('track:nmat'));
+            const isNmatTrack = currentTrack === 'NMAT';
+            return isSessionNmat === isNmatTrack;
+          })() && (
           <div className="p-2.5 sm:p-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3 shadow-[var(--card-shadow)]">
             <div className="flex items-center justify-between sm:justify-start gap-2.5 min-w-0">
               <div className="flex items-center gap-2.5 min-w-0">
@@ -768,31 +866,47 @@ export default function NutriboardApp() {
         {/* TAB CONTENT: DECKS TAB */}
         {activeTab === 'decks' && (
           <div className="space-y-4 sm:space-y-5">
-            {/* PRC-CBLE MOCK BOARD EXAMINATION ACCESS CARD */}
-            <div className="relative overflow-hidden rounded-xl border border-slate-700 bg-[#263238] p-4 sm:p-5 text-white shadow-md">
+            {/* MOCK BOARD EXAMINATION ACCESS CARD (Supports NDLE PRC-CBLE and CEM-METTL NMAT) */}
+            <div className={`relative overflow-hidden rounded-xl border p-4 sm:p-5 text-white shadow-md transition-all ${
+              currentTrack === 'NMAT'
+                ? 'border-[#091E42] bg-gradient-to-r from-[#091E42] via-[#0b2b63] to-[#091E42]'
+                : 'border-slate-700 bg-[#263238]'
+            }`}>
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-400 border border-emerald-500/30">
+                    <span className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border ${
+                      currentTrack === 'NMAT'
+                        ? 'bg-sky-500/20 text-sky-300 border-sky-500/30'
+                        : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                    }`}>
                       Official Simulation
                     </span>
-                    <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wide">
-                      PRC-CBLE Interface
+                    <span className="text-[11px] text-slate-300 font-semibold uppercase tracking-wide">
+                      {currentTrack === 'NMAT' ? 'CEM Mettl Assessment Interface' : 'CEM & PRC CBLE Interface'}
                     </span>
                   </div>
                   <h2 className="text-base sm:text-lg font-bold tracking-tight text-white">
-                    NDLE PRC Computer-Based Licensure Examination
+                    {currentTrack === 'NMAT'
+                      ? 'NMAT Computer-Based Assessment Simulation'
+                      : 'NDLE PRC Computer-Based Licensure Examination'}
                   </h2>
                   <p className="text-xs text-slate-300 max-w-xl leading-relaxed">
-                    Take the full 100-question timed mock board exam with digital countdown timer, on-screen calculator, question roadmap, and immediate scoring.
+                    {currentTrack === 'NMAT'
+                      ? 'Experience the official CEM Online Assessment interface to build familiarity with the examination system.'
+                      : 'Take the full timed mock board exam with digital countdown timer, scratchpad, on-screen calculator, question roadmap, and authentic CEM / PRC assessment interface.'}
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setIsConfirmCBLEOpen(true)}
-                  className="shrink-0 rounded-lg bg-[#00a2d9] hover:bg-[#0284c7] px-4 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-bold text-white shadow-sm transition-all flex items-center gap-2 active:scale-95 cursor-pointer"
+                  className={`shrink-0 rounded-lg px-4 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-bold text-white shadow-sm transition-all flex items-center gap-2 active:scale-95 cursor-pointer ${
+                    currentTrack === 'NMAT'
+                      ? 'bg-[#0070ba] hover:bg-[#095594]'
+                      : 'bg-[#00a2d9] hover:bg-[#0284c7]'
+                  }`}
                 >
-                  <span>Launch Mock Board (CBLE)</span>
+                  <span>{currentTrack === 'NMAT' ? 'Launch NMAT Exam (CEM UI)' : 'Launch Mock Board Exam'}</span>
                   <ArrowRight className="h-4 w-4" />
                 </button>
               </div>
@@ -1009,17 +1123,21 @@ export default function NutriboardApp() {
                 </div>
                 <div className="space-y-1">
                   <h3 className="text-sm font-bold text-[var(--text-main)]">
-                    No flashcard decks found
+                    {currentTrack === 'NMAT' && !searchQuery && selectedCategory === 'All'
+                      ? 'Welcome to NMAT Preparation Mode 🩺'
+                      : 'No flashcard decks found'}
                   </h3>
                   <p className="text-xs text-[var(--text-muted)] max-w-sm mx-auto">
                     {searchQuery
                       ? `No decks matched "${searchQuery}". Try a different keyword or reset filters.`
                       : selectedCategory !== 'All'
                       ? `No decks found in ${selectedCategory}.`
+                      : currentTrack === 'NMAT'
+                      ? 'Create or import your medical decks for Quantitative, Biology, Chemistry, Physics, and Reasoning.'
                       : 'Get started by creating your first deck or restoring preloaded sample decks.'}
                   </p>
                 </div>
-                <div className="flex justify-center gap-2.5 pt-2">
+                <div className="flex flex-wrap justify-center gap-2.5 pt-2">
                   {searchQuery || selectedCategory !== 'All' ? (
                     <button
                       onClick={() => {
@@ -1038,8 +1156,17 @@ export default function NutriboardApp() {
                     }}
                     className="px-4 py-1.5 rounded-xl bg-[var(--primary)] text-white text-xs font-semibold shadow-xs hover:bg-[var(--primary-hover)] cursor-pointer"
                   >
-                    + Create New Deck
+                    + {currentTrack === 'NMAT' ? 'Create NMAT Deck' : 'Create New Deck'}
                   </button>
+                  {currentTrack === 'NMAT' && !searchQuery && (
+                    <button
+                      onClick={() => setIsImportExportOpen(true)}
+                      className="px-4 py-1.5 rounded-xl border border-[var(--border-color)] text-xs font-semibold text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)] cursor-pointer flex items-center gap-1.5"
+                    >
+                      <UploadCloud className="w-3.5 h-3.5" />
+                      <span>Import NMAT Flashcards</span>
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -1173,6 +1300,39 @@ export default function NutriboardApp() {
             </div>
 
             <div className="space-y-3 py-1 text-xs text-[var(--text-muted)] leading-relaxed">
+              {/* Interface Selection */}
+              <div>
+                <span className="text-[11px] font-bold text-[var(--text-main)] block mb-1.5 uppercase tracking-wider">
+                  Select Assessment Interface:
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCbleInterface('mettl')}
+                    className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                      cbleInterface === 'mettl'
+                        ? 'border-blue-600 bg-blue-500/10 text-blue-700 dark:text-blue-300 font-bold ring-2 ring-blue-500/20'
+                        : 'border-[var(--border-color)] bg-[var(--bg-surface-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)]'
+                    }`}
+                  >
+                    <span className="block text-xs font-black">CEM / Mettl UI</span>
+                    <span className="block text-[10px] text-[var(--text-subtle)] font-medium">Official NMAT & Online Exam View</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCbleInterface('cble')}
+                    className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                      cbleInterface === 'cble'
+                        ? 'border-[#00838f] bg-[#00838f]/10 text-[#00838f] font-bold ring-2 ring-[#00838f]/20'
+                        : 'border-[var(--border-color)] bg-[var(--bg-surface-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)]'
+                    }`}
+                  >
+                    <span className="block text-xs font-black">PRC CBLE UI</span>
+                    <span className="block text-[10px] text-[var(--text-subtle)] font-medium">Classic PRC Examination Room</span>
+                  </button>
+                </div>
+              </div>
+
               {/* Item Count Selector */}
               <div>
                 <span className="text-[11px] font-bold text-[var(--text-main)] block mb-1.5 uppercase tracking-wider">
@@ -1214,23 +1374,23 @@ export default function NutriboardApp() {
                   </span>
                 </div>
                 <p className="text-[11px] text-[var(--text-muted)] leading-normal">
-                  You are about to start a full-length {cbleItemCount}-question computer-based licensure simulation. Please ensure you have an uninterrupted testing block.
+                  You are about to start a full-length {cbleItemCount}-question simulation in {cbleInterface === 'mettl' ? 'CEM Mercer Mettl' : 'PRC CBLE'} interface mode. Please ensure an uninterrupted study block.
                 </p>
               </div>
 
               <div className="grid grid-cols-2 gap-2 text-[11px]">
                 <div className="p-2.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)]">
                   <span className="font-bold text-[var(--text-main)] block">{cbleItemCount} Questions</span>
-                  <span className="text-[var(--text-muted)]">Official NDLE TOS ratio</span>
+                  <span className="text-[var(--text-muted)]">{currentTrack === 'NMAT' ? 'Official NMAT Ratio' : 'Official NDLE TOS ratio'}</span>
                 </div>
                 <div className="p-2.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)]">
-                  <span className="font-bold text-[var(--text-main)] block">80% Passing GWA</span>
-                  <span className="text-[var(--text-muted)]">&ge;50% each subject cut-off</span>
+                  <span className="font-bold text-[var(--text-main)] block">{currentTrack === 'NMAT' ? 'Percentile Rank' : '80% Passing GWA'}</span>
+                  <span className="text-[var(--text-muted)]">{currentTrack === 'NMAT' ? 'Immediate Scoring' : '≥50% each subject cut-off'}</span>
                 </div>
               </div>
 
               <p className="text-[11px] text-[var(--text-subtle)] leading-normal">
-                Includes on-screen scientific calculator, full question roadmap, and question bookmarking. Completed exams will automatically update your Board Readiness engine.
+                Includes digital countdown timer, scratchpad formula access, question roadmap, and immediate scoring with comprehensive author rationales.
               </p>
             </div>
 
@@ -1243,9 +1403,11 @@ export default function NutriboardApp() {
                 Cancel
               </button>
               <Link
-                href={`/cble?count=${cbleItemCount}`}
+                href={`/cble?count=${cbleItemCount}&mode=${cbleInterface}&track=${currentTrack.toLowerCase()}`}
                 onClick={() => setIsConfirmCBLEOpen(false)}
-                className="px-5 py-2 rounded-xl bg-[#00a2d9] hover:bg-[#0284c7] text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                className={`px-5 py-2 rounded-xl text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 ${
+                  cbleInterface === 'mettl' ? 'bg-[#0070ba] hover:bg-[#095594]' : 'bg-[#00a2d9] hover:bg-[#0284c7]'
+                }`}
               >
                 <span>Begin Examination</span>
                 <ArrowRight className="w-3.5 h-3.5" />

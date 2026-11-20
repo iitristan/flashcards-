@@ -28,6 +28,25 @@ import { NDLESubject, NDLE_SUBJECT_CONFIGS } from '@/types/ndle';
 const PREFS_STORAGE_KEY = 'nutrianki_prefs_v1';
 const ACTIVE_SESSION_STORAGE_KEY = 'nutrianki_active_session_v1';
 export const CARD_GROUP_FILTERS_STORAGE_KEY = 'nutriboard_card_group_filters_v1';
+export const EXAM_TRACK_STORAGE_KEY = 'nutriboard_exam_track_v1';
+export const RND_BANNER_STORAGE_KEY = 'nutriboard_rnd_banner_dismissed_v1';
+
+function getInitialExamTrack(): import('@/types').ExamTrack {
+  if (typeof window === 'undefined') return 'NDLE';
+  try {
+    const saved = localStorage.getItem(EXAM_TRACK_STORAGE_KEY);
+    if (saved === 'NMAT' || saved === 'NDLE') return saved;
+  } catch {}
+  return 'NDLE';
+}
+
+function getInitialRndBannerDismissed(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return localStorage.getItem(RND_BANNER_STORAGE_KEY) === 'true';
+  } catch {}
+  return false;
+}
 
 function getInitialCardGroupFilters(): Record<string, CardGroupFilterConfig> {
   if (typeof window === 'undefined') return DEFAULT_CARD_GROUP_FILTERS;
@@ -45,6 +64,7 @@ function getInitialCardGroupFilters(): Record<string, CardGroupFilterConfig> {
 
 const DEFAULT_PREFS: UserPreferences = {
   theme: 'matcha',
+  examTrack: 'NDLE',
   timerDuration: 0, // 0 = off, 10, 15, 20, 25, 30
   soundEnabled: true,
   autoFlip: false,
@@ -146,6 +166,12 @@ interface NutriStore {
   preferences: UserPreferences;
   saveStatus: 'idle' | 'saving' | 'saved' | 'error' | 'syncing';
   resumeAvailableSession: StudySessionState | null;
+
+  // Exam Track & Licensure Milestone
+  currentTrack: import('@/types').ExamTrack;
+  setExamTrack: (track: import('@/types').ExamTrack) => void;
+  dismissRndBanner: boolean;
+  setDismissRndBanner: (dismiss: boolean) => void;
 
   // Cloud Sync & Auth State
   user: { id: string; email?: string } | null;
@@ -267,6 +293,26 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
   resumeAvailableSession: null,
   deckCheckpoints: {},
   cardGroupFilters: getInitialCardGroupFilters(),
+
+  // Exam Track & Licensure Milestone
+  currentTrack: getInitialExamTrack(),
+  setExamTrack: (track) => {
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(EXAM_TRACK_STORAGE_KEY, track);
+      }
+    } catch {}
+    set({ currentTrack: track });
+  },
+  dismissRndBanner: getInitialRndBannerDismissed(),
+  setDismissRndBanner: (dismiss) => {
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(RND_BANNER_STORAGE_KEY, String(dismiss));
+      }
+    } catch {}
+    set({ dismissRndBanner: dismiss });
+  },
 
   user: null,
   syncStatus: 'idle',
@@ -938,6 +984,10 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
           studyStreak: streak
         };
 
+        if (parsed.examTrack) {
+          set({ currentTrack: parsed.examTrack });
+        }
+
         if (typeof document !== 'undefined') {
           document.documentElement.setAttribute('data-theme', validTheme);
         }
@@ -1022,6 +1072,12 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
   updatePreferences: (updates) => {
     const updated = { ...get().preferences, ...updates };
     soundEffects.setEnabled(updated.soundEnabled);
+    if (updates.examTrack) {
+      set({ currentTrack: updates.examTrack });
+      try {
+        localStorage.setItem(EXAM_TRACK_STORAGE_KEY, updates.examTrack);
+      } catch {}
+    }
     set({ preferences: updated });
     if (typeof window !== 'undefined') {
       try {
@@ -1385,7 +1441,8 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
   setActiveDeckId: (id) => set({ activeDeckId: id }),
 
   createDeck: async (deckData, initialCards) => {
-    const created = await deckService.createDeck(deckData, initialCards);
+    const track = (deckData as any).track || get().currentTrack;
+    const created = await deckService.createDeck({ ...deckData, track }, initialCards);
     removeDeletedDeckTombstone(created.id);
     await get().loadDecks();
     markSelfPushStart();

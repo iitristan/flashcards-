@@ -133,9 +133,13 @@ class IndexedDbDeckService implements IDeckService {
       };
     });
 
+    const activeTrack = (deckData as any).track || 
+      (typeof window !== 'undefined' && localStorage.getItem('nutriboard_exam_track_v1') === 'NMAT' ? 'NMAT' : 'NDLE');
+
     const newDeck: Deck = {
       ...deckData,
       id: newDeckId,
+      track: activeTrack,
       cards: preparedCards,
       stats: computeDeckStats(preparedCards),
       createdAt: now,
@@ -642,11 +646,18 @@ class IndexedDbDeckService implements IDeckService {
   public async importMultipleDecks(newDecks: Deck[]): Promise<Deck[]> {
     if (!newDecks || newDecks.length === 0) return [];
     const currentDecks = await this.loadStoredDecks();
+    const activeTrack = typeof window !== 'undefined' && localStorage.getItem('nutriboard_exam_track_v1') === 'NMAT' ? 'NMAT' : 'NDLE';
+
+    // Ensure all incoming decks are stamped with track
+    const processedNew = newDecks.map(d => ({
+      ...d,
+      track: d.track || (d.tags?.includes('track:nmat') ? 'NMAT' : (activeTrack === 'NMAT' ? 'NMAT' : 'NDLE'))
+    }));
 
     // Deduplicate: replace existing decks with matching id, preventing double upload duplicates
-    const incomingMap = new Map(newDecks.map(d => [d.id, d]));
+    const incomingMap = new Map(processedNew.map(d => [d.id, d]));
     const dedupedCurrent = currentDecks.filter(d => !incomingMap.has(d.id));
-    const merged = [...newDecks, ...dedupedCurrent];
+    const merged = [...processedNew, ...dedupedCurrent];
     await this.saveStoredDecks(merged);
     return newDecks;
   }

@@ -119,14 +119,17 @@ export interface DeckStats {
   averageAccuracy: number; // 0 to 100
 }
 
+export type ExamTrack = 'NDLE' | 'NMAT';
+
 export interface Deck {
   id: string;
   title: string;
   description: string;
-  category: DeckCategory;
+  category: DeckCategory | string;
   icon: string; // Emoji or Lucide icon identifier
   color: string; // Tailwind color token or hex
   tags: string[];
+  track?: ExamTrack; // 'NDLE' (Nutritionist-Dietitian) or 'NMAT' (Medical College Admission)
   cards: Flashcard[];
   stats?: DeckStats;
   createdAt?: string;
@@ -410,6 +413,7 @@ export interface StudyLogEntry {
 
 export interface UserPreferences {
   theme: ThemeType;
+  examTrack?: ExamTrack;
   sparkleStyle?: SparkleStyle;
   cardDesign?: CardDesign;
   timerDuration: number; // 0 = off, 10, 15, 20, 25, 30
@@ -487,6 +491,7 @@ export interface Sm2Fields {
 }
 
 export * from './ndle';
+export * from './nmat';
 
 
 

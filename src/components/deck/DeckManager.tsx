@@ -4,6 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { X, Plus, Trash2, Edit3, Tag, Layers, Check, Search, AlertCircle, CheckCircle2, BookOpen, Filter, ArrowUpDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Deck, Flashcard, DeckCategory, getCardProgressInfo } from '@/types';
+import { NMAT_SUBJECT_LIST } from '@/types/nmat';
+import { useNutriStore } from '@/lib/store/useNutriStore';
 import { toast } from 'sonner';
 import { cleanRawHtml } from '@/components/study/FormattedCardText';
 import { CompactCardText } from '@/components/study/CompactCardText';
@@ -11,11 +13,11 @@ import { cleanOptionLabel } from '@/lib/importers/anki/ankiConverter';
 
 interface DeckManagerProps {
   initialDeck?: Deck | null;
-  defaultCategory?: DeckCategory;
+  defaultCategory?: DeckCategory | string;
   onSaveDeck: (deckData: {
     title: string;
     description: string;
-    category: DeckCategory;
+    category: DeckCategory | string;
     icon: string;
     color: string;
     tags: string[];
@@ -63,14 +65,18 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
   onDeleteCard,
   onClose
 }) => {
+  const { currentTrack } = useNutriStore();
+  const availableCategories = (currentTrack === 'NMAT' ? NMAT_SUBJECT_LIST : CATEGORIES) as (DeckCategory | string)[];
+  const defaultCat = defaultCategory || (currentTrack === 'NMAT' ? 'Quantitative' : 'Clinical Nutrition');
+
   // Deck form state
   const [title, setTitle] = useState(initialDeck?.title || '');
   const [description, setDescription] = useState(initialDeck?.description || '');
-  const [category, setCategory] = useState<DeckCategory>(initialDeck?.category || defaultCategory || 'Clinical Nutrition');
-  const [icon, setIcon] = useState(initialDeck?.icon || 'Stethoscope');
-  const [color, setColor] = useState(initialDeck?.color || '#7FA98B');
+  const [category, setCategory] = useState<DeckCategory | string>(initialDeck?.category || defaultCat);
+  const [icon, setIcon] = useState(initialDeck?.icon || (currentTrack === 'NMAT' ? 'Calculator' : 'Stethoscope'));
+  const [color, setColor] = useState(initialDeck?.color || (currentTrack === 'NMAT' ? '#0b63c5' : '#7FA98B'));
   const [tagInput, setTagInput] = useState('');
-  const [tags, setTags] = useState<string[]>(initialDeck?.tags || ['MNT']);
+  const [tags, setTags] = useState<string[]>(initialDeck?.tags || (currentTrack === 'NMAT' ? ['NMAT', 'track:nmat'] : ['MNT']));
 
   // Card editor state
   const [editingCardId, setEditingCardId] = useState<string | null>(null);
@@ -175,7 +181,7 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
     setCardBack(card.back);
     setCardRationale(card.rationale || '');
     setCardTags(card.tags || []);
-    
+
     // Fill other options
     const otherOpts = (card.options || []).filter(o => o !== card.back);
     setOption1(otherOpts[0] || '');
@@ -211,13 +217,13 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
           prev.map((c) =>
             c.id === editingCardId
               ? {
-                  ...c,
-                  front: cardFront.trim(),
-                  back: cardBack.trim(),
-                  rationale: cardRationale.trim(),
-                  tags: cardTags.length > 0 ? cardTags : tags,
-                  options
-                }
+                ...c,
+                front: cardFront.trim(),
+                back: cardBack.trim(),
+                rationale: cardRationale.trim(),
+                tags: cardTags.length > 0 ? cardTags : tags,
+                options
+              }
               : c
           )
         );
@@ -287,7 +293,7 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
   }, [onClose, inlineEditingCardId, isAddingNewCard]);
 
   return (
-    <div 
+    <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-2.5 sm:p-4 overflow-y-auto"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
@@ -304,7 +310,7 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
         {/* Modal Header */}
         <div className="flex items-center justify-between gap-3 p-3.5 sm:p-5 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]">
           <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
-            <div 
+            <div
               className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl flex items-center justify-center text-lg shadow-xs shrink-0"
               style={{ backgroundColor: `${color}20`, color }}
             >
@@ -342,11 +348,10 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
               role="tab"
               aria-selected={activeTab === 'info'}
               onClick={() => setActiveTab('info')}
-              className={`px-3 sm:px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
-                activeTab === 'info'
+              className={`px-3 sm:px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${activeTab === 'info'
                   ? 'border-[var(--primary)] text-[var(--primary)]'
                   : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-main)]'
-              }`}
+                }`}
             >
               Deck Settings
             </button>
@@ -354,11 +359,10 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
               role="tab"
               aria-selected={activeTab === 'cards'}
               onClick={() => setActiveTab('cards')}
-              className={`px-3 sm:px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
-                activeTab === 'cards'
+              className={`px-3 sm:px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${activeTab === 'cards'
                   ? 'border-[var(--primary)] text-[var(--primary)]'
                   : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-main)]'
-              }`}
+                }`}
             >
               <span>Manage Cards</span>
               <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-[var(--primary-light)] text-[var(--primary)] font-bold">
@@ -407,10 +411,10 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
                 </label>
                 <select
                   value={category}
-                  onChange={(e) => setCategory(e.target.value as DeckCategory)}
+                  onChange={(e) => setCategory(e.target.value)}
                   className="w-full px-4 py-3 rounded-2xl bg-[var(--bg-surface)] border-2 border-[var(--border-color)] focus:border-[var(--primary)] outline-none text-sm font-semibold text-[var(--text-main)]"
                 >
-                  {CATEGORIES.map((cat) => (
+                  {availableCategories.map((cat) => (
                     <option key={cat} value={cat}>
                       {cat}
                     </option>
@@ -431,11 +435,10 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
                         key={item.id}
                         type="button"
                         onClick={() => setIcon(item.id)}
-                        className={`w-10 h-10 rounded-2xl border-2 flex items-center justify-center text-lg transition-all ${
-                          icon === item.id
+                        className={`w-10 h-10 rounded-2xl border-2 flex items-center justify-center text-lg transition-all ${icon === item.id
                             ? 'border-[var(--primary)] bg-[var(--primary-light)]'
                             : 'border-[var(--border-color)] bg-[var(--bg-surface)]'
-                        }`}
+                          }`}
                       >
                         {item.icon}
                       </button>
@@ -454,9 +457,8 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
                         key={c}
                         type="button"
                         onClick={() => setColor(c)}
-                        className={`w-8 h-8 rounded-full border-2 transition-all ${
-                          color === c ? 'scale-110 border-black dark:border-white ring-2 ring-emerald-300' : 'border-transparent'
-                        }`}
+                        className={`w-8 h-8 rounded-full border-2 transition-all ${color === c ? 'scale-110 border-black dark:border-white ring-2 ring-emerald-300' : 'border-transparent'
+                          }`}
                         style={{ backgroundColor: c }}
                       />
                     ))}
@@ -590,11 +592,10 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
                             key={flt.id}
                             type="button"
                             onClick={() => setCardFilter(flt.id as CardFilterType)}
-                            className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
-                              cardFilter === flt.id
+                            className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${cardFilter === flt.id
                                 ? 'bg-[var(--primary)] text-white shadow-xs'
                                 : 'bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-surface-subtle)] border border-[var(--border-subtle)]'
-                            }`}
+                              }`}
                           >
                             {flt.label}
                           </button>
@@ -612,12 +613,12 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
                     // Step 1: Text search
                     let processed = q
                       ? allCards.filter(
-                          (c) =>
-                            (c.front || '').toLowerCase().includes(q) ||
-                            (c.back || '').toLowerCase().includes(q) ||
-                            (c.rationale || '').toLowerCase().includes(q) ||
-                            (c.tags || []).some((t) => t.toLowerCase().includes(q))
-                        )
+                        (c) =>
+                          (c.front || '').toLowerCase().includes(q) ||
+                          (c.back || '').toLowerCase().includes(q) ||
+                          (c.rationale || '').toLowerCase().includes(q) ||
+                          (c.tags || []).some((t) => t.toLowerCase().includes(q))
+                      )
                       : [...allCards];
 
                     // Step 2: Stage & Rationale Filter
@@ -748,15 +749,14 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
                                     </span>
                                     {/* Progression Stage Badge */}
                                     <span
-                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold border ${
-                                        prog.stage === 'mastered'
+                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold border ${prog.stage === 'mastered'
                                           ? 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
                                           : prog.stage === 'developing'
-                                          ? 'bg-indigo-50 text-indigo-800 border-indigo-300 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800'
-                                          : prog.stage === 'learning'
-                                          ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
-                                          : 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
-                                      }`}
+                                            ? 'bg-indigo-50 text-indigo-800 border-indigo-300 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800'
+                                            : prog.stage === 'learning'
+                                              ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
+                                              : 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+                                        }`}
                                     >
                                       {prog.stageLabel}
                                       {prog.stage !== 'new' && ` · Box ${prog.leitnerBox}`}
@@ -817,11 +817,10 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
                                       return (
                                         <div
                                           key={optIdx}
-                                          className={`px-2.5 py-1.5 rounded-xl border text-xs flex items-start gap-1.5 ${
-                                            isKey
+                                          className={`px-2.5 py-1.5 rounded-xl border text-xs flex items-start gap-1.5 ${isKey
                                               ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-300 font-semibold'
                                               : 'bg-[var(--bg-surface)] border-[var(--border-subtle)] text-[var(--text-muted)]'
-                                          }`}
+                                            }`}
                                         >
                                           <span className="font-bold text-[10px] text-[var(--text-subtle)] shrink-0 mt-0.5">
                                             {String.fromCharCode(65 + optIdx)}.
@@ -979,11 +978,10 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
                                       key={`page-${p}`}
                                       type="button"
                                       onClick={() => setCardPage(Number(p))}
-                                      className={`min-w-[28px] h-7 px-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                        safeCurrentPage === p
+                                      className={`min-w-[28px] h-7 px-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${safeCurrentPage === p
                                           ? 'bg-[var(--primary)] text-white shadow-xs'
                                           : 'border border-[var(--border-color)] bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-subtle)] text-[var(--text-main)]'
-                                      }`}
+                                        }`}
                                     >
                                       {p}
                                     </button>

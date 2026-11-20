@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
     // 3. Decks Metadata Only (< 15 KB)
     if (action === 'pullDecksOnly') {
       const decks = await query(`
-        SELECT id, title, description, category, icon, color, tags, created_at, updated_at
+        SELECT id, title, description, category, icon, color, tags, track, created_at, updated_at
         FROM public.decks
         ORDER BY updated_at DESC
       `);
@@ -69,7 +69,7 @@ export async function GET(req: NextRequest) {
       const totalCardsRow = await queryOne(`SELECT count(*)::int as count FROM public.flashcards`).catch(() => null);
 
       const decks = await query(`
-        SELECT id, title, description, category, icon, color, tags, created_at, updated_at
+        SELECT id, title, description, category, icon, color, tags, track, created_at, updated_at
         FROM public.decks
         ORDER BY updated_at DESC NULLS LAST
         OFFSET $1 LIMIT $2
@@ -246,7 +246,7 @@ export async function GET(req: NextRequest) {
 
       // Cold-start full pull (only when client has no existing cache)
       const decks = await query(`
-        SELECT id, title, description, category, icon, color, tags, created_at, updated_at
+        SELECT id, title, description, category, icon, color, tags, track, created_at, updated_at
         FROM public.decks
         ORDER BY updated_at DESC
       `);
@@ -340,8 +340,8 @@ export async function POST(req: NextRequest) {
       await withTransaction(async (client) => {
         // Upsert deck
         await client.query(`
-          INSERT INTO public.decks (id, title, description, category, icon, color, tags, updated_at)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+          INSERT INTO public.decks (id, title, description, category, icon, color, tags, track, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
           ON CONFLICT (id) DO UPDATE SET
             title = EXCLUDED.title,
             description = EXCLUDED.description,
@@ -349,6 +349,7 @@ export async function POST(req: NextRequest) {
             icon = EXCLUDED.icon,
             color = EXCLUDED.color,
             tags = EXCLUDED.tags,
+            track = COALESCE(EXCLUDED.track, public.decks.track, 'NDLE'),
             updated_at = NOW()
         `, [
           deck.id,
@@ -358,6 +359,7 @@ export async function POST(req: NextRequest) {
           deck.icon || '🥑',
           deck.color || '#7FA98B',
           JSON.stringify(deck.tags || []),
+          deck.track || (deck.tags?.includes('track:nmat') ? 'NMAT' : 'NDLE'),
         ]);
 
         // Upsert flashcards if provided

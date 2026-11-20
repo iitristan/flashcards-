@@ -2,8 +2,8 @@
 
 import React from 'react';
 import { motion } from 'framer-motion';
-import { X, Palette, Volume2, VolumeX, Clock, RotateCcw, Sparkles } from 'lucide-react';
-import { ThemeType, UserPreferences, CardDesign } from '@/types';
+import { X, Palette, Volume2, VolumeX, Clock, RotateCcw, Sparkles, GraduationCap, Stethoscope } from 'lucide-react';
+import { ThemeType, UserPreferences, CardDesign, ExamTrack } from '@/types';
 import { soundEffects } from '@/lib/soundEffects';
 import { toast } from 'sonner';
 
@@ -135,6 +135,63 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </button>
                 );
               })}
+            </div>
+          </div>
+
+          {/* Default Exam Track (NDLE vs NMAT) */}
+          <div className="space-y-3 pt-4 border-t border-[var(--border-subtle)]">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-[var(--text-main)] uppercase tracking-wider">
+                <GraduationCap className="w-4 h-4 text-[var(--primary)]" />
+                <span>Default Review Mode</span>
+              </div>
+              <span className="text-[10px] font-bold text-[var(--text-muted)]">
+                {preferences.examTrack === 'NMAT' ? '🩺 NMAT Mode' : '🥗 NDLE Mode'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  onUpdatePreferences({ examTrack: 'NDLE' });
+                  soundEffects.playFlip();
+                }}
+                className={`p-3 rounded-2xl border-2 text-left transition-all cursor-pointer ${
+                  (preferences.examTrack || 'NDLE') === 'NDLE'
+                    ? 'border-emerald-600 bg-emerald-500/10 ring-2 ring-emerald-500/20 shadow-xs'
+                    : 'border-[var(--border-color)] bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-subtle)]'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-base">🥗</span>
+                  <span className="font-extrabold text-xs text-[var(--text-main)]">NDLE Mode</span>
+                </div>
+                <span className="text-[10px] text-[var(--text-muted)] block mt-1">
+                  Nutritionist-Dietitian Licensure Examination Review
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onUpdatePreferences({ examTrack: 'NMAT' });
+                  soundEffects.playFlip();
+                }}
+                className={`p-3 rounded-2xl border-2 text-left transition-all cursor-pointer ${
+                  preferences.examTrack === 'NMAT'
+                    ? 'border-sky-600 bg-sky-500/10 ring-2 ring-sky-500/20 shadow-xs'
+                    : 'border-[var(--border-color)] bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-subtle)]'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-base">🩺</span>
+                  <span className="font-extrabold text-xs text-[var(--text-main)]">NMAT Mode</span>
+                </div>
+                <span className="text-[10px] text-[var(--text-muted)] block mt-1">
+                  National Medical Admission Test & CEM Simulation
+                </span>
+              </button>
             </div>
           </div>
 
