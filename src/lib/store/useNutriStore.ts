@@ -167,7 +167,7 @@ interface NutriStore {
   saveStatus: 'idle' | 'saving' | 'saved' | 'error' | 'syncing';
   resumeAvailableSession: StudySessionState | null;
 
-  // Exam Track & Licensure Milestone
+  // Exam Track & Registration Milestone
   currentTrack: import('@/types').ExamTrack;
   setExamTrack: (track: import('@/types').ExamTrack) => void;
   dismissRndBanner: boolean;
@@ -294,7 +294,7 @@ export const useNutriStore = create<NutriStore>((set, get) => ({
   deckCheckpoints: {},
   cardGroupFilters: DEFAULT_CARD_GROUP_FILTERS,
 
-  // Exam Track & Licensure Milestone (SSR deterministic defaults to prevent hydration mismatch)
+  // Exam Track & Registration Milestone (SSR deterministic defaults to prevent hydration mismatch)
   currentTrack: 'NDLE',
   setExamTrack: (track) => {
     try {

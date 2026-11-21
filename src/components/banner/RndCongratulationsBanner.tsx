@@ -71,7 +71,7 @@ export function RndCongratulationsBanner({ onSwitchToNmat, onStayInNdle }: RndCo
 
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] sm:text-xs font-bold bg-emerald-600/10 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span>Licensed Nutritionist-Dietitian (RND)</span>
+                <span>Registered Nutritionist-Dietitian (RND)</span>
               </span>
             </div>
 
@@ -106,7 +106,7 @@ export function RndCongratulationsBanner({ onSwitchToNmat, onStayInNdle }: RndCo
                   <span className="text-xl sm:text-2xl">🎉🩺</span>
                 </h1>
                 <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
-                  You are now officially a <strong className="font-bold text-emerald-700 dark:text-emerald-400">Licensed Nutritionist-Dietitian (RND)</strong>.
+                  You are now officially a <strong className="font-bold text-emerald-700 dark:text-emerald-400">Registered Nutritionist-Dietitian (RND)</strong>.
                   As you embark on your next career milestone, Nutriboard now introduces <strong className="font-bold text-sky-700 dark:text-sky-300">NMAT Preparation Mode</strong> for aspiring physicians taking the National Medical Admission Test.
                 </p>
               </div>

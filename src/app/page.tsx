@@ -584,7 +584,7 @@ export default function NutriboardApp() {
                 type="button"
                 onClick={() => setDismissRndBanner(false)}
                 className="hidden md:inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 cursor-pointer"
-                title="View RND Licensure Congratulations Banner"
+                title="View RND Congratulations Banner"
               >
                 <span>🎓 RND Milestone</span>
               </button>
@@ -670,7 +670,7 @@ export default function NutriboardApp() {
 
       {/* MAIN CONTAINER */}
       <div className="max-w-6xl mx-auto px-3.5 sm:px-6 pt-4 sm:pt-6 space-y-4 sm:space-y-5">
-        {/* RND LICENSURE CONGRATULATIONS & NMAT SWITCHER BANNER */}
+        {/* RND REGISTRATION CONGRATULATIONS & NMAT SWITCHER BANNER */}
         <RndCongratulationsBanner />
 
         {/* RESUME IN-PROGRESS STUDY CHECKPOINT BANNER (strictly filtered by matching exam track) */}
